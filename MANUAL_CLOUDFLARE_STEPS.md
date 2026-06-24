@@ -226,6 +226,54 @@ curl -X POST https://<your-project>.pages.dev/api/rooms
 curl https://<your-project>.pages.dev/api/rooms/<roomId>/snapshot
 ```
 
+## Step 8.5 - 验证 WebSocket 房间连接
+
+这一项需要 Pages + Room Durable Object Worker + D1 都配置好之后再做。当前 Vite 本地 dev server 不会提供真实 `/api/rooms/:roomId/ws`，所以本地打不开 WebSocket 是正常的。
+
+先用 `POST /api/rooms` 创建一个 room，并记下返回的 `roomId`。然后任选一种方式测试 WebSocket。
+
+浏览器 DevTools 测试：
+
+```js
+const roomId = "<roomId>";
+const ws = new WebSocket(`wss://<your-project>.pages.dev/api/rooms/${roomId}/ws`);
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: "JOIN_ROOM",
+    role: "mobile",
+    clientId: crypto.randomUUID()
+  }));
+  ws.send(JSON.stringify({ type: "PING" }));
+};
+ws.onmessage = (event) => console.log("WS message", event.data);
+ws.onerror = (event) => console.log("WS error", event);
+ws.onclose = (event) => console.log("WS close", event.code, event.reason);
+```
+
+期望看到：
+
+- `ROOM_SNAPSHOT`
+- `PONG`
+- 如果再开一个 tab 连接同一个 room，第一个 tab 可能收到 `ROOM_UPDATED`，里面的 `connectedClients` 会变化。
+
+如果你安装了 `wscat`，也可以用命令行测试：
+
+```bash
+npx wscat -c wss://<your-project>.pages.dev/api/rooms/<roomId>/ws
+```
+
+连接后输入：
+
+```json
+{"type":"JOIN_ROOM","role":"mobile","clientId":"manual-test"}
+```
+
+再输入：
+
+```json
+{"type":"PING"}
+```
+
 ## Step 9 - 后续接 YouTube API key
 
 这一项不是当前 step 必须做。等我们实现真实 YouTube search provider 后，你需要：
@@ -255,6 +303,9 @@ npx wrangler secret put YOUTUBE_API_KEY
 - `[ ]` Pages project 能访问首页
 - `[ ]` `POST /api/rooms` 返回 JSON
 - `[ ]` `GET /api/rooms/:roomId/snapshot` 返回 JSON
+- `[ ]` `GET /api/rooms/:roomId/ws` 可以 WebSocket 连接
+- `[ ]` WebSocket `JOIN_ROOM` 返回 `ROOM_SNAPSHOT`
+- `[ ]` WebSocket `PING` 返回 `PONG`
 - `[ ]` `/create` 创建房间后能进入 display 页面
 
 ## 当前不要手动改的东西
@@ -271,4 +322,3 @@ npx wrangler secret put YOUTUBE_API_KEY
 - Cloudflare Pages Direct Upload: https://developers.cloudflare.com/pages/get-started/direct-upload/
 - Cloudflare Pages Functions bindings: https://developers.cloudflare.com/pages/functions/bindings/
 - Cloudflare Durable Objects getting started: https://developers.cloudflare.com/durable-objects/get-started/
-

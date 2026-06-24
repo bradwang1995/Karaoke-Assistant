@@ -40,7 +40,7 @@ Last updated: 2026-06-24
 - `[~]` Cloudflare backend 已有 API router、D1 repository、Pages Function 入口和 Room Durable Object Worker 配置
 - `[~]` 已实现 D1 repository 写法，但还没有连真实 Cloudflare D1 资源验证
 - `[ ]` 还没有 KV 搜索缓存
-- `[ ]` 还没有 WebSocket 房间连接
+- `[~]` 已有 WebSocket 房间连接基础，但还没有队列操作走 WebSocket
 
 ## Phase 0 - Project Setup
 
@@ -114,11 +114,11 @@ Last updated: 2026-06-24
 - `[x]` 根据 Cloudflare Pages 限制拆分 Pages config 和 Durable Object Worker config
 - `[x]` `POST /api/rooms` 实现 D1 写入逻辑
 - `[x]` `GET /api/rooms/:roomId/snapshot` 实现从 Durable Object 或 D1 返回真实状态
-- `[ ]` `GET /api/rooms/:roomId/ws` WebSocket upgrade
+- `[x]` `GET /api/rooms/:roomId/ws` WebSocket upgrade
 - `[~]` Durable Object 可从 D1 读取 room snapshot
-- `[ ]` Durable Object 管理 connected clients
+- `[x]` Durable Object 管理 connected clients
 - `[~]` 前端创建房间优先调用 API，Vite 本地模式自动 fallback 到本地房间
-- `[ ]` 前端 display/mobile 从后端 snapshot hydrate
+- `[~]` 前端 display/mobile 已接入 WebSocket hook，并可从后端 snapshot hydrate
 - `[ ]` 使用真实 Cloudflare D1/KV/DO 资源做 Wrangler 本地或远端验证
 
 建议下一步：
@@ -137,9 +137,9 @@ Last updated: 2026-06-24
 - `[x]` 本地 reducer 已实现队列规则
 - `[x]` 本地已实现 add/promote/remove/advance
 - `[x]` 本地测试覆盖“不打断当前播放”的规则
-- `[ ]` WebSocket `JOIN_ROOM`
-- `[ ]` WebSocket `ROOM_SNAPSHOT`
-- `[ ]` WebSocket `ROOM_UPDATED`
+- `[x]` WebSocket `JOIN_ROOM`
+- `[x]` WebSocket `ROOM_SNAPSHOT`
+- `[x]` WebSocket `ROOM_UPDATED` for connected-client snapshot broadcasts
 - `[ ]` Durable Object `ADD_QUEUE_ITEM`
 - `[ ]` Durable Object `PROMOTE_QUEUE_ITEM`
 - `[ ]` Durable Object `REMOVE_QUEUE_ITEM`
@@ -248,7 +248,8 @@ Last updated: 2026-06-24
 - `[x]` Production dependency audit: `npm audit --omit=dev`
 - `[ ]` Worker route tests
 - `[ ]` Durable Object integration tests
-- `[ ]` WebSocket integration tests
+- `[~]` WebSocket message unit tests
+- `[ ]` WebSocket runtime integration tests
 - `[ ]` Playwright E2E test
 - `[ ]` Manual QR scan test on phone
 
@@ -273,11 +274,13 @@ Note: Cloudflare docs say Pages Functions can bind to Durable Objects, but canno
 
 Goal: display and mobile can connect to the same room Durable Object.
 
-- `[ ]` Implement WebSocket upgrade route
-- `[ ]` Implement `JOIN_ROOM`
-- `[ ]` Send initial `ROOM_SNAPSHOT`
-- `[ ]` Track connected clients
-- `[ ]` Add reconnect handling in frontend hook
+- `[x]` Implement WebSocket upgrade route
+- `[x]` Implement `JOIN_ROOM`
+- `[x]` Send initial `ROOM_SNAPSHOT`
+- `[x]` Track connected clients
+- `[x]` Add safe frontend WebSocket hook with local fallback
+- `[ ]` Add reconnect retry/backoff
+- `[ ]` Runtime-test WebSocket with real or local Wrangler Cloudflare bindings
 
 ### Iteration 3 - Durable Object queue operations
 

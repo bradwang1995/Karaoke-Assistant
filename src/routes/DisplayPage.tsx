@@ -2,12 +2,14 @@ import { Copy, ExternalLink, MonitorPlay, QrCode, SkipForward } from "lucide-rea
 import { QRCodeSVG } from "qrcode.react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { useRoomSocket } from "../hooks/useRoomSocket";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
 import { youtubeEmbedUrl } from "../lib/youtube";
 
 export default function DisplayPage() {
   const { roomId = "" } = useParams();
+  useRoomSocket({ roomId, role: "display" });
   const snapshot = useRoomSnapshot(roomId);
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
@@ -128,4 +130,3 @@ export default function DisplayPage() {
     </main>
   );
 }
-

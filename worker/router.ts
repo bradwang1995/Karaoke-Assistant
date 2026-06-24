@@ -30,6 +30,14 @@ export async function handleApiRequest(request: Request, env: Env) {
     return getRoomSnapshot(request, env, route.roomId);
   }
 
+  if (route.name === "roomWebSocket") {
+    if (request.method !== "GET") {
+      return apiError(405, "METHOD_NOT_ALLOWED", "Use GET to connect to a room WebSocket.");
+    }
+
+    return connectRoomWebSocket(request, env, route.roomId);
+  }
+
   return apiError(404, "NOT_FOUND", "API route not found.");
 }
 
@@ -100,6 +108,27 @@ async function getRoomSnapshot(request: Request, env: Env, roomId: string) {
   return jsonResponse(snapshot);
 }
 
+async function connectRoomWebSocket(request: Request, env: Env, roomId: string) {
+  if (!isValidRoomId(roomId)) {
+    return apiError(400, "INVALID_ROOM_ID", "Room id must be 8 lowercase letters or numbers.");
+  }
+
+  if (request.headers.get("Upgrade") !== "websocket") {
+    return new Response("Expected Upgrade: websocket", { status: 426 });
+  }
+
+  if (!env.ROOM_OBJECT) {
+    return apiError(503, "ROOM_OBJECT_NOT_CONFIGURED", "Durable Object binding is not configured.");
+  }
+
+  const id = env.ROOM_OBJECT.idFromName(roomId);
+  const stub = env.ROOM_OBJECT.get(id);
+  const url = new URL(request.url);
+  url.pathname = `/rooms/${roomId}/ws`;
+
+  return stub.fetch(new Request(url, request));
+}
+
 function matchApiRoute(pathname: string) {
   const parts = pathname.split("/").filter(Boolean);
 
@@ -114,6 +143,15 @@ function matchApiRoute(pathname: string) {
     parts[3] === "snapshot"
   ) {
     return { name: "roomSnapshot" as const, roomId: parts[2] };
+  }
+
+  if (
+    parts.length === 4 &&
+    parts[0] === "api" &&
+    parts[1] === "rooms" &&
+    parts[3] === "ws"
+  ) {
+    return { name: "roomWebSocket" as const, roomId: parts[2] };
   }
 
   return null;

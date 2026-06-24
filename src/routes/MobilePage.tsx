@@ -11,6 +11,7 @@ import { useMutation } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useParams } from "react-router-dom";
+import { useRoomSocket } from "../hooks/useRoomSocket";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { addSongToRoom, promoteSong, removeSong, useRoomSnapshot } from "../lib/roomState";
 import { searchMockVideos } from "../lib/mockSearch";
@@ -21,6 +22,7 @@ import type { VideoSearchResult } from "../types/youtube";
 
 export default function MobilePage() {
   const { roomId = "" } = useParams();
+  useRoomSocket({ roomId, role: "mobile" });
   const snapshot = useRoomSnapshot(roomId);
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
