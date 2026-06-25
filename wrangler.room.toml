@@ -1,15 +1,17 @@
 name = "ktv-assistant-room"
 main = "worker/index.ts"
 compatibility_date = "2026-06-23"
+workers_dev = false
+preview_urls = false
 
 [[d1_databases]]
 binding = "DB"
 database_name = "ktv-assistant-db"
-database_id = "replace-with-cloudflare-d1-id"
+database_id = "a2fe987b-5191-4ac3-9d01-f923d19c731a"
 
 [[kv_namespaces]]
 binding = "SEARCH_CACHE"
-id = "replace-with-kv-namespace-id"
+id = "aedd751919314f9e81f1917e59a859bd"
 
 [[durable_objects.bindings]]
 name = "ROOM_OBJECT"
@@ -18,4 +20,3 @@ class_name = "RoomDurableObject"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomDurableObject"]
-

@@ -5,14 +5,13 @@ pages_build_output_dir = "dist"
 [[d1_databases]]
 binding = "DB"
 database_name = "ktv-assistant-db"
-database_id = "replace-with-cloudflare-d1-id"
+database_id = "a2fe987b-5191-4ac3-9d01-f923d19c731a"
 
 [[kv_namespaces]]
 binding = "SEARCH_CACHE"
-id = "replace-with-kv-namespace-id"
+id = "aedd751919314f9e81f1917e59a859bd"
 
 [[durable_objects.bindings]]
 name = "ROOM_OBJECT"
 class_name = "RoomDurableObject"
 script_name = "ktv-assistant-room"
-
