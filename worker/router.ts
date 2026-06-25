@@ -170,13 +170,22 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
     return apiError(400, "QUERY_TOO_LONG", "Search query must be 100 characters or fewer.");
   }
 
+  const artist = typeof body.artist === "string" ? body.artist.trim() : undefined;
+
+  if (artist && artist.length > 100) {
+    return apiError(400, "ARTIST_TOO_LONG", "Artist must be 100 characters or fewer.");
+  }
+
   const limit = clampLimit(body.limit);
+  const cacheFill = typeof body.cacheFill === "boolean" ? body.cacheFill : true;
 
   try {
     return jsonResponse(
       await searchVideos({
         query,
+        artist: artist || undefined,
         limit,
+        cacheFill,
         env,
       }),
     );
@@ -226,7 +235,9 @@ function matchApiRoute(pathname: string) {
   return null;
 }
 
-function isSearchRequestBody(value: unknown): value is { query: string; limit?: number } {
+function isSearchRequestBody(
+  value: unknown,
+): value is { query: string; limit?: number; artist?: string; cacheFill?: boolean } {
   return (
     typeof value === "object" &&
     value !== null &&

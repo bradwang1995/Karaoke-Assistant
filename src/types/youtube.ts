@@ -14,5 +14,18 @@ export interface SearchResponse {
   normalizedQuery: string;
   cached: boolean;
   results: VideoSearchResult[];
+  cacheMeta?: {
+    sourceQueryCount: number;
+    cachedResultCount: number;
+    servedFromExpandedCache: boolean;
+    videosListCalls?: number;
+    sourceQueries?: string[];
+    quota?: {
+      dailyLimit: number;
+      remainingBefore: number;
+      remainingAfter: number;
+      exhausted: boolean;
+    };
+    prunedResultCount?: number;
+  };
 }
-

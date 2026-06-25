@@ -1,14 +1,18 @@
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
-import { normalizeSearchQuery } from "../src/lib/queryNormalize";
 import { scoreSearchResult } from "./scoring";
+import { buildSearchQueryFamily } from "./searchFamily";
 
 const YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
 const YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
 const REGION_CODE = "CA";
 const RELEVANCE_LANGUAGE = "zh-Hans";
-const SEARCH_MAX_RESULTS = 25;
+const SEARCH_PAGE_SIZE = 50;
+const VIDEO_DETAILS_CHUNK_SIZE = 50;
+const DEFAULT_TARGET_CACHE_RESULTS = 100;
+const DEFAULT_MAX_SEARCH_CALLS = 2;
 
 interface YouTubeSearchListResponse {
+  nextPageToken?: string;
   items?: Array<{
     id?: {
       videoId?: string;
@@ -37,40 +41,63 @@ interface YouTubeVideosListResponse {
 
 export interface YouTubeSearchOptions {
   query: string;
-  limit?: number;
+  artist?: string;
   apiKey: string;
+  maxSearchCalls?: number;
+  targetResultCount?: number;
 }
 
 export async function searchYouTubeVideos({
   query,
-  limit = 4,
+  artist,
   apiKey,
+  maxSearchCalls = DEFAULT_MAX_SEARCH_CALLS,
+  targetResultCount = DEFAULT_TARGET_CACHE_RESULTS,
 }: YouTubeSearchOptions): Promise<SearchResponse> {
-  const normalizedQuery = normalizeSearchQuery(query);
-  const searchParams = new URLSearchParams({
-    part: "snippet",
-    type: "video",
-    q: normalizedQuery,
-    maxResults: String(SEARCH_MAX_RESULTS),
-    videoEmbeddable: "true",
-    safeSearch: "moderate",
-    regionCode: REGION_CODE,
-    relevanceLanguage: RELEVANCE_LANGUAGE,
-    key: apiKey,
-  });
+  const family = buildSearchQueryFamily(query, artist);
+  const dedupedResults = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
+  const usedSourceQueries: string[] = [];
+  let searchCallCount = 0;
 
-  const searchResponse = await fetch(`${YOUTUBE_SEARCH_URL}?${searchParams.toString()}`);
+  for (const sourceQuery of family.sourceQueries) {
+    let nextPageToken: string | undefined;
+    let sourceQueryUsed = false;
 
-  if (!searchResponse.ok) {
-    throw new Error(`YouTube search failed with status ${searchResponse.status}.`);
+    do {
+      if (searchCallCount >= maxSearchCalls || dedupedResults.size >= targetResultCount) {
+        break;
+      }
+
+      const searchBody = await fetchSearchPage({
+        apiKey,
+        sourceQuery,
+        pageToken: nextPageToken,
+      });
+      searchCallCount += 1;
+      sourceQueryUsed = true;
+
+      for (const item of searchBody.items ?? []) {
+        const result = toBaseResult(item);
+
+        if (result && !dedupedResults.has(result.videoId)) {
+          dedupedResults.set(result.videoId, result);
+        }
+      }
+
+      nextPageToken = searchBody.nextPageToken;
+    } while (nextPageToken);
+
+    if (sourceQueryUsed) {
+      usedSourceQueries.push(sourceQuery);
+    }
+
+    if (searchCallCount >= maxSearchCalls || dedupedResults.size >= targetResultCount) {
+      break;
+    }
   }
 
-  const searchBody = (await searchResponse.json()) as YouTubeSearchListResponse;
-  const baseResults = (searchBody.items ?? [])
-    .map((item) => toBaseResult(item))
-    .filter((item): item is Omit<VideoSearchResult, "score" | "reasons"> => item !== null);
-
-  const durations = await fetchVideoDurations(
+  const baseResults = [...dedupedResults.values()].slice(0, targetResultCount);
+  const { durations, callCount: videosListCalls } = await fetchVideoDurations(
     apiKey,
     baseResults.map((result) => result.videoId),
   );
@@ -85,15 +112,55 @@ export async function searchYouTubeVideos({
         query,
       ),
     )
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
+    .sort((a, b) => b.score - a.score);
 
   return {
     query,
-    normalizedQuery,
+    normalizedQuery: family.normalizedQuery,
     cached: false,
     results,
+    cacheMeta: {
+      sourceQueryCount: searchCallCount,
+      cachedResultCount: results.length,
+      servedFromExpandedCache: false,
+      videosListCalls,
+      sourceQueries: usedSourceQueries,
+    },
   };
+}
+
+async function fetchSearchPage({
+  apiKey,
+  sourceQuery,
+  pageToken,
+}: {
+  apiKey: string;
+  sourceQuery: string;
+  pageToken?: string;
+}) {
+  const searchParams = new URLSearchParams({
+    part: "snippet",
+    type: "video",
+    q: sourceQuery,
+    maxResults: String(SEARCH_PAGE_SIZE),
+    videoEmbeddable: "true",
+    safeSearch: "moderate",
+    regionCode: REGION_CODE,
+    relevanceLanguage: RELEVANCE_LANGUAGE,
+    key: apiKey,
+  });
+
+  if (pageToken) {
+    searchParams.set("pageToken", pageToken);
+  }
+
+  const searchResponse = await fetch(`${YOUTUBE_SEARCH_URL}?${searchParams.toString()}`);
+
+  if (!searchResponse.ok) {
+    throw new Error(`YouTube search failed with status ${searchResponse.status}.`);
+  }
+
+  return (await searchResponse.json()) as YouTubeSearchListResponse;
 }
 
 function toBaseResult(
@@ -119,36 +186,42 @@ function toBaseResult(
 
 async function fetchVideoDurations(apiKey: string, videoIds: string[]) {
   const durations = new Map<string, number>();
+  let callCount = 0;
 
-  if (videoIds.length === 0) {
-    return durations;
-  }
+  for (let start = 0; start < videoIds.length; start += VIDEO_DETAILS_CHUNK_SIZE) {
+    const ids = videoIds.slice(start, start + VIDEO_DETAILS_CHUNK_SIZE);
 
-  const params = new URLSearchParams({
-    part: "contentDetails",
-    id: videoIds.join(","),
-    key: apiKey,
-  });
+    if (ids.length === 0) {
+      continue;
+    }
 
-  const response = await fetch(`${YOUTUBE_VIDEOS_URL}?${params.toString()}`);
+    const params = new URLSearchParams({
+      part: "contentDetails",
+      id: ids.join(","),
+      key: apiKey,
+    });
 
-  if (!response.ok) {
-    return durations;
-  }
+    const response = await fetch(`${YOUTUBE_VIDEOS_URL}?${params.toString()}`);
+    callCount += 1;
 
-  const body = (await response.json()) as YouTubeVideosListResponse;
+    if (!response.ok) {
+      continue;
+    }
 
-  for (const item of body.items ?? []) {
-    if (item.id && item.contentDetails?.duration) {
-      const durationSeconds = parseIso8601DurationSeconds(item.contentDetails.duration);
+    const body = (await response.json()) as YouTubeVideosListResponse;
 
-      if (typeof durationSeconds === "number") {
-        durations.set(item.id, durationSeconds);
+    for (const item of body.items ?? []) {
+      if (item.id && item.contentDetails?.duration) {
+        const durationSeconds = parseIso8601DurationSeconds(item.contentDetails.duration);
+
+        if (typeof durationSeconds === "number") {
+          durations.set(item.id, durationSeconds);
+        }
       }
     }
   }
 
-  return durations;
+  return { durations, callCount };
 }
 
 export function parseIso8601DurationSeconds(duration: string) {

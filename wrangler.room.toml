@@ -4,6 +4,12 @@ compatibility_date = "2026-06-23"
 workers_dev = false
 preview_urls = false
 
+[vars]
+YOUTUBE_SEARCH_DAILY_LIMIT = "50"
+YOUTUBE_SEARCH_MAX_CALLS_PER_FILL = "2"
+SEARCH_CACHE_TTL_DAYS = "365"
+SEARCH_CACHE_MAX_ENTRY_BYTES = "524288"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "ktv-assistant-db"

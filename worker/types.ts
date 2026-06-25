@@ -3,6 +3,10 @@ export interface Env {
   SEARCH_CACHE?: KVNamespace;
   ROOM_OBJECT?: DurableObjectNamespace;
   YOUTUBE_API_KEY?: string;
+  YOUTUBE_SEARCH_DAILY_LIMIT?: string;
+  YOUTUBE_SEARCH_MAX_CALLS_PER_FILL?: string;
+  SEARCH_CACHE_TTL_DAYS?: string;
+  SEARCH_CACHE_MAX_ENTRY_BYTES?: string;
 }
 
 export interface RoomRow {
