@@ -1,8 +1,21 @@
 # K歌助手手动操作清单
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 
 这个文件专门记录需要你本人手动完成、授权或确认的步骤。项目实现仍然在代码里推进；这里是 Cloudflare 账号、资源创建、部署验证、API key 等必须由你掌控的部分。
+
+## 当前已确认的线上资源
+
+- Cloudflare account: `Bradwang1995@gmail.com's Account` (`7b1b04c010c424952c9d2cbcbea76145`)
+- 主应用 Worker + Assets: `ktv-assistant`
+- 线上域名: `https://ktv-assistant.bradwang1995.workers.dev`
+- Room Durable Object Worker: `ktv-assistant-room`
+- Durable Object class: `RoomDurableObject`
+- Durable Object namespace id: `0b4ed7f219e94e1fb685b7f554808aba`
+- D1 database: `ktv-assistant-db` (`a2fe987b-5191-4ac3-9d01-f923d19c731a`)
+- KV namespace: `SEARCH_CACHE` (`aedd751919314f9e81f1917e59a859bd`)
+- `YOUTUBE_API_KEY` secret: configured on `ktv-assistant` and `ktv-assistant-room`
+- Step 7/8/8.5/8.6/9.5 verified on: `2026-06-25`
 
 ## 现在先不用急着做的事
 
@@ -63,7 +76,7 @@ database_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 都替换这一行：
 
 ```toml
-database_id = "replace-with-cloudflare-d1-id"
+database_id = "a2fe987b-5191-4ac3-9d01-f923d19c731a"
 ```
 
 ## Step 3 - 创建 KV namespace
@@ -90,7 +103,7 @@ id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 都替换这一行：
 
 ```toml
-id = "replace-with-kv-namespace-id"
+id = "aedd751919314f9e81f1917e59a859bd"
 ```
 
 ## Step 4 - 初始化 D1 schema
@@ -142,7 +155,7 @@ ktv-assistant-room
 RoomDurableObject
 ```
 
-## Step 6 - 创建或部署 Cloudflare Pages 项目
+## Step 6 - 创建或部署 Cloudflare 应用
 
 先构建前端：
 
@@ -150,7 +163,19 @@ RoomDurableObject
 npm run build
 ```
 
-如果你想用 Wrangler 直接上传 Pages：
+当前实际线上形态是 Cloudflare Worker + Assets：
+
+```bash
+npx wrangler deploy
+```
+
+部署成功后的主应用域名是：
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev
+```
+
+如果后续改回 Cloudflare Pages，再使用 Pages direct upload：
 
 ```bash
 npx wrangler pages project create
@@ -161,7 +186,7 @@ npx wrangler pages deploy dist
 
 1. 把本地 repo 推到 GitHub。
 2. 在 Cloudflare Dashboard 里进入 Workers & Pages。
-3. 创建 Pages project，选择 GitHub repo。
+3. 创建 Cloudflare Pages 项目，选择 GitHub repo。
 4. Build command 设置为：
 
 ```bash
@@ -174,30 +199,30 @@ npm run build
 dist
 ```
 
-## Step 7 - 给 Pages 绑定 D1、KV 和 Durable Object
+## Step 7 - 给主应用绑定 D1、KV 和 Durable Object
 
-Pages project 创建后，需要在 Cloudflare Dashboard 或 Wrangler config 里确认这些绑定：
+主应用部署后，需要在 Cloudflare Dashboard 或 Wrangler config 里确认这些绑定：
 
 ```txt
-DB -> ktv-assistant-db
-SEARCH_CACHE -> 你的 KV namespace
+DB -> ktv-assistant-db, database_id = a2fe987b-5191-4ac3-9d01-f923d19c731a
+SEARCH_CACHE -> SEARCH_CACHE, namespace_id = aedd751919314f9e81f1917e59a859bd
 ROOM_OBJECT -> RoomDurableObject, script_name = ktv-assistant-room
 ```
 
-当前 `wrangler.toml` 已经写了绑定名称和 Durable Object 关系，但 D1/KV 的真实 id 仍然需要你替换。
+当前 `wrangler.toml` 和 `wrangler.room.toml` 已经写入真实 D1/KV id。2026-06-25 已通过 `wrangler versions view` 确认主应用 Worker 版本 `b430cf03-42ac-42b5-b80f-67754e1e09aa` 含有 `DB`、`SEARCH_CACHE`、`ROOM_OBJECT` 三个绑定，并且 `ROOM_OBJECT` 指向 `ktv-assistant-room`。
 
 ## Step 8 - 验证后端 API
 
-部署完成后，打开 Pages 域名，例如：
+部署完成后，打开线上域名：
 
 ```txt
-https://<your-project>.pages.dev
+https://ktv-assistant.bradwang1995.workers.dev
 ```
 
 创建房间 API 应该能返回 JSON：
 
 ```bash
-curl -X POST https://<your-project>.pages.dev/api/rooms
+curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms
 ```
 
 你应该看到类似：
@@ -223,12 +248,27 @@ curl -X POST https://<your-project>.pages.dev/api/rooms
 再验证 snapshot：
 
 ```bash
-curl https://<your-project>.pages.dev/api/rooms/<roomId>/snapshot
+curl https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/snapshot
 ```
+
+2026-06-25 已验证通过：
+
+- `POST /api/rooms` 返回 `200 OK`
+- 测试房间 `roomId`: `473p0b41`
+- `GET /api/rooms/473p0b41/snapshot` 返回 `200 OK`
+- 线上返回的 `playerState` 是 `idle`，`queue` 是空数组，`connectedClients` 是 `0`
 
 ## Step 8.5 - 验证 WebSocket 房间连接
 
-这一项需要 Pages + Room Durable Object Worker + D1 都配置好之后再做。当前 Vite 本地 dev server 不会提供真实 `/api/rooms/:roomId/ws`，所以本地打不开 WebSocket 是正常的。
+这一项需要主应用 Worker + Room Durable Object Worker + D1 都配置好之后再做。当前 Vite 本地 dev server 不会提供真实 `/api/rooms/:roomId/ws`，所以本地打不开 WebSocket 是正常的。
+
+2026-06-25 已验证通过：
+
+- 测试房间 `roomId`: `462g123j`
+- `wss://ktv-assistant.bradwang1995.workers.dev/api/rooms/462g123j/ws` 可以连接
+- `JOIN_ROOM` 返回 `ROOM_SNAPSHOT`
+- `PING` 返回 `PONG`
+- 第二个客户端连接同一房间后，第一个客户端收到 `ROOM_UPDATED`，`connectedClients` 变为 `2`
 
 先用 `POST /api/rooms` 创建一个 room，并记下返回的 `roomId`。然后任选一种方式测试 WebSocket。
 
@@ -236,7 +276,7 @@ curl https://<your-project>.pages.dev/api/rooms/<roomId>/snapshot
 
 ```js
 const roomId = "<roomId>";
-const ws = new WebSocket(`wss://<your-project>.pages.dev/api/rooms/${roomId}/ws`);
+const ws = new WebSocket(`wss://ktv-assistant.bradwang1995.workers.dev/api/rooms/${roomId}/ws`);
 ws.onopen = () => {
   ws.send(JSON.stringify({
     type: "JOIN_ROOM",
@@ -259,7 +299,7 @@ ws.onclose = (event) => console.log("WS close", event.code, event.reason);
 如果你安装了 `wscat`，也可以用命令行测试：
 
 ```bash
-npx wscat -c wss://<your-project>.pages.dev/api/rooms/<roomId>/ws
+npx wscat -c wss://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/ws
 ```
 
 连接后输入：
@@ -276,7 +316,7 @@ npx wscat -c wss://<your-project>.pages.dev/api/rooms/<roomId>/ws
 
 ## Step 8.6 - 验证 WebSocket 队列操作
 
-这一项同样需要真实 Cloudflare Pages + Room Worker + D1 资源。
+这一项同样需要真实 Cloudflare Worker + Room Worker + D1 资源。
 
 先用 Step 8.5 的方法打开 WebSocket，并完成 `JOIN_ROOM`。你应该已经能看到 `ROOM_SNAPSHOT`。
 
@@ -352,6 +392,14 @@ ws.send(JSON.stringify({
 
 期望看到下一首 queued 歌变成 `playing`。如果队列空了，`playback.playerState` 应回到 `idle`。
 
+2026-06-25 已验证通过：
+
+- 测试房间 `462g123j`：`ADD_QUEUE_ITEM`、`PROMOTE_QUEUE_ITEM`、`REMOVE_QUEUE_ITEM`、`PLAYER_ENDED` 都返回 `ROOM_UPDATED`
+- 删除 queued 歌后结束当前歌，房间回到 `idle`，`currentVideoId` 清空
+- 额外测试房间 `4v3l3o07`：当前歌 `PLAYER_ENDED` 后，下一首 queued 歌自动变成 `playing`
+- HTTP snapshot 复查通过，WebSocket 队列操作已写回 D1
+- Unicode 标题检查通过，线上 JSON/WebSocket/D1 链路可以保存中文标题
+
 ## Step 9 - 后续接 YouTube API key
 
 代码现在已经支持真实 YouTube search provider。没有 `YOUTUBE_API_KEY` 时，后端会返回 mock search 结果，方便继续开发；配置 secret 后才会调用 YouTube Data API。
@@ -361,12 +409,12 @@ ws.send(JSON.stringify({
 1. 去 Google Cloud 创建或选择项目。
 2. 启用 YouTube Data API v3。
 3. 创建 API key。
-4. 在 Cloudflare Pages project 里设置 encrypted secret：
+4. 在 Cloudflare `ktv-assistant` Worker 里设置 encrypted secret：
 
 Cloudflare Dashboard:
 
 ```txt
-Workers & Pages -> 你的 Pages project -> Settings -> Variables and Secrets -> Add
+Workers & Pages -> ktv-assistant -> Settings -> Variables and Secrets -> Add
 ```
 
 变量名：
@@ -390,7 +438,7 @@ npx wrangler secret put YOUTUBE_API_KEY --config wrangler.room.toml
 如果还没有设置 `YOUTUBE_API_KEY`，这个 API 也会返回 mock 结果：
 
 ```bash
-curl -X POST https://<your-project>.pages.dev/api/rooms/<roomId>/search \
+curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/search \
   -H "content-type: application/json" \
   -d "{\"query\":\"后来\",\"limit\":4}"
 ```
@@ -408,30 +456,40 @@ curl -X POST https://<your-project>.pages.dev/api/rooms/<roomId>/search \
 
 真实返回里 `results` 应该有 0 到 4 个视频。设置 `YOUTUBE_API_KEY` 后再执行同一个请求，应该返回真实 YouTube 搜索结果。重复同一个搜索时，如果 KV 已配置，`cached` 应该可能变成 `true`。
 
+2026-06-25 已验证通过：
+
+- `YOUTUBE_API_KEY` 已配置在 `ktv-assistant` 和 `ktv-assistant-room`
+- 测试房间 `roomId`: `6z3b0y00`
+- 第一次请求 `POST /api/rooms/6z3b0y00/search` 返回 `200 OK`
+- 查询 `后来` 返回 `normalizedQuery = "后来 ktv"`
+- 第一次请求返回真实 YouTube results，`cached = false`，`results.length = 4`
+- 第一条结果：`刘若英 《后来》 Pinyin Karaoke Version Instrumental Music 拼音卡拉OK伴奏 KTV with Pinyin Lyrics 4k`
+- 第二次同 query 请求返回 `cached = true`，确认 KV cache 可命中
+
 ## Step 10 - 手动验收 checklist
 
 资源创建后，逐项检查：
 
-- `[ ]` `wrangler.toml` 里的 D1 `database_id` 已替换
-- `[ ]` `wrangler.room.toml` 里的 D1 `database_id` 已替换
-- `[ ]` `wrangler.toml` 里的 KV `id` 已替换
-- `[ ]` `wrangler.room.toml` 里的 KV `id` 已替换
-- `[ ]` D1 schema 已执行到 remote D1
-- `[ ]` `ktv-assistant-room` Worker 已部署
-- `[ ]` Pages project 已创建
-- `[ ]` Pages project 能访问首页
-- `[ ]` `POST /api/rooms` 返回 JSON
-- `[ ]` `GET /api/rooms/:roomId/snapshot` 返回 JSON
-- `[ ]` `GET /api/rooms/:roomId/ws` 可以 WebSocket 连接
-- `[ ]` WebSocket `JOIN_ROOM` 返回 `ROOM_SNAPSHOT`
-- `[ ]` WebSocket `PING` 返回 `PONG`
-- `[ ]` WebSocket `ADD_QUEUE_ITEM` 返回 `ROOM_UPDATED`
-- `[ ]` WebSocket `PROMOTE_QUEUE_ITEM` 返回 `ROOM_UPDATED`
-- `[ ]` WebSocket `REMOVE_QUEUE_ITEM` 返回 `ROOM_UPDATED`
-- `[ ]` WebSocket `PLAYER_ENDED` 能切到下一首或回到 idle
-- `[ ]` `POST /api/rooms/:roomId/search` 返回 JSON
-- `[ ]` 设置 `YOUTUBE_API_KEY` 后 search 返回真实 YouTube results
-- `[ ]` 重复搜索时 KV cache 可命中
+- `[x]` `wrangler.toml` 里的 D1 `database_id` 已替换
+- `[x]` `wrangler.room.toml` 里的 D1 `database_id` 已替换
+- `[x]` `wrangler.toml` 里的 KV `id` 已替换
+- `[x]` `wrangler.room.toml` 里的 KV `id` 已替换
+- `[x]` D1 schema 已执行到 remote D1
+- `[x]` `ktv-assistant-room` Worker 已部署
+- `[x]` 主应用 `ktv-assistant` Worker + Assets 已部署
+- `[x]` 线上首页能访问：`https://ktv-assistant.bradwang1995.workers.dev`
+- `[x]` `POST /api/rooms` 返回 JSON
+- `[x]` `GET /api/rooms/:roomId/snapshot` 返回 JSON
+- `[x]` `GET /api/rooms/:roomId/ws` 可以 WebSocket 连接
+- `[x]` WebSocket `JOIN_ROOM` 返回 `ROOM_SNAPSHOT`
+- `[x]` WebSocket `PING` 返回 `PONG`
+- `[x]` WebSocket `ADD_QUEUE_ITEM` 返回 `ROOM_UPDATED`
+- `[x]` WebSocket `PROMOTE_QUEUE_ITEM` 返回 `ROOM_UPDATED`
+- `[x]` WebSocket `REMOVE_QUEUE_ITEM` 返回 `ROOM_UPDATED`
+- `[x]` WebSocket `PLAYER_ENDED` 能切到下一首或回到 idle
+- `[x]` `POST /api/rooms/:roomId/search` 返回 JSON
+- `[x]` 设置 `YOUTUBE_API_KEY` 后 search 返回真实 YouTube results
+- `[x]` 重复搜索时 KV cache 可命中
 - `[ ]` `/create` 创建房间后能进入 display 页面
 
 ## 当前不要手动改的东西

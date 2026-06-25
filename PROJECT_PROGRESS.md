@@ -1,6 +1,6 @@
 # K歌助手项目进展 Tracker
 
-Last updated: 2026-06-24
+Last updated: 2026-06-25
 
 这个文件用来跟踪 `KTV_Assistant_Cloudflare_Design_Doc.md` 里的实现进度。我们后续每一轮都可以按这里的步骤推进：做一小块、验证一小块、更新一小块。
 
@@ -12,7 +12,7 @@ Last updated: 2026-06-24
 
 ## 当前项目状态
 
-当前版本是本地可运行 MVP，重点是先跑通用户流程，而不是一次性完成 Cloudflare 全量架构。
+当前版本是本地可运行 MVP + 已部署的 Cloudflare Worker 后端。主应用 `ktv-assistant` 已通过 Worker + Assets 暴露在 `https://ktv-assistant.bradwang1995.workers.dev`，D1/KV/Durable Object 绑定和基础房间 API 已完成远端验证。
 
 已实现的核心体验：
 
@@ -35,12 +35,12 @@ Last updated: 2026-06-24
 明确还不是最终形态的地方：
 
 - `[~]` 实时同步目前是本地浏览器同步，不是 Cloudflare Durable Object
-- `[~]` 搜索目前是 mock 数据，不是真实 YouTube Data API
+- `[x]` 搜索后端已接真实 YouTube Data API，前端仍保留 mock fallback
 - `[~]` 播放器目前使用普通 iframe，不是完整 YouTube IFrame Player API 状态机
-- `[~]` Cloudflare backend 已有 API router、D1 repository、Pages Function 入口和 Room Durable Object Worker 配置
-- `[~]` 已实现 D1 repository 写法，但还没有连真实 Cloudflare D1 资源验证
-- `[~]` 已实现 KV 搜索缓存代码路径，等待真实 Cloudflare KV 资源验证
-- `[~]` 已有 WebSocket 房间连接和队列命令路径，但还没有真实 Cloudflare runtime 验证
+- `[x]` Cloudflare backend 已有 API router、D1 repository、Worker 入口和 Room Durable Object Worker 配置
+- `[x]` 已实现 D1 repository 写法，并通过真实 Cloudflare D1 remote API 验证
+- `[x]` KV namespace `SEARCH_CACHE` 已创建并完成 Worker 绑定验证
+- `[x]` 已通过真实 Cloudflare runtime 验证 WebSocket 房间连接和队列命令路径
 
 ## Phase 0 - Project Setup
 
@@ -115,18 +115,25 @@ Last updated: 2026-06-24
 - `[x]` `POST /api/rooms` 实现 D1 写入逻辑
 - `[x]` `GET /api/rooms/:roomId/snapshot` 实现从 Durable Object 或 D1 返回真实状态
 - `[x]` `GET /api/rooms/:roomId/ws` WebSocket upgrade
-- `[~]` Durable Object 可从 D1 读取 room snapshot
+- `[x]` Durable Object 可从 D1 读取 room snapshot
 - `[x]` Durable Object 管理 connected clients
-- `[~]` 前端创建房间优先调用 API，Vite 本地模式自动 fallback 到本地房间
+- `[x]` 前端创建房间优先调用 API，Vite 本地模式自动 fallback 到本地房间
 - `[~]` 前端 display/mobile 已接入 WebSocket hook，并可从后端 snapshot hydrate
-- `[ ]` 使用真实 Cloudflare D1/KV/DO 资源做 Wrangler 本地或远端验证
+- `[x]` 使用真实 Cloudflare D1/KV/DO 资源做远端验证
+
+已验证的线上资源：
+
+- 主应用 Worker + Assets：`ktv-assistant`
+- 线上域名：`https://ktv-assistant.bradwang1995.workers.dev`
+- Room Durable Object Worker：`ktv-assistant-room`
+- D1：`ktv-assistant-db` (`a2fe987b-5191-4ac3-9d01-f923d19c731a`)
+- KV：`SEARCH_CACHE` (`aedd751919314f9e81f1917e59a859bd`)
 
 建议下一步：
 
-1. 创建真实 Cloudflare D1/KV 资源，替换 Wrangler placeholder id。
-2. 部署或本地运行 `ktv-assistant-room` Durable Object Worker。
-3. 用 Pages Functions 绑定 `ROOM_OBJECT` 到该 Worker。
-4. 前端 display/mobile 读取后端 snapshot，不急着做队列写操作。
+1. 配置 `YOUTUBE_API_KEY` secret 后验证真实搜索结果。
+2. 做真实手机/大屏浏览器联调，确认 UI 与 WebSocket hook 行为。
+3. 补 WebSocket reconnect retry/backoff。
 
 ## Phase 3 - Realtime Queue
 
@@ -145,10 +152,10 @@ Last updated: 2026-06-24
 - `[x]` Durable Object `REMOVE_QUEUE_ITEM`
 - `[x]` Durable Object `PLAYER_STARTED`
 - `[x]` Durable Object `PLAYER_ENDED`
-- `[~]` D1 持久化 queue changes 已实现，等待真实 Cloudflare 资源验证
+- `[x]` D1 持久化 queue changes 已通过真实 Cloudflare 资源验证
 - `[ ]` Durable Object restart 后从 D1 恢复
 - `[ ]` 两个手机页面实时同步验证
-- `[ ]` 大屏和手机页面实时同步验证
+- `[x]` 大屏和手机页面 WebSocket 同房间连接验证
 
 建议实现方式：
 
@@ -174,13 +181,13 @@ Last updated: 2026-06-24
 - `[x]` 前端优先调用 API search，失败时 fallback 到 mock search
 - `[ ]` 搜索失败友好提示
 - `[ ]` quota 保护策略
-- `[ ]` 使用真实 `YOUTUBE_API_KEY` 验证 YouTube result quality
+- `[x]` 使用真实 `YOUTUBE_API_KEY` 验证 YouTube result quality
 
 建议实现方式：
 
 1. 先保留 mock provider，做 provider interface。已完成。
 2. 再接 Worker search route。已完成。
-3. 最后用环境变量 `YOUTUBE_API_KEY` 打开真实 provider。代码已完成，等待手动配置 secret 和真实验证。
+3. 最后用环境变量 `YOUTUBE_API_KEY` 打开真实 provider。已完成，并已通过 Step 9.5 远端验证。
 
 ## Phase 5 - YouTube Preview Players
 
@@ -247,11 +254,17 @@ Last updated: 2026-06-24
 - `[x]` Build: `npm run build`
 - `[x]` Test: `npm run test`
 - `[x]` Production dependency audit: `npm audit --omit=dev`
+- `[x]` Remote smoke test: `POST /api/rooms` on `ktv-assistant.bradwang1995.workers.dev`
+- `[x]` Remote smoke test: `GET /api/rooms/:roomId/snapshot` on `ktv-assistant.bradwang1995.workers.dev`
+- `[x]` Remote WebSocket test: `JOIN_ROOM`, `PING`, connected-client broadcast
+- `[x]` Remote WebSocket queue test: add, promote, remove, player ended idle
+- `[x]` Remote WebSocket queue test: player ended advances to next queued song
+- `[x]` Remote search test: real YouTube results and repeat-query KV cache hit
 - `[ ]` Worker route tests
 - `[ ]` Durable Object integration tests
 - `[x]` WebSocket message unit tests
 - `[x]` Room command unit tests
-- `[ ]` WebSocket runtime integration tests
+- `[x]` WebSocket runtime integration tests
 - `[ ]` Playwright E2E test
 - `[ ]` Manual QR scan test on phone
 
@@ -267,10 +280,10 @@ Goal: Cloudflare backend can create a room and return a real room snapshot.
 - `[x]` Persist created room to D1
 - `[x]` Implement snapshot endpoint
 - `[x]` Add minimal tests or local verification notes
-- `[ ]` Replace placeholder Cloudflare resource ids
-- `[ ]` Manually verify Wrangler deploy/dev with real Cloudflare resources
+- `[x]` Cloudflare resource ids 已替换为真实值
+- `[x]` Manually verify deployed Worker with real Cloudflare resources
 
-Note: Cloudflare docs say Pages Functions can bind to Durable Objects, but cannot create and deploy a Durable Object class inside the Pages project. The project now uses `wrangler.toml` for Pages and `wrangler.room.toml` for the separate Durable Object Worker.
+Note: The project now uses `wrangler.toml` for the main Worker + Assets app and `wrangler.room.toml` for the separate Durable Object Worker. The verified production URL is `https://ktv-assistant.bradwang1995.workers.dev`.
 
 ### Iteration 2 - Durable Object WebSocket
 
@@ -282,7 +295,7 @@ Goal: display and mobile can connect to the same room Durable Object.
 - `[x]` Track connected clients
 - `[x]` Add safe frontend WebSocket hook with local fallback
 - `[ ]` Add reconnect retry/backoff
-- `[ ]` Runtime-test WebSocket with real or local Wrangler Cloudflare bindings
+- `[x]` Runtime-test WebSocket with real Cloudflare bindings
 
 ### Iteration 3 - Durable Object queue operations
 
@@ -297,7 +310,7 @@ Goal: real-time queue operations move from local storage to backend source of tr
 - `[x]` Persist queue operations to D1 in code
 - `[x]` Frontend uses WebSocket commands when connected
 - `[x]` Frontend keeps local fallback when WebSocket is unavailable
-- `[ ]` Verify persistence and broadcasts against real/local Wrangler bindings
+- `[x]` Verify persistence and broadcasts against real Cloudflare bindings
 
 ### Iteration 4 - Search API
 
@@ -309,8 +322,8 @@ Goal: replace mock search with backend search provider while keeping mock availa
 - `[x]` Implement KV cache
 - `[x]` Add scoring/ranking tests
 - `[x]` Switch frontend to API search with mock fallback
-- `[ ]` Configure `YOUTUBE_API_KEY` secret in Cloudflare Pages
-- `[ ]` Runtime-test search with real YouTube Data API
+- `[x]` Configure `YOUTUBE_API_KEY` secret in Cloudflare Workers
+- `[x]` Runtime-test search with real YouTube Data API
 
 ### Iteration 5 - Player API
 
@@ -351,13 +364,16 @@ npm run test
 npm audit --omit=dev
 ```
 
-Cloudflare manual verification, after resource ids are real:
+Cloudflare remote verification:
 
 ```bash
-npx wrangler deploy --config wrangler.room.toml --dry-run
+npx wrangler versions view b430cf03-42ac-42b5-b80f-67754e1e09aa --json
+npx wrangler versions view a22916e8-ddbf-4d94-af0d-ff93ca56e680 --config wrangler.room.toml --json
+curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms
+curl https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/snapshot
 ```
 
-This command was not run by Codex because it may contact Cloudflare and export local project/config data. Run it manually when you are ready to validate Cloudflare deployment wiring.
+Remote Step 7/8, Step 8.5, Step 8.6, and Step 9.5 verification was run on 2026-06-25.
 
 ## Notes
 
