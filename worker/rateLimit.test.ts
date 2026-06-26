@@ -3,14 +3,16 @@ import { checkRateLimit, rateLimitKey } from "./rateLimit";
 
 class MemoryKv {
   values = new Map<string, string>();
+  writes: Array<{ key: string; value: string; options?: KVNamespacePutOptions }> = [];
 
   async get<T>(key: string, options: { type: "json" }): Promise<T | null> {
     const value = this.values.get(key);
     return value && options.type === "json" ? (JSON.parse(value) as T) : null;
   }
 
-  async put(key: string, value: string) {
+  async put(key: string, value: string, options?: KVNamespacePutOptions) {
     this.values.set(key, value);
+    this.writes.push({ key, value, options });
   }
 }
 
@@ -53,5 +55,19 @@ describe("rate limit", () => {
     expect(rateLimitKey("Room ABC Search", "127.0.0.1", new Date("2026-06-25T12:00:00Z"))).toBe(
       rateLimitKey("Room ABC Search", "127.0.0.1", new Date("2026-06-25T12:00:30Z")),
     );
+  });
+
+  it("keeps KV expiration TTL compatible near the end of a window", async () => {
+    const namespace = new MemoryKv();
+
+    await checkRateLimit({
+      namespace,
+      scope: "room:abc:search",
+      identity: "127.0.0.1",
+      limit: 2,
+      now: new Date("2026-06-25T12:00:45Z"),
+    });
+
+    expect(namespace.writes[0]?.options?.expirationTtl).toBeGreaterThanOrEqual(60);
   });
 });

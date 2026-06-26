@@ -1,5 +1,6 @@
 const RATE_LIMIT_VERSION = "v1";
 const DEFAULT_WINDOW_SECONDS = 60;
+const MIN_KV_EXPIRATION_TTL_SECONDS = 60;
 
 interface JsonKvNamespace {
   get<T>(key: string, options: { type: "json" }): Promise<T | null>;
@@ -53,6 +54,10 @@ export async function checkRateLimit({
   const current = await namespace.get<RateLimitState>(key, { type: "json" });
   const count = current?.resetAt === resetAt && Number.isFinite(current.count) ? current.count : 0;
   const retryAfterSeconds = Math.max(Math.ceil((resetAt - now.getTime()) / 1000), 1);
+  const expirationTtl = Math.max(
+    retryAfterSeconds + 30,
+    MIN_KV_EXPIRATION_TTL_SECONDS,
+  );
 
   if (count >= safeLimit) {
     return {
@@ -72,7 +77,7 @@ export async function checkRateLimit({
       resetAt,
     } satisfies RateLimitState),
     {
-      expirationTtl: retryAfterSeconds + 30,
+      expirationTtl,
     },
   );
 
