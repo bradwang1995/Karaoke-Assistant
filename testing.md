@@ -1,6 +1,307 @@
-# Production Testing Guide
+# Production 测试指南 / Production Testing Guide
 
 Last updated: 2026-06-25
+
+## 中文版
+
+这个文档专门用来测试线上真实环境，不是测试本地 Vite server。
+
+Production URL:
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev
+```
+
+本地 `http://localhost:5173` 仍然可以用来快速看 UI，但它不是生产行为的准绳。真实的 D1 持久化、KV 搜索缓存、Durable Object 房间状态、WebSocket 同步和 Cloudflare Worker + Assets 部署，都应该用上面的 production URL 测。
+
+## 中文 0. 测试前准备
+
+建议用一个新的浏览器 tab，或者无痕窗口测试。这个 app 会把房间 snapshot 写进 `localStorage`，旧浏览器数据可能让测试结果看起来很怪。
+
+如果你想测试最新 `main` 的代码，必须确认它已经部署到 Cloudflare。`git push` 到 GitHub 不等于 production 已更新，除非以后配置了 Cloudflare 自动部署。
+
+主应用部署命令：
+
+```bash
+npm run build
+npx wrangler deploy --keep-vars
+```
+
+如果改到了 `ktv-assistant-room` / Durable Object Worker，再先部署 Room Worker：
+
+```bash
+npm run build
+npx wrangler deploy --config wrangler.room.toml --keep-vars
+npx wrangler deploy --keep-vars
+```
+
+快速确认 production 正常：
+
+1. 打开 `https://ktv-assistant.bradwang1995.workers.dev`。
+2. 页面应该能正常加载。
+3. 打开 `/create` 创建房间。
+4. 创建后应该进入同一个 `workers.dev` 域名下的 display 页面。
+
+## 中文 1. 最重要的端到端浏览器测试
+
+这是最接近真实聚会场景的测试。
+
+1. 打开：
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev/create
+```
+
+2. 点击创建房间按钮。
+3. 你应该进入：
+
+```txt
+/room/<roomId>/display
+```
+
+4. 把这个 display 页面留在电脑、电视或大屏浏览器上。
+5. 用二维码、页面上的手机链接，或手动输入下面地址打开手机页：
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/mobile
+```
+
+6. 在手机页搜索一首歌，例如：
+
+```txt
+后来
+```
+
+7. 搜索结果预期：
+
+- 搜索结果来自后端 `/api/rooms/:roomId/search`。
+- 候选卡片里能看到 YouTube 预览 iframe。
+- 点选某个候选视频后，它会有选中态。
+- 点击点歌按钮后，会进入歌单 tab。
+
+8. 第一首歌加入后的大屏预期：
+
+- Display 页面不用刷新就会更新。
+- 第一首歌自动成为当前播放。
+- 队列数量会更新。
+- 右上角二维码仍然存在。
+
+9. 再从手机页添加第二首歌。
+10. 队列预期：
+
+- 当前播放的第一首不会被打断。
+- 第二首会出现在即将播放队列里。
+- 手机页和大屏页都会无刷新同步。
+
+## 中文 2. 大屏 YouTube 播放器测试
+
+这一块测试 production 上的 YouTube IFrame Player API。
+
+1. 第一首歌出现在 display 页面后，点击 `开始 K 歌`。
+2. 预期：
+
+- YouTube 播放器开始播放。
+- app 只会在 YouTube 真正进入播放状态后发送 `PLAYER_STARTED`。
+- 如果浏览器阻止自动播放，大屏会显示 autoplay/browser 提示；这时可以再次点击开始，或直接和 YouTube player 交互。
+
+3. 用 display 页的 `下一首` 按钮做快速切歌测试。
+4. 预期：
+
+- 当前歌会标记为 completed。
+- 下一首 queued 歌会变成当前播放。
+- Display 会自动尝试播放下一首。
+
+5. 如果想测真实视频结束事件，可以找一首较短的视频，让它自然播完。
+6. 预期：
+
+- YouTube 上报 `ENDED`。
+- app 发送 `PLAYER_ENDED`。
+- 下一首 queued 歌自动变成当前播放。
+- 如果队列空了，房间回到 idle。
+
+## 中文 3. Production API Smoke Test
+
+PowerShell:
+
+```powershell
+$base = "https://ktv-assistant.bradwang1995.workers.dev"
+$room = Invoke-RestMethod -Method Post -Uri "$base/api/rooms"
+$room | ConvertTo-Json -Depth 20
+
+$roomId = $room.roomId
+Invoke-RestMethod -Uri "$base/api/rooms/$roomId/snapshot" | ConvertTo-Json -Depth 20
+```
+
+预期：
+
+- `roomId` 是 8 位小写房间 id。
+- `absoluteDisplayUrl` 指向 production display 页面。
+- `absoluteMobileUrl` 指向 production mobile 页面。
+- snapshot 里 `queue` 是空数组。
+- snapshot 里 `playback.playerState` 是 `"idle"`。
+
+搜索 smoke test：
+
+```powershell
+$body = @{
+  query = "后来"
+  limit = 4
+  cacheFill = $false
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "$base/api/rooms/$roomId/search" `
+  -ContentType "application/json" `
+  -Body $body |
+  ConvertTo-Json -Depth 20
+```
+
+预期：
+
+- HTTP 请求成功。
+- 返回里有 `query`、`normalizedQuery`、`cached`、`results`。
+- `results` 有 0 到 4 条。
+- 如果 `YOUTUBE_API_KEY` 已配置，结果应该是真实 YouTube 搜索结果。
+
+快速测试时建议用 `cacheFill = $false`，避免为了填充大缓存池多花 YouTube quota。
+
+## 中文 4. WebSocket Smoke Test
+
+在任意 production 页面打开浏览器 DevTools console，执行：
+
+```js
+const roomId = "<roomId>";
+const ws = new WebSocket(
+  `wss://ktv-assistant.bradwang1995.workers.dev/api/rooms/${roomId}/ws`,
+);
+
+let latestMessage = null;
+
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: "JOIN_ROOM",
+    role: "mobile",
+    clientId: crypto.randomUUID(),
+  }));
+  ws.send(JSON.stringify({ type: "PING" }));
+};
+
+ws.onmessage = (event) => {
+  latestMessage = JSON.parse(event.data);
+  console.log("WS", latestMessage);
+};
+
+ws.onerror = (event) => console.log("WS error", event);
+ws.onclose = (event) => console.log("WS close", event.code, event.reason);
+```
+
+预期：
+
+- `JOIN_ROOM` 返回 `ROOM_SNAPSHOT`。
+- `PING` 返回 `PONG`。
+- 同一个 room 打开第二个客户端时，connected-client 数量会变化。
+
+队列命令测试：
+
+```js
+ws.send(JSON.stringify({
+  type: "ADD_QUEUE_ITEM",
+  payload: {
+    videoId: "dQw4w9WgXcQ",
+    title: "Manual Test Song 1",
+    channelTitle: "Manual Test",
+  },
+}));
+```
+
+预期：
+
+- 收到 `ROOM_UPDATED`。
+- 如果房间原来是 idle，新增歌曲会变成 `playing`。
+- `playback.currentVideoId` 等于新增的 `videoId`。
+
+再加第二首：
+
+```js
+ws.send(JSON.stringify({
+  type: "ADD_QUEUE_ITEM",
+  payload: {
+    videoId: "kJQP7kiw5Fk",
+    title: "Manual Test Song 2",
+    channelTitle: "Manual Test",
+  },
+}));
+```
+
+预期：
+
+- 第二首是 `queued`。
+- 当前播放仍然是第一首。
+
+模拟当前歌曲结束：
+
+```js
+const current = latestMessage.payload.queue.find((item) => item.status === "playing");
+
+ws.send(JSON.stringify({
+  type: "PLAYER_ENDED",
+  payload: {
+    queueItemId: current.id,
+    videoId: current.videoId,
+  },
+}));
+```
+
+预期：
+
+- 之前的当前歌曲变成 `completed`。
+- 下一首 queued 歌变成 `playing`。
+- 如果没有下一首，`playback.playerState` 变成 `"idle"`。
+
+## 中文 5. 不要用本地 server 测这些东西
+
+不要用 `http://localhost:5173` 验证这些 production 功能：
+
+- Durable Object 房间状态
+- 真实 WebSocket 房间同步
+- 远端 D1 持久化
+- 远端 KV 搜索缓存
+- production asset 是否真的部署
+
+本地 Vite 模式可能 fallback 到浏览器本地状态，所以它可能看起来能跑，但其实完全绕过了线上后端。
+
+## 中文 6. 通过标准
+
+一次 production 测试通过，至少意味着：
+
+- `/create` 可以创建真实房间。
+- Display 和 mobile URL 都在 `workers.dev` 域名下。
+- 手机页搜索能返回可用结果。
+- 手机页点歌后，大屏无需刷新就更新。
+- 同一个 room 的两个客户端能同步。
+- 大屏 `开始 K 歌` 能启动 YouTube 播放。
+- YouTube 播放开始后，房间状态反映 `PLAYER_STARTED`。
+- `下一首` 能切到下一首 queued 歌。
+- YouTube 视频自然结束也能推进队列。
+- 队列清空后房间回到 idle。
+
+## 中文 7. 如果测试失败
+
+按这个顺序查：
+
+1. 确认你用的是 `https://ktv-assistant.bradwang1995.workers.dev`，不是 localhost。
+2. 创建一个全新的房间。
+3. 打开 DevTools，看 Console 和 Network。
+4. 跑 API smoke test。
+5. 跑 WebSocket smoke test。
+6. 如果最新 `main` 行为没出现，重新部署 `npx wrangler deploy --keep-vars`。
+7. 如果搜索失败，检查 `YOUTUBE_API_KEY`、quota 和 `SEARCH_CACHE`。
+8. 如果房间同步失败，检查 `ROOM_OBJECT`、`ktv-assistant-room` 和 D1 bindings。
+
+---
+
+## English Version
 
 This guide is for testing the real deployed app, not the local Vite server.
 
@@ -10,32 +311,37 @@ Production URL:
 https://ktv-assistant.bradwang1995.workers.dev
 ```
 
-The local server is still useful for quick UI development, but it is not the source of truth for production behavior. Real D1 persistence, KV search cache, Durable Object room state, and WebSocket routing should be tested against the production URL above.
+The local `http://localhost:5173` server is still useful for quick UI work, but it is not the source of truth for production behavior. Real D1 persistence, KV search cache, Durable Object room state, WebSocket routing, and Worker + Assets deployment should all be tested against the production URL above.
 
-## 0. Before You Start
+## English 0. Before You Start
 
-Use a fresh browser tab or an incognito window when you want a clean test. The app stores room snapshots in `localStorage`, so old local browser data can make a test feel confusing.
+Use a fresh browser tab or an incognito window when you want a clean test. The app stores room snapshots in `localStorage`, so old browser data can make a test confusing.
 
 If you want to test the latest code from `main`, make sure it has actually been deployed to Cloudflare. Pushing to GitHub is not the same thing as deploying unless Cloudflare auto-deploy is configured.
 
-Manual deploy commands:
+Main app deploy command:
 
 ```bash
 npm run build
-npx wrangler deploy --config wrangler.room.toml
-npx wrangler deploy
+npx wrangler deploy --keep-vars
 ```
 
-Quick production version sanity check:
+If the `ktv-assistant-room` / Durable Object Worker changed, deploy the Room Worker first:
+
+```bash
+npm run build
+npx wrangler deploy --config wrangler.room.toml --keep-vars
+npx wrangler deploy --keep-vars
+```
+
+Quick production sanity check:
 
 1. Open `https://ktv-assistant.bradwang1995.workers.dev`.
-2. The page should load with HTTP `200`.
-3. Create a room from `/create`.
-4. The display URL should be under the same `workers.dev` origin.
+2. The page should load.
+3. Open `/create` and create a room.
+4. The display page should stay under the same `workers.dev` origin.
 
-On 2026-06-25, the live production bundle was checked and contained the YouTube IFrame Player API code.
-
-## 1. Main End-To-End Browser Test
+## English 1. Main End-To-End Browser Test
 
 This is the most important test.
 
@@ -65,11 +371,11 @@ https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/mobile
 后来
 ```
 
-7. Expected search result behavior:
+7. Expected search behavior:
 
-- Results appear from the backend search API.
-- The cards show YouTube preview iframes.
-- Selecting a card highlights it.
+- Results come from the backend `/api/rooms/:roomId/search` route.
+- Candidate cards show YouTube preview iframes.
+- Selecting a candidate highlights it.
 - Tapping the add-song button moves you to the queue tab.
 
 8. Expected display behavior after adding the first song:
@@ -77,16 +383,16 @@ https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/mobile
 - The display page updates without refresh.
 - The first song becomes the current song.
 - The queue count updates.
-- The display page still shows the QR code.
+- The QR code remains visible.
 
 9. Add a second song from the mobile page.
 10. Expected queue behavior:
 
 - The current song is not interrupted.
 - The second song appears as upcoming.
-- Queue changes appear on both display and mobile without refresh.
+- Queue changes sync to both display and mobile without refresh.
 
-## 2. Display Player Test
+## English 2. Display Player Test
 
 This tests the production YouTube IFrame Player API path.
 
@@ -94,8 +400,8 @@ This tests the production YouTube IFrame Player API path.
 2. Expected behavior:
 
 - The YouTube player starts.
-- The room sends `PLAYER_STARTED` only after YouTube reports the player is actually playing.
-- If autoplay is blocked, the display shows a browser/autoplay warning and you can click start again or interact with the player.
+- The app sends `PLAYER_STARTED` only after YouTube reports that playback has actually started.
+- If autoplay is blocked, the display shows a browser/autoplay warning; click start again or interact with the YouTube player.
 
 3. Use the display page `下一首` button for a fast auto-advance test.
 4. Expected behavior:
@@ -112,7 +418,7 @@ This tests the production YouTube IFrame Player API path.
 - The next queued song becomes current.
 - If the queue is empty, the room returns to idle.
 
-## 3. Production API Smoke Test
+## English 3. Production API Smoke Test
 
 PowerShell:
 
@@ -159,7 +465,7 @@ Expected:
 
 Use `cacheFill = $false` for quick tests so you do not spend extra YouTube quota filling the larger cache pool.
 
-## 4. WebSocket Smoke Test
+## English 4. WebSocket Smoke Test
 
 Use the browser DevTools console on any production page.
 
@@ -193,7 +499,7 @@ Expected:
 
 - `JOIN_ROOM` returns `ROOM_SNAPSHOT`.
 - `PING` returns `PONG`.
-- Opening a second client for the same room causes connected-client updates.
+- Opening a second client for the same room changes the connected-client count.
 
 Queue command test:
 
@@ -250,9 +556,9 @@ Expected:
 
 - The previous current item becomes `completed`.
 - The next queued item becomes `playing`.
-- If no queued item exists, `playback.playerState` becomes `idle`.
+- If no queued item exists, `playback.playerState` becomes `"idle"`.
 
-## 5. What Not To Test Locally
+## English 5. What Not To Test Locally
 
 Do not use `http://localhost:5173` to verify these production features:
 
@@ -264,7 +570,7 @@ Do not use `http://localhost:5173` to verify these production features:
 
 Local Vite mode can fall back to local browser state, so it can look like the app works while completely bypassing the production backend.
 
-## 6. Pass Criteria
+## English 6. Pass Criteria
 
 A production test pass means:
 
@@ -279,7 +585,7 @@ A production test pass means:
 - Natural YouTube video ending also advances the room.
 - Empty queue returns the room to idle.
 
-## 7. If Something Fails
+## English 7. If Something Fails
 
 Check these in order:
 
@@ -288,6 +594,6 @@ Check these in order:
 3. Open browser DevTools and check Console and Network.
 4. Run the API smoke test.
 5. Run the WebSocket smoke test.
-6. If latest `main` behavior is missing, deploy with `npx wrangler deploy`.
+6. If latest `main` behavior is missing, deploy with `npx wrangler deploy --keep-vars`.
 7. If search fails, check `YOUTUBE_API_KEY`, quota, and `SEARCH_CACHE`.
 8. If room sync fails, check `ROOM_OBJECT`, `ktv-assistant-room`, and D1 bindings.
