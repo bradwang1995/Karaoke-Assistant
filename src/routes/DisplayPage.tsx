@@ -4,18 +4,26 @@ import {
   ExternalLink,
   MonitorPlay,
   QrCode,
+  SlidersHorizontal,
   SkipForward,
   Wifi,
   WifiOff,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FullscreenPlayer, type FullscreenPlayerHandle } from "../components/FullscreenPlayer";
 import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
+import {
+  readPreferredYouTubePlaybackQuality,
+  resolveYouTubePlaybackQuality,
+  savePreferredYouTubePlaybackQuality,
+  YOUTUBE_PLAYBACK_QUALITY_OPTIONS,
+  type YouTubePlaybackQuality,
+} from "../lib/youtubePlaybackQuality";
 import type { QueueItem } from "../types/room";
 
 export default function DisplayPage() {
@@ -25,9 +33,11 @@ export default function DisplayPage() {
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
   const [playRequestId, setPlayRequestId] = useState(0);
-  const [autoAdvanceEnabled, setAutoAdvanceEnabled] = useState(false);
   const [playerIssue, setPlayerIssue] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [playbackQuality, setPlaybackQuality] = useState<YouTubePlaybackQuality>(() =>
+    readPreferredYouTubePlaybackQuality(),
+  );
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
 
@@ -84,11 +94,6 @@ export default function DisplayPage() {
       return;
     }
 
-    if (!autoAdvanceEnabled) {
-      lastAutoPlayItemIdRef.current = currentItem.id;
-      return;
-    }
-
     if (lastAutoPlayItemIdRef.current === currentItem.id) {
       return;
     }
@@ -96,12 +101,11 @@ export default function DisplayPage() {
     lastAutoPlayItemIdRef.current = currentItem.id;
     setPlayerIssue(null);
     setPlayRequestId((requestId) => requestId + 1);
-  }, [autoAdvanceEnabled, currentItem?.id]);
+  }, [currentItem?.id]);
 
   const handleStart = () => {
     if (!currentItem) return;
     lastAutoPlayItemIdRef.current = currentItem.id;
-    setAutoAdvanceEnabled(true);
     setPlayerIssue(null);
     playerHandleRef.current?.play();
     setPlayRequestId((requestId) => requestId + 1);
@@ -123,13 +127,25 @@ export default function DisplayPage() {
   }, []);
 
   const handleAutoplayBlocked = useCallback(() => {
-    setPlayerIssue("浏览器阻止了自动播放，请手动开始。");
+    setPlayerIssue("浏览器阻止了自动播放，请点底部开始 K 歌。");
+  }, []);
+
+  const handlePlaybackQualityChange = useCallback((nextQuality: YouTubePlaybackQuality) => {
+    setPlaybackQuality(nextQuality);
+    savePreferredYouTubePlaybackQuality(nextQuality);
   }, []);
 
   const handleNext = () => {
     if (!currentItem) return;
     setPlayerIssue(null);
     sendPlayerEnded(currentItem);
+  };
+
+  const handleQualitySelect = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextQuality = resolveYouTubePlaybackQuality(event.target.value);
+
+    setPlaybackQuality(nextQuality);
+    savePreferredYouTubePlaybackQuality(nextQuality);
   };
 
   const copyMobileLink = async () => {
@@ -187,11 +203,14 @@ export default function DisplayPage() {
               key={currentItem.id}
               videoId={currentItem.videoId}
               title={currentItem.title}
+              autoPlay
               playRequestId={playRequestId}
+              playbackQuality={playbackQuality}
               onPlaybackStarted={handlePlaybackStarted}
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
               onAutoplayBlocked={handleAutoplayBlocked}
+              onPlaybackQualityChange={handlePlaybackQualityChange}
             />
           ) : (
             <div className="grid h-full min-h-[420px] place-items-center px-6 text-center">
@@ -235,6 +254,21 @@ export default function DisplayPage() {
             <div className="flex flex-wrap items-center gap-2">
               {currentItem ? (
                 <>
+                  <label className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">
+                    <SlidersHorizontal size={16} />
+                    <select
+                      aria-label="清晰度"
+                      value={playbackQuality}
+                      onChange={handleQualitySelect}
+                      className="bg-transparent text-sm font-semibold text-white outline-none [&_option]:bg-slate-950"
+                    >
+                      {YOUTUBE_PLAYBACK_QUALITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <button
                     type="button"
                     onClick={handleStart}

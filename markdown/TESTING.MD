@@ -107,20 +107,22 @@ https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/mobile
 
 这一块测试 production 上的 YouTube IFrame Player API。
 
-1. 第一首歌出现在 display 页面后，点击 `开始 K 歌`。
+1. 第一首歌出现在 display 页面后，先观察播放器是否自动尝试播放；如果浏览器策略拦截，再点击底部 `开始 K 歌`。
 2. 预期：
 
-- YouTube 播放器开始播放。
+- YouTube iframe 初始化参数应包含 `autoplay=1`。
+- YouTube 播放器会自动尝试播放；如果当前浏览器允许带声音 autoplay，应直接开始播放。
 - app 只会在 YouTube 真正进入播放状态后发送 `PLAYER_STARTED`。
-- 如果浏览器阻止自动播放，大屏会显示 autoplay/browser 提示；这时可以再次点击开始，或直接和 YouTube player 交互。
+- 如果浏览器阻止自动播放，大屏会显示 autoplay/browser 提示；这时点击底部 `开始 K 歌`，不要依赖 YouTube 中间的 play overlay。
 - `开始 K 歌` 和 `下一首` 按钮应位于播放器下方控制栏，不应遮挡 YouTube 进度条。
+- 清晰度菜单默认是 `1080p`；改成其他清晰度后，刷新或切到下一首仍应保留该选择。
 
 3. 用 display 页的 `下一首` 按钮做快速切歌测试。
 4. 预期：
 
 - 当前歌会标记为 completed。
 - 下一首 queued 歌会变成当前播放。
-- Display 会自动尝试播放下一首。
+- Display 会自动尝试播放下一首，新 iframe 仍应带 `autoplay=1` 和上一次选择的清晰度参数。
 
 5. 如果想测真实视频结束事件，可以找一首较短的视频，让它自然播完。
 6. 预期：
@@ -488,20 +490,22 @@ https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/mobile
 
 This tests the production YouTube IFrame Player API path.
 
-1. After the first song appears on the display page, click `开始 K 歌`.
+1. After the first song appears on the display page, first observe whether the player attempts autoplay; if browser policy blocks it, click the bottom `开始 K 歌` button.
 2. Expected behavior:
 
-- The YouTube player starts.
+- The YouTube iframe initializes with `autoplay=1`.
+- The YouTube player attempts to start automatically; if the browser allows audible autoplay, playback starts directly.
 - The app sends `PLAYER_STARTED` only after YouTube reports that playback has actually started.
-- If autoplay is blocked, the display shows a browser/autoplay warning; click start again or interact with the YouTube player.
+- If autoplay is blocked, the display shows a browser/autoplay warning; click the bottom `开始 K 歌` button instead of relying on the YouTube center play overlay.
 - `开始 K 歌` and `下一首` should sit below the iframe in the control bar and should not cover the YouTube progress bar.
+- The quality selector defaults to `1080p`; after changing it, refresh or advance to the next song and confirm the same quality is retained.
 
 3. Use the display page `下一首` button for a fast auto-advance test.
 4. Expected behavior:
 
 - The current song is marked complete.
 - The next queued song becomes current.
-- The display attempts to play the next song automatically.
+- The display attempts to play the next song automatically, and the new iframe still carries `autoplay=1` plus the saved quality parameter.
 
 5. For a true end-of-video test, let a short video finish naturally.
 6. Expected behavior:

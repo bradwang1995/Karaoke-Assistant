@@ -17,6 +17,8 @@ Last updated: 2026-06-26
 - `YOUTUBE_API_KEY` secret: configured on `ktv-assistant` and `ktv-assistant-room`
 - Step 7/8/8.5/8.6/9.5 verified on: `2026-06-25`
 - Latest deployment verified on: `2026-06-26`
+- Latest main Worker + Assets version: `369207c2-9359-4b4d-914c-937c4e0f4729`
+- Latest production smoke room: `136v4j2p`
 
 ## 现在先不用急着做的事
 
@@ -210,7 +212,7 @@ SEARCH_CACHE -> SEARCH_CACHE, namespace_id = aedd751919314f9e81f1917e59a859bd
 ROOM_OBJECT -> RoomDurableObject, script_name = ktv-assistant-room
 ```
 
-当前 `wrangler.toml` 和 `wrangler.room.toml` 已经写入真实 D1/KV id。2026-06-26 已部署主应用 Worker 版本 `aa11f04a-2b42-442a-accc-813740cc9709` 和 Room Worker 版本 `0df7e1b2-7a47-4ab5-a14f-b38d90b09e9e`。主应用绑定含有 `DB`、`SEARCH_CACHE`、`ROOM_OBJECT`，并且 `ROOM_OBJECT` 指向 `ktv-assistant-room`；两个 Worker 的 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` 都是 `1`。
+当前 `wrangler.toml` 和 `wrangler.room.toml` 已经写入真实 D1/KV id。2026-06-26 已部署主应用 Worker 版本 `369207c2-9359-4b4d-914c-937c4e0f4729` 和 Room Worker 版本 `0df7e1b2-7a47-4ab5-a14f-b38d90b09e9e`。主应用绑定含有 `DB`、`SEARCH_CACHE`、`ROOM_OBJECT`，并且 `ROOM_OBJECT` 指向 `ktv-assistant-room`；两个 Worker 的 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` 都是 `1`。
 
 ## Step 8 - 验证后端 API
 
@@ -543,5 +545,7 @@ https://ktv-assistant.bradwang1995.workers.dev/create
 - 手机页扫码/打开后可以搜索并点歌。
 - 点击或播放搜索候选预览时，该候选会被选中。
 - 大屏二维码不遮挡 YouTube 右上角播放设置。
+- 大屏当前歌出现后会主动尝试播放；点 `下一首` 后下一首也会主动尝试播放，不需要依赖 YouTube 中间的 play overlay。
+- 大屏清晰度默认 `1080p`；改过一次后，刷新或下一首应记住该清晰度。
 - 搜索冷缓存填充默认只消耗 1 次 YouTube `search.list` call，最多缓存 50 条结果。
 - 不用本地 Vite server 验收 production 行为。

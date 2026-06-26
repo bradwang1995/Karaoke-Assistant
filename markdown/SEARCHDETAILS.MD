@@ -218,3 +218,7 @@ Retain and extend current scoring:
 - Decide whether 50 cached candidates should be per exact query, per song, or per artist/song family.
 - Decide whether related artist works should be curated manually, generated offline, or inferred from YouTube results.
 - Decide whether cache warming should happen only after user search or also via a manual/admin prewarm tool.
+
+## 2026-06-26 Playback Follow-Up Check
+
+The display autoplay and quality-preference changes did not change the search API, quota model, cache keys, ranking logic, or recommendation pool behavior. Search remains capped at up to 8 user-facing results from the cached/scored candidate pool, with cold cache fill still defaulting to one `search.list` request.

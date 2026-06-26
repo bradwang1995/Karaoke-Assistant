@@ -236,6 +236,9 @@ Last updated: 2026-06-26
 - `[x]` 自动切下一首并播放
 - `[x]` 播放控制栏移到 YouTube iframe 外，避免遮挡进度条
 - `[x]` `开始 K 歌` 点击路径直接请求播放器播放，并保留自动播放重试
+- `[x]` 当前歌出现后默认主动请求播放，不再要求先点击底部按钮才能启用下一首自动续播
+- `[x]` 切到下一首时等待 YouTube player API 方法可用后再请求播放，避免 `playVideo` 尚未挂载导致 display 白屏
+- `[x]` 默认建议 1080p 清晰度，并记住本机选择的清晰度用于下一首视频
 - `[x]` 播放失败兜底 UI
 - `[ ]` 浏览器 autoplay 限制下的真实设备测试
 
@@ -283,6 +286,7 @@ Last updated: 2026-06-26
 - `[x]` WebSocket runtime integration tests
 - `[x]` Search rate-limit unit tests
 - `[ ]` Playwright E2E test
+- `[x]` Local browser smoke: display autoplay params, saved quality preference, and `下一首` continuation verified through Vite dev server
 - `[~]` Manual QR scan / device matrix documented in `testing.md`
 
 ## Recommended Next Iterations
@@ -351,7 +355,7 @@ Goal: display page detects playback events and advances automatically.
 - `[x]` Send `PLAYER_STARTED`
 - `[x]` Send `PLAYER_ENDED`
 - `[x]` Handle player errors
-- `[~]` Test auto-advance in browser
+- `[x]` Test auto-advance in local browser smoke
 
 ### Iteration 6 - Visual QA and party-readiness
 
@@ -386,14 +390,14 @@ npm audit --omit=dev
 Cloudflare remote verification:
 
 ```bash
-npx wrangler versions view aa11f04a-2b42-442a-accc-813740cc9709 --json
+npx wrangler versions view 369207c2-9359-4b4d-914c-937c4e0f4729 --json
 npx wrangler versions view 0df7e1b2-7a47-4ab5-a14f-b38d90b09e9e --config wrangler.room.toml --json
 curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms
 curl https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/snapshot
 curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/cleanup
 ```
 
-Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, and QR overlay polish were updated through 2026-06-26.
+Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, QR overlay polish, display autoplay follow-up, and playback-quality persistence were updated through 2026-06-26. Latest main Worker + Assets deploy version: `369207c2-9359-4b4d-914c-937c4e0f4729`; production smoke room: `136v4j2p`.
 
 ## Notes
 

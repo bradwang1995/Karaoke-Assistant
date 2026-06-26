@@ -19,7 +19,8 @@
 - `/room/:roomId/mobile` 手机点歌页，支持搜索、缓存推荐、预览、点歌、置顶、删歌、重复点歌提示和刷新保留 tab。
 - `/room/:roomId/debug` 调试页，支持查看 snapshot、复制房间链接、刷新远端状态和清理已完成歌曲。
 - 后端搜索接入 YouTube Data API，KV 缓存搜索结果和默认推荐；冷搜索默认最多消耗 1 次 `search.list` call、缓存 50 条候选，前端最多返回 8 条，并有基础搜索限流。
-- 大屏接入 YouTube IFrame Player API，能在播放开始/结束时同步 `PLAYER_STARTED` / `PLAYER_ENDED`，播放按钮不覆盖 YouTube 控件。
+- 大屏接入 YouTube IFrame Player API，当前歌出现后会主动尝试播放，切到下一首时继续自动尝试播放；播放开始/结束会同步 `PLAYER_STARTED` / `PLAYER_ENDED`，播放按钮不覆盖 YouTube 控件。
+- 大屏播放器默认建议 1080p 清晰度，并会记住本机上次选择的播放清晰度用于下一首视频。
 - WebSocket 支持重连 backoff；production 断线时不会静默写入本地假状态。
 - 本地 Vite 模式保留 localStorage fallback，方便 UI 开发。
 

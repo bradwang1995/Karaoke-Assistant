@@ -5,8 +5,10 @@ import {
   type YouTubePlayer,
   type YouTubePlayerErrorEvent,
   type YouTubePlayerEvent,
+  type YouTubePlayerQualityChangeEvent,
   type YouTubePlayerStateChangeEvent,
 } from "../lib/youtubeIframeApi";
+import type { YouTubePlaybackQuality } from "../lib/youtubePlaybackQuality";
 
 type PlayerStatus =
   | "loading"
@@ -21,11 +23,14 @@ type PlayerStatus =
 interface FullscreenPlayerProps {
   videoId: string;
   title: string;
+  autoPlay: boolean;
   playRequestId: number;
+  playbackQuality: YouTubePlaybackQuality;
   onPlaybackStarted: () => void;
   onPlaybackEnded: () => void;
   onPlaybackError: (errorCode: number) => void;
   onAutoplayBlocked: () => void;
+  onPlaybackQualityChange?: (quality: YouTubePlaybackQuality) => void;
 }
 
 export interface FullscreenPlayerHandle {
@@ -37,11 +42,14 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     {
       videoId,
       title,
+      autoPlay,
       playRequestId,
+      playbackQuality,
       onPlaybackStarted,
       onPlaybackEnded,
       onPlaybackError,
       onAutoplayBlocked,
+      onPlaybackQualityChange,
     },
     ref,
   ) {
@@ -52,11 +60,16 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   const endedRef = useRef(false);
   const lastPlayRequestRef = useRef(0);
   const playRetryTimeoutsRef = useRef<number[]>([]);
+  const qualityRetryTimeoutsRef = useRef<number[]>([]);
+  const qualityChangeReportTimeoutRef = useRef<number | null>(null);
+  const canReportQualityChangeRef = useRef(false);
+  const playbackQualityRef = useRef(playbackQuality);
   const callbacksRef = useRef({
     onPlaybackStarted,
     onPlaybackEnded,
     onPlaybackError,
     onAutoplayBlocked,
+    onPlaybackQualityChange,
   });
   const [status, setStatus] = useState<PlayerStatus>("loading");
   const [errorCode, setErrorCode] = useState<number | null>(null);
@@ -69,19 +82,54 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     playRetryTimeoutsRef.current = [];
   };
 
+  const clearQualityRetryTimeouts = () => {
+    for (const timeoutId of qualityRetryTimeoutsRef.current) {
+      window.clearTimeout(timeoutId);
+    }
+
+    qualityRetryTimeoutsRef.current = [];
+  };
+
+  const clearQualityChangeReportTimeout = () => {
+    if (qualityChangeReportTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(qualityChangeReportTimeoutRef.current);
+    qualityChangeReportTimeoutRef.current = null;
+  };
+
   const requestPlay = (player: YouTubePlayer) => {
     clearPlayRetryTimeouts();
     pendingPlayRef.current = true;
+
+    if (typeof player.playVideo !== "function") {
+      return;
+    }
+
     player.playVideo();
 
     for (const delay of [250, 900]) {
       const timeoutId = window.setTimeout(() => {
-        if (pendingPlayRef.current) {
+        if (pendingPlayRef.current && typeof player.playVideo === "function") {
           player.playVideo();
         }
       }, delay);
 
       playRetryTimeoutsRef.current.push(timeoutId);
+    }
+  };
+
+  const applyPlaybackQuality = (player: YouTubePlayer) => {
+    clearQualityRetryTimeouts();
+    player.setPlaybackQuality?.(playbackQualityRef.current);
+
+    for (const delay of [500, 1_500]) {
+      const timeoutId = window.setTimeout(() => {
+        player.setPlaybackQuality?.(playbackQualityRef.current);
+      }, delay);
+
+      qualityRetryTimeoutsRef.current.push(timeoutId);
     }
   };
 
@@ -101,8 +149,23 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       onPlaybackEnded,
       onPlaybackError,
       onAutoplayBlocked,
+      onPlaybackQualityChange,
     };
-  }, [onAutoplayBlocked, onPlaybackEnded, onPlaybackError, onPlaybackStarted]);
+  }, [
+    onAutoplayBlocked,
+    onPlaybackEnded,
+    onPlaybackError,
+    onPlaybackQualityChange,
+    onPlaybackStarted,
+  ]);
+
+  useEffect(() => {
+    playbackQualityRef.current = playbackQuality;
+
+    if (playerRef.current) {
+      applyPlaybackQuality(playerRef.current);
+    }
+  }, [playbackQuality]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -110,7 +173,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
 
     startedRef.current = false;
     endedRef.current = false;
-    pendingPlayRef.current = playRequestId > 0;
+    canReportQualityChangeRef.current = false;
+    clearQualityChangeReportTimeout();
+    pendingPlayRef.current = autoPlay || playRequestId > 0;
     lastPlayRequestRef.current = playRequestId;
     setStatus("loading");
     setErrorCode(null);
@@ -136,18 +201,20 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
           height: "100%",
           videoId,
           playerVars: {
-            autoplay: playRequestId > 0 ? 1 : 0,
+            autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
             controls: 1,
             enablejsapi: 1,
             iv_load_policy: 3,
             playsinline: 1,
             rel: 0,
             origin: window.location.origin,
+            vq: playbackQualityRef.current,
           },
           events: {
             onReady: handleReady,
             onStateChange: handleStateChange,
             onError: handleError,
+            onPlaybackQualityChange: handlePlaybackQualityChange,
             onAutoplayBlocked: handleAutoplayBlocked,
           },
         });
@@ -163,7 +230,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     return () => {
       cancelled = true;
       clearPlayRetryTimeouts();
-      playerRef.current?.destroy();
+      clearQualityRetryTimeouts();
+      clearQualityChangeReportTimeout();
+      playerRef.current?.destroy?.();
       playerRef.current = null;
       shell.replaceChildren();
     };
@@ -175,6 +244,11 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       if (currentShell) {
         allowIframeAutoplay(event.target, currentShell);
       }
+
+      applyPlaybackQuality(event.target);
+      qualityChangeReportTimeoutRef.current = window.setTimeout(() => {
+        canReportQualityChangeRef.current = true;
+      }, 4_000);
 
       if (pendingPlayRef.current) {
         requestPlay(event.target);
@@ -227,13 +301,29 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       callbacksRef.current.onPlaybackError(event.data);
     }
 
+    function handlePlaybackQualityChange(event: YouTubePlayerQualityChangeEvent) {
+      const nextQuality = event.data;
+
+      if (
+        canReportQualityChangeRef.current &&
+        (nextQuality === "small" ||
+          nextQuality === "medium" ||
+          nextQuality === "large" ||
+          nextQuality === "hd720" ||
+          nextQuality === "hd1080" ||
+          nextQuality === "highres")
+      ) {
+        callbacksRef.current.onPlaybackQualityChange?.(nextQuality);
+      }
+    }
+
     function handleAutoplayBlocked() {
       pendingPlayRef.current = false;
       clearPlayRetryTimeouts();
       setStatus("blocked");
       callbacksRef.current.onAutoplayBlocked();
     }
-  }, [videoId]);
+  }, [autoPlay, videoId]);
 
   useEffect(() => {
     if (playRequestId <= lastPlayRequestRef.current) {
