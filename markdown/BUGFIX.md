@@ -27,5 +27,7 @@ This file tracks the June 26 bugfix batch from manual testing.
 
 - `npm run test`
 - `npm run build`
+- Deployed Room Worker version `0df7e1b2-7a47-4ab5-a14f-b38d90b09e9e`
+- Deployed main Worker + Assets version `aa11f04a-2b42-442a-accc-813740cc9709`
 
 Local dev-server/browser smoke verification was intentionally skipped for this batch; production manual testing should use the deployed `workers.dev` URL.

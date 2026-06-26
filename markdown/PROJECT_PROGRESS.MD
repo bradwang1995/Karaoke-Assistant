@@ -386,14 +386,14 @@ npm audit --omit=dev
 Cloudflare remote verification:
 
 ```bash
-npx wrangler versions view b430cf03-42ac-42b5-b80f-67754e1e09aa --json
-npx wrangler versions view a22916e8-ddbf-4d94-af0d-ff93ca56e680 --config wrangler.room.toml --json
+npx wrangler versions view aa11f04a-2b42-442a-accc-813740cc9709 --json
+npx wrangler versions view 0df7e1b2-7a47-4ab5-a14f-b38d90b09e9e --config wrangler.room.toml --json
 curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms
 curl https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/snapshot
 curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/cleanup
 ```
 
-Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, and Phase 7 production testing docs were updated through 2026-06-26.
+Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, and QR overlay polish were updated through 2026-06-26.
 
 ## Notes
 

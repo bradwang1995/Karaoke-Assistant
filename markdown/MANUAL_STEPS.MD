@@ -16,6 +16,7 @@ Last updated: 2026-06-26
 - KV namespace: `SEARCH_CACHE` (`aedd751919314f9e81f1917e59a859bd`)
 - `YOUTUBE_API_KEY` secret: configured on `ktv-assistant` and `ktv-assistant-room`
 - Step 7/8/8.5/8.6/9.5 verified on: `2026-06-25`
+- Latest deployment verified on: `2026-06-26`
 
 ## 现在先不用急着做的事
 
@@ -209,7 +210,7 @@ SEARCH_CACHE -> SEARCH_CACHE, namespace_id = aedd751919314f9e81f1917e59a859bd
 ROOM_OBJECT -> RoomDurableObject, script_name = ktv-assistant-room
 ```
 
-当前 `wrangler.toml` 和 `wrangler.room.toml` 已经写入真实 D1/KV id。2026-06-25 已通过 `wrangler versions view` 确认主应用 Worker 版本 `b430cf03-42ac-42b5-b80f-67754e1e09aa` 含有 `DB`、`SEARCH_CACHE`、`ROOM_OBJECT` 三个绑定，并且 `ROOM_OBJECT` 指向 `ktv-assistant-room`。
+当前 `wrangler.toml` 和 `wrangler.room.toml` 已经写入真实 D1/KV id。2026-06-26 已部署主应用 Worker 版本 `aa11f04a-2b42-442a-accc-813740cc9709` 和 Room Worker 版本 `0df7e1b2-7a47-4ab5-a14f-b38d90b09e9e`。主应用绑定含有 `DB`、`SEARCH_CACHE`、`ROOM_OBJECT`，并且 `ROOM_OBJECT` 指向 `ktv-assistant-room`；两个 Worker 的 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` 都是 `1`。
 
 ## Step 8 - 验证后端 API
 
