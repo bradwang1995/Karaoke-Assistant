@@ -8,7 +8,15 @@ import {
   type YouTubePlayerStateChangeEvent,
 } from "../lib/youtubeIframeApi";
 
-type PlayerStatus = "loading" | "ready" | "buffering" | "playing" | "paused" | "ended" | "blocked" | "error";
+type PlayerStatus =
+  | "loading"
+  | "ready"
+  | "buffering"
+  | "playing"
+  | "paused"
+  | "ended"
+  | "blocked"
+  | "error";
 
 interface FullscreenPlayerProps {
   videoId: string;

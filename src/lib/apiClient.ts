@@ -35,7 +35,23 @@ export async function fetchRoomSnapshot(roomId: string) {
   return parseJsonResponse<RoomSnapshot>(response);
 }
 
-export async function searchVideosViaApi(roomId: string, query: string, limit = 4) {
+export async function cleanupRoomViaApi(roomId: string) {
+  const response = await fetch(`/api/rooms/${roomId}/cleanup`, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+    },
+  });
+
+  return parseJsonResponse<RoomSnapshot>(response);
+}
+
+export async function searchVideosViaApi(
+  roomId: string,
+  query: string,
+  limit = 4,
+  options: { cacheFill?: boolean } = {},
+) {
   const response = await fetch(`/api/rooms/${roomId}/search`, {
     method: "POST",
     headers: {
@@ -45,6 +61,7 @@ export async function searchVideosViaApi(roomId: string, query: string, limit = 
     body: JSON.stringify({
       query,
       limit,
+      ...(typeof options.cacheFill === "boolean" ? { cacheFill: options.cacheFill } : {}),
     }),
   });
 

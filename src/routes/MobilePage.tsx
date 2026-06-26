@@ -6,16 +6,20 @@ import {
   Play,
   Search,
   Trash2,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { useRoomSocket } from "../hooks/useRoomSocket";
-import { searchVideosViaApi } from "../lib/apiClient";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { StatusMessage } from "../components/StatusMessage";
+import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
+import { ApiClientError, searchVideosViaApi } from "../lib/apiClient";
+import { searchMockVideos } from "../lib/mockSearch";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { addSongToRoom, promoteSong, removeSong, useRoomSnapshot } from "../lib/roomState";
-import { searchMockVideos } from "../lib/mockSearch";
 import { youtubeEmbedUrl } from "../lib/youtube";
 import { useMobileUiStore } from "../stores/mobileUiStore";
 import type { QueueItem } from "../types/room";
@@ -30,6 +34,10 @@ export default function MobilePage() {
   const queuedItems = getQueuedItems(snapshot);
   const activeTab = useMobileUiStore((state) => state.activeTab);
   const setActiveTab = useMobileUiStore((state) => state.setActiveTab);
+  const existingItems = useMemo(
+    () => (currentItem ? [currentItem, ...queuedItems] : queuedItems),
+    [currentItem, queuedItems],
+  );
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -40,9 +48,15 @@ export default function MobilePage() {
               <h1 className="text-lg font-semibold tracking-normal">K歌助手</h1>
               <p className="text-xs text-slate-500">房间 {roomId}</p>
             </div>
-            <div className="rounded-lg bg-teal-50 px-3 py-2 text-right">
-              <p className="text-[11px] text-teal-700">即将播放</p>
-              <p className="text-sm font-semibold text-teal-950">{queuedItems.length} 首</p>
+            <div className="flex flex-col items-end gap-2">
+              <div className="rounded-lg bg-teal-50 px-3 py-2 text-right">
+                <p className="text-[11px] text-teal-700">即将播放</p>
+                <p className="text-sm font-semibold text-teal-950">{queuedItems.length} 首</p>
+              </div>
+              <ConnectionBadge
+                status={roomSocket.status}
+                canUseLocalFallback={roomSocket.canUseLocalFallback}
+              />
             </div>
           </div>
 
@@ -65,7 +79,9 @@ export default function MobilePage() {
         {activeTab === "search" ? (
           <SearchTab
             roomId={roomId}
+            existingItems={existingItems}
             isSocketConnected={roomSocket.status === "connected"}
+            canUseLocalFallback={roomSocket.canUseLocalFallback}
             sendRoomMessage={roomSocket.send}
           />
         ) : (
@@ -74,6 +90,7 @@ export default function MobilePage() {
             currentItem={currentItem}
             queuedItems={queuedItems}
             isSocketConnected={roomSocket.status === "connected"}
+            canUseLocalFallback={roomSocket.canUseLocalFallback}
             sendRoomMessage={roomSocket.send}
           />
         )}
@@ -109,54 +126,94 @@ function TabButton({
 
 function SearchTab({
   roomId,
+  existingItems,
   isSocketConnected,
+  canUseLocalFallback,
   sendRoomMessage,
 }: {
   roomId: string;
+  existingItems: QueueItem[];
   isSocketConnected: boolean;
-  sendRoomMessage: (message: ClientToServerMessage) => void;
+  canUseLocalFallback: boolean;
+  sendRoomMessage: (message: ClientToServerMessage) => boolean;
 }) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<VideoSearchResult | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [duplicateCandidate, setDuplicateCandidate] = useState<VideoSearchResult | null>(null);
   const setActiveTab = useMobileUiStore((state) => state.setActiveTab);
 
   const searchMutation = useMutation({
     mutationFn: async (nextQuery: string) => {
       try {
-        return await searchVideosViaApi(roomId, nextQuery, 4);
-      } catch {
-        return searchMockVideos(nextQuery, 4);
+        return await searchVideosViaApi(roomId, nextQuery.trim(), 4);
+      } catch (error) {
+        if (canUseLocalFallback) {
+          return searchMockVideos(nextQuery, 4);
+        }
+
+        throw error;
       }
     },
     onSuccess: (response) => {
+      setActionError(null);
       setSelected(response.results[0] ?? null);
     },
   });
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
-    searchMutation.mutate(query);
+    const nextQuery = query.trim();
+
+    if (!nextQuery || searchMutation.isPending) {
+      return;
+    }
+
+    setActionError(null);
+    setDuplicateCandidate(null);
+    searchMutation.mutate(nextQuery);
   };
 
   const addSelectedSong = () => {
     if (!selected) return;
 
+    const duplicate = existingItems.find((item) => item.videoId === selected.videoId);
+
+    if (duplicate) {
+      setDuplicateCandidate(selected);
+      return;
+    }
+
+    submitSelectedSong(selected);
+  };
+
+  const submitSelectedSong = (result: VideoSearchResult) => {
     const payload = {
-      videoId: selected.videoId,
-      title: selected.title,
-      channelTitle: selected.channelTitle,
-      thumbnailUrl: selected.thumbnailUrl,
+      videoId: result.videoId,
+      title: result.title,
+      channelTitle: result.channelTitle,
+      thumbnailUrl: result.thumbnailUrl,
     };
 
     if (isSocketConnected) {
-      sendRoomMessage({
+      const sent = sendRoomMessage({
         type: "ADD_QUEUE_ITEM",
         payload,
       });
-    } else {
+
+      if (!sent) {
+        setActionError("房间连接正在恢复，请稍后再试。");
+        return;
+      }
+    } else if (canUseLocalFallback) {
       addSongToRoom(roomId, payload);
+    } else {
+      setActionError("房间连接正在恢复，请稍后再点歌。");
+      return;
     }
 
+    setActionError(null);
+    setDuplicateCandidate(null);
     setActiveTab("queue");
   };
 
@@ -186,9 +243,15 @@ function SearchTab({
       </form>
 
       {searchMutation.isError ? (
-        <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-          搜索失败，请稍后再试
-        </p>
+        <StatusMessage tone="error" title="搜索失败" className="mt-4">
+          {searchErrorMessage(searchMutation.error)}
+        </StatusMessage>
+      ) : null}
+
+      {actionError ? (
+        <StatusMessage tone="warning" title="暂时不能点歌" className="mt-4">
+          {actionError}
+        </StatusMessage>
       ) : null}
 
       {searchMutation.isPending ? (
@@ -200,9 +263,9 @@ function SearchTab({
       ) : null}
 
       {!searchMutation.isPending && searchMutation.data && results.length === 0 ? (
-        <p className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-center text-sm text-slate-500">
-          没有找到合适的视频
-        </p>
+        <StatusMessage tone="info" className="mt-5">
+          没有找到合适的视频。
+        </StatusMessage>
       ) : null}
 
       {results.length > 0 ? (
@@ -213,7 +276,11 @@ function SearchTab({
                 key={result.videoId}
                 result={result}
                 selected={selected?.videoId === result.videoId}
-                onSelect={() => setSelected(result)}
+                duplicate={existingItems.some((item) => item.videoId === result.videoId)}
+                onSelect={() => {
+                  setSelected(result);
+                  setActionError(null);
+                }}
               />
             ))}
           </div>
@@ -227,9 +294,25 @@ function SearchTab({
               <Check size={20} />
               点歌
             </button>
+            <p className="mt-2 text-center text-[11px] leading-4 text-slate-500">
+              搜索使用 YouTube Data API，视频仅通过 YouTube 嵌入播放器播放。
+            </p>
           </div>
         </>
       ) : null}
+
+      <ConfirmDialog
+        open={duplicateCandidate !== null}
+        title="歌单里已经有这首歌"
+        body={duplicateCandidate?.title}
+        confirmLabel="继续点歌"
+        onCancel={() => setDuplicateCandidate(null)}
+        onConfirm={() => {
+          if (duplicateCandidate) {
+            submitSelectedSong(duplicateCandidate);
+          }
+        }}
+      />
     </section>
   );
 }
@@ -237,10 +320,12 @@ function SearchTab({
 function CandidateVideoCard({
   result,
   selected,
+  duplicate,
   onSelect,
 }: {
   result: VideoSearchResult;
   selected: boolean;
+  duplicate: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -269,10 +354,17 @@ function CandidateVideoCard({
             <Play size={15} />
           </div>
           <div className="min-w-0">
-            <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-950">
-              {result.title}
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-950">
+                {result.title}
+              </h3>
+            </div>
             <p className="mt-1 truncate text-xs text-slate-500">{result.channelTitle}</p>
+            {duplicate ? (
+              <span className="mt-2 inline-flex rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                已在歌单
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -285,14 +377,17 @@ function QueueTab({
   currentItem,
   queuedItems,
   isSocketConnected,
+  canUseLocalFallback,
   sendRoomMessage,
 }: {
   roomId: string;
   currentItem: QueueItem | null;
   queuedItems: QueueItem[];
   isSocketConnected: boolean;
-  sendRoomMessage: (message: ClientToServerMessage) => void;
+  canUseLocalFallback: boolean;
+  sendRoomMessage: (message: ClientToServerMessage) => boolean;
 }) {
+  const [actionError, setActionError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<
     | { type: "promote"; item: QueueItem }
     | { type: "remove"; item: QueueItem }
@@ -301,43 +396,37 @@ function QueueTab({
 
   const confirmTitle = useMemo(() => {
     if (!confirmAction) return "";
-    return confirmAction.type === "promote"
-      ? "确定要置顶这首歌吗？"
-      : "确定要删除这首歌吗？";
+    return confirmAction.type === "promote" ? "确定要置顶这首歌吗？" : "确定要删除这首歌吗？";
   }, [confirmAction]);
 
   const handleConfirm = () => {
     if (!confirmAction) return;
 
-    if (confirmAction.type === "promote") {
-      if (isSocketConnected) {
-        sendRoomMessage({
-          type: "PROMOTE_QUEUE_ITEM",
-          payload: {
-            queueItemId: confirmAction.item.id,
-          },
-        });
-      } else {
-        promoteSong(roomId, confirmAction.item.id);
-      }
-    } else {
-      if (isSocketConnected) {
-        sendRoomMessage({
-          type: "REMOVE_QUEUE_ITEM",
-          payload: {
-            queueItemId: confirmAction.item.id,
-          },
-        });
-      } else {
-        removeSong(roomId, confirmAction.item.id);
-      }
+    const sentOrFallback = runQueueAction({
+      roomId,
+      action: confirmAction,
+      isSocketConnected,
+      canUseLocalFallback,
+      sendRoomMessage,
+    });
+
+    if (!sentOrFallback) {
+      setActionError("房间连接正在恢复，请稍后再操作歌单。");
+      return;
     }
 
+    setActionError(null);
     setConfirmAction(null);
   };
 
   return (
     <section className="flex-1 overflow-y-auto px-4 py-4 scrollbar-soft">
+      {actionError ? (
+        <StatusMessage tone="warning" title="操作未完成" className="mb-4">
+          {actionError}
+        </StatusMessage>
+      ) : null}
+
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <p className="text-xs font-semibold text-teal-700">正在播放</p>
         {currentItem ? (
@@ -390,7 +479,8 @@ function QueueTab({
       <ConfirmDialog
         open={confirmAction !== null}
         title={confirmTitle}
-        body={confirmAction?.item.title ?? ""}
+        body={confirmAction?.item.title}
+        destructive={confirmAction?.type === "remove"}
         onCancel={() => setConfirmAction(null)}
         onConfirm={handleConfirm}
       />
@@ -449,43 +539,97 @@ function QueueItemCard({
   );
 }
 
-function ConfirmDialog({
-  open,
-  title,
-  body,
-  onCancel,
-  onConfirm,
+function ConnectionBadge({
+  status,
+  canUseLocalFallback,
 }: {
-  open: boolean;
-  title: string;
-  body: string;
-  onCancel: () => void;
-  onConfirm: () => void;
+  status: SocketStatus;
+  canUseLocalFallback: boolean;
 }) {
-  if (!open) return null;
+  const connected = status === "connected";
+  const label = connectionLabel(status, canUseLocalFallback);
+  const Icon = connected ? Wifi : WifiOff;
 
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-slate-950/50 px-4">
-      <div className="w-full max-w-sm rounded-lg bg-white p-4 shadow-xl">
-        <h2 className="text-lg font-semibold tracking-normal text-slate-950">{title}</h2>
-        <p className="mt-2 line-clamp-2 text-sm text-slate-600">{body}</p>
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            确定
-          </button>
-        </div>
-      </div>
-    </div>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold ${
+        connected
+          ? "bg-emerald-50 text-emerald-700"
+          : canUseLocalFallback
+            ? "bg-slate-100 text-slate-600"
+            : "bg-amber-50 text-amber-700"
+      }`}
+    >
+      <Icon size={13} />
+      {label}
+    </span>
   );
+}
+
+function connectionLabel(status: SocketStatus, canUseLocalFallback: boolean) {
+  if (canUseLocalFallback) return "本地模式";
+  if (status === "connected") return "实时已连接";
+  if (status === "connecting") return "正在连接";
+  if (status === "reconnecting") return "正在重连";
+  return "连接不可用";
+}
+
+function runQueueAction({
+  roomId,
+  action,
+  isSocketConnected,
+  canUseLocalFallback,
+  sendRoomMessage,
+}: {
+  roomId: string;
+  action: { type: "promote"; item: QueueItem } | { type: "remove"; item: QueueItem };
+  isSocketConnected: boolean;
+  canUseLocalFallback: boolean;
+  sendRoomMessage: (message: ClientToServerMessage) => boolean;
+}) {
+  if (action.type === "promote") {
+    if (isSocketConnected) {
+      return sendRoomMessage({
+        type: "PROMOTE_QUEUE_ITEM",
+        payload: {
+          queueItemId: action.item.id,
+        },
+      });
+    }
+
+    if (canUseLocalFallback) {
+      promoteSong(roomId, action.item.id);
+      return true;
+    }
+
+    return false;
+  }
+
+  if (isSocketConnected) {
+    return sendRoomMessage({
+      type: "REMOVE_QUEUE_ITEM",
+      payload: {
+        queueItemId: action.item.id,
+      },
+    });
+  }
+
+  if (canUseLocalFallback) {
+    removeSong(roomId, action.item.id);
+    return true;
+  }
+
+  return false;
+}
+
+function searchErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError && error.status === 429) {
+    return "搜索太频繁了，请稍等一下再试。";
+  }
+
+  if (error instanceof ApiClientError) {
+    return error.message;
+  }
+
+  return "请稍后再试。";
 }

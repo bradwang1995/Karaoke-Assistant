@@ -1,55 +1,72 @@
 # K歌助手
 
-一个面向朋友聚会的 Web KTV 点歌助手。当前版本已经跑通本地 MVP，并完成 Cloudflare Worker + Assets、Durable Object、D1、KV、WebSocket 队列和真实 YouTube 搜索的线上验证。
+一个面向朋友聚会场景的 Web KTV 点歌助手：大屏负责播放，手机负责点歌，同一个房间通过 Cloudflare Worker + Durable Object + WebSocket 同步歌单。
 
-## MVP 已包含
-
-- `/create` 创建房间并进入大屏页
-- `/room/:roomId/display` 大屏播放页，显示二维码和当前歌曲
-- `/room/:roomId/mobile` 手机点歌页，包含「点歌」和「歌单」两个标签
-- 真实 YouTube 搜索 API，返回 4 个候选视频；本地/失败时保留 mock fallback
-- 候选视频可预览、选择并加入歌单
-- 本地跨标签页同步歌单、置顶、删歌、下一首
-- Cloudflare Worker + Assets 部署配置、D1 初始 migration、KV 缓存和 Durable Object 房间后端
-
-## 线上环境
+## Production
 
 - 主应用域名：`https://ktv-assistant.bradwang1995.workers.dev`
 - 主应用 Worker：`ktv-assistant`
 - Room Durable Object Worker：`ktv-assistant-room`
+- Durable Object class：`RoomDurableObject`
 - D1 database：`ktv-assistant-db` (`a2fe987b-5191-4ac3-9d01-f923d19c731a`)
 - KV namespace：`SEARCH_CACHE` (`aedd751919314f9e81f1917e59a859bd`)
-- Durable Object class：`RoomDurableObject`
-- YouTube Data API secret：已配置为 `YOUTUBE_API_KEY`
+- YouTube Data API secret：`YOUTUBE_API_KEY` 已配置在 Cloudflare
 
-## 本地运行
+## 当前功能
+
+- `/create` 创建房间并进入大屏页。
+- `/room/:roomId/display` 大屏播放页，显示 QR code、当前歌曲、播放控制和连接状态。
+- `/room/:roomId/mobile` 手机点歌页，支持搜索、预览、点歌、置顶、删歌和重复点歌提示。
+- `/room/:roomId/debug` 调试页，支持查看 snapshot、复制房间链接、刷新远端状态和清理已完成歌曲。
+- 后端搜索接入 YouTube Data API，KV 缓存搜索结果，并有基础搜索限流。
+- 大屏接入 YouTube IFrame Player API，能在播放开始/结束时同步 `PLAYER_STARTED` / `PLAYER_ENDED`。
+- WebSocket 支持重连 backoff；production 断线时不会静默写入本地假状态。
+- 本地 Vite 模式保留 localStorage fallback，方便 UI 开发。
+
+## 本地开发
 
 ```bash
 npm install
 npm run dev
 ```
 
-打开 `/create` 创建房间。大屏页右上角二维码会指向同一个房间的手机点歌页。
+本地 Vite server 主要用于 UI 开发。真实 D1、KV、Durable Object、WebSocket 和 production asset 行为，请使用 production URL 测试。
 
 ## 验证
 
 ```bash
-npm run build
+npm run typecheck
 npm run test
+npm run build
 ```
 
-## Cloudflare backend notes
+Production 测试流程见：
 
-当前仓库里有两份 Wrangler 配置：
+```txt
+testing.md
+```
 
-- `wrangler.toml`：主应用 Worker + Assets，负责前端资源和 `/api/*`。
-- `wrangler.room.toml`：Room Durable Object Worker。
+## 部署
 
-主应用 Worker 已绑定 `DB`、`SEARCH_CACHE` 和 `ROOM_OBJECT`。`ROOM_OBJECT` 指向 `ktv-assistant-room` 导出的 `RoomDurableObject`；两个 Wrangler 文件里的 D1/KV id 都已替换成真实资源 id。
+只改主应用 Worker + Assets 时：
 
-## 后续方向
+```bash
+npm run build
+npx wrangler deploy --keep-vars
+```
 
-1. 按 [searchdetails.md](searchdetails.md) 扩展搜索 query、100-result cache fill 和 quota guardrails。
-2. 用 YouTube IFrame Player API 实现自动播下一首和错误处理。
-3. 做移动端和大屏视觉 QA。
-4. 补 WebSocket reconnect retry/backoff。
+如果改到了 Room Durable Object Worker：
+
+```bash
+npm run build
+npx wrangler deploy --config wrangler.room.toml --keep-vars
+npx wrangler deploy --keep-vars
+```
+
+使用 `--keep-vars` 是为了避免覆盖 Cloudflare Dashboard 中已有的变量配置。不要把 `YOUTUBE_API_KEY` 或 Cloudflare token 写进源码、README、`.env`、`.dev.vars` 或 Wrangler config。
+
+## 重要约束
+
+- YouTube 内容只通过官方 embed / IFrame Player API 播放。
+- 不下载、不转码、不提取、不重新托管 YouTube 视频。
+- production 行为以 `workers.dev` 线上环境为准，不以本地 Vite fallback 为准。

@@ -217,6 +217,19 @@ export async function saveRoomSnapshotToD1(db: D1Database, snapshot: RoomSnapsho
   }
 }
 
+export async function deleteInactiveQueueItemsFromD1(db: D1Database, roomId: string) {
+  await db
+    .prepare(
+      `
+      DELETE FROM queue_items
+      WHERE room_id = ?
+        AND status IN ('completed', 'removed')
+      `,
+    )
+    .bind(roomId)
+    .run();
+}
+
 function toQueueItem(row: QueueItemRow): QueueItem {
   return {
     id: row.id,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addQueueItem,
+  cleanupCompletedItems,
   createInitialSnapshot,
   getCurrentItem,
   getQueuedItems,
@@ -58,5 +59,16 @@ describe("room reducer", () => {
     expect(getCurrentItem(advanced)?.videoId).toBe("second");
     expect(getQueuedItems(advanced)).toEqual([]);
   });
-});
 
+  it("removes completed items during cleanup", () => {
+    const initial = createInitialSnapshot("room-a", "2026-06-23T00:00:00.000Z");
+    const withFirst = addQueueItem(initial, { videoId: "first", title: "First" });
+    const withSecond = addQueueItem(withFirst, { videoId: "second", title: "Second" });
+    const current = getCurrentItem(withSecond)!;
+    const advanced = markPlayerEnded(withSecond, current.id, current.videoId);
+    const cleaned = cleanupCompletedItems(advanced);
+
+    expect(cleaned.queue.some((item) => item.videoId === "first")).toBe(false);
+    expect(getCurrentItem(cleaned)?.videoId).toBe("second");
+  });
+});

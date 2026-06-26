@@ -1,6 +1,11 @@
 import type { RoomSnapshot } from "../src/types/room";
 import type { ClientRole } from "../src/types/websocket";
-import { getRoomSnapshotFromD1, saveRoomSnapshotToD1 } from "./d1Repository";
+import { cleanupCompletedItems } from "../src/lib/roomReducer";
+import {
+  deleteInactiveQueueItemsFromD1,
+  getRoomSnapshotFromD1,
+  saveRoomSnapshotToD1,
+} from "./d1Repository";
 import { apiError, jsonResponse } from "./json";
 import { applyRoomCommand, type RoomCommandMessage } from "./roomCommands";
 import { isValidRoomId } from "./roomIds";
@@ -45,6 +50,33 @@ export class RoomDurableObject {
       }
 
       return jsonResponse(snapshot);
+    }
+
+    if (route?.name === "cleanup") {
+      if (!isValidRoomId(route.roomId)) {
+        return apiError(400, "INVALID_ROOM_ID", "Room id must be 8 lowercase letters or numbers.");
+      }
+
+      if (!this.env.DB) {
+        return apiError(503, "D1_NOT_CONFIGURED", "D1 binding DB is not configured.");
+      }
+
+      const snapshot = await this.getSnapshot(route.roomId);
+      const cleaned = {
+        ...cleanupCompletedItems(snapshot),
+        connectedClients: this.sockets.size,
+      };
+
+      await saveRoomSnapshotToD1(this.env.DB, cleaned);
+      await deleteInactiveQueueItemsFromD1(this.env.DB, route.roomId);
+
+      const nextSnapshot = {
+        ...((await getRoomSnapshotFromD1(this.env.DB, route.roomId)) ?? cleaned),
+        connectedClients: this.sockets.size,
+      };
+      this.broadcastSnapshot(nextSnapshot);
+
+      return jsonResponse(nextSnapshot);
     }
 
     if (route?.name === "ws") {
@@ -229,6 +261,10 @@ function matchRoomRoute(pathname: string) {
 
   if (parts.length === 3 && parts[0] === "rooms" && parts[2] === "snapshot") {
     return { name: "snapshot" as const, roomId: parts[1] };
+  }
+
+  if (parts.length === 3 && parts[0] === "rooms" && parts[2] === "cleanup") {
+    return { name: "cleanup" as const, roomId: parts[1] };
   }
 
   if (parts.length === 3 && parts[0] === "rooms" && parts[2] === "ws") {

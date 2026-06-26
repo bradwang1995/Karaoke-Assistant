@@ -506,3 +506,70 @@ curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/s
 - Cloudflare Pages Direct Upload: https://developers.cloudflare.com/pages/get-started/direct-upload/
 - Cloudflare Pages Functions bindings: https://developers.cloudflare.com/pages/functions/bindings/
 - Cloudflare Durable Objects getting started: https://developers.cloudflare.com/durable-objects/get-started/
+
+## Phase 7 - Production polish and reliability checks
+
+Last updated: 2026-06-26
+
+这部分是当前 production MVP 的日常手动验收入口。完整双语测试流程见 `testing.md`。
+
+### 部署提醒
+
+只改主应用 Worker + Assets 时：
+
+```bash
+npm run build
+npx wrangler deploy --keep-vars
+```
+
+如果改到了 Room Durable Object Worker：
+
+```bash
+npm run build
+npx wrangler deploy --config wrangler.room.toml --keep-vars
+npx wrangler deploy --keep-vars
+```
+
+使用 `--keep-vars`，避免覆盖 Cloudflare Dashboard 中已有变量。不要把 `YOUTUBE_API_KEY` 或 Cloudflare token 写入源码。
+
+### Debug 页
+
+打开：
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/debug
+```
+
+可以检查：
+
+- WebSocket 连接状态
+- 当前 playback state
+- queue 数量
+- room snapshot JSON
+- display / mobile / debug 链接复制
+- `POST /api/rooms/:roomId/cleanup` 清理 completed / removed 歌曲
+
+### Search rate limit
+
+当前主应用和 Room Worker 配置：
+
+```toml
+SEARCH_RATE_LIMIT_PER_MINUTE = "20"
+```
+
+超过限制时，搜索 API 应返回：
+
+- HTTP `429`
+- error code `SEARCH_RATE_LIMITED`
+- `retry-after` header
+
+### 仍需真实设备验收
+
+以下测试必须在真实设备上完成，不能只用本地 Vite server 代替：
+
+- Mobile Safari
+- Android Chrome
+- iPad Safari
+- Desktop Chrome
+
+每个设备至少测试创建房间、扫码/打开手机页、搜索、点两首歌、大屏开始播放、下一首、debug snapshot。

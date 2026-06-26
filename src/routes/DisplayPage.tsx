@@ -1,9 +1,19 @@
-import { Copy, ExternalLink, MonitorPlay, QrCode, SkipForward } from "lucide-react";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  MonitorPlay,
+  QrCode,
+  SkipForward,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { FullscreenPlayer } from "../components/FullscreenPlayer";
-import { useRoomSocket } from "../hooks/useRoomSocket";
+import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
+import { copyTextToClipboard } from "../lib/clipboard";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
 import type { QueueItem } from "../types/room";
@@ -17,6 +27,7 @@ export default function DisplayPage() {
   const [playRequestId, setPlayRequestId] = useState(0);
   const [autoAdvanceEnabled, setAutoAdvanceEnabled] = useState(false);
   const [playerIssue, setPlayerIssue] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
 
   const mobileUrl = useMemo(() => {
@@ -27,15 +38,19 @@ export default function DisplayPage() {
   const sendPlayerStarted = useCallback(
     (item: QueueItem) => {
       if (roomSocket.status === "connected") {
-        roomSocket.send({
+        if (!roomSocket.send({
           type: "PLAYER_STARTED",
           payload: {
             queueItemId: item.id,
             videoId: item.videoId,
           },
-        });
-      } else {
+        })) {
+          setPlayerIssue("房间连接正在恢复，播放状态暂未同步。");
+        }
+      } else if (roomSocket.canUseLocalFallback) {
         playerStarted(roomId, item.id, item.videoId);
+      } else {
+        setPlayerIssue("房间连接正在恢复，播放状态暂未同步。");
       }
     },
     [roomId, roomSocket],
@@ -44,15 +59,19 @@ export default function DisplayPage() {
   const sendPlayerEnded = useCallback(
     (item: QueueItem) => {
       if (roomSocket.status === "connected") {
-        roomSocket.send({
+        if (!roomSocket.send({
           type: "PLAYER_ENDED",
           payload: {
             queueItemId: item.id,
             videoId: item.videoId,
           },
-        });
-      } else {
+        })) {
+          setPlayerIssue("房间连接正在恢复，请稍后再切歌。");
+        }
+      } else if (roomSocket.canUseLocalFallback) {
         playerEnded(roomId, item.id, item.videoId);
+      } else {
+        setPlayerIssue("房间连接正在恢复，请稍后再切歌。");
       }
     },
     [roomId, roomSocket],
@@ -108,16 +127,16 @@ export default function DisplayPage() {
   const handleNext = () => {
     if (!currentItem) return;
     setPlayerIssue(null);
-    if (roomSocket.status === "connected") {
-      roomSocket.send({
-        type: "PLAYER_ENDED",
-        payload: {
-          queueItemId: currentItem.id,
-          videoId: currentItem.videoId,
-        },
-      });
-    } else {
-      playerEnded(roomId, currentItem.id, currentItem.videoId);
+    sendPlayerEnded(currentItem);
+  };
+
+  const copyMobileLink = async () => {
+    try {
+      await copyTextToClipboard(mobileUrl);
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 1_600);
+    } catch {
+      setCopyState("error");
     }
   };
 
@@ -145,7 +164,9 @@ export default function DisplayPage() {
             <h1 className="text-3xl font-semibold tracking-normal sm:text-5xl">
               当前没有视频播放
             </h1>
-            <p className="mt-4 text-base text-slate-300">让朋友扫码点歌，第一首会自动排到这里。</p>
+            <p className="mt-4 text-base text-slate-300">
+              让朋友扫码点歌，第一首会自动排到这里。
+            </p>
           </div>
         </section>
       )}
@@ -159,10 +180,10 @@ export default function DisplayPage() {
           <button
             type="button"
             title="复制手机链接"
-            onClick={() => navigator.clipboard.writeText(mobileUrl)}
+            onClick={copyMobileLink}
             className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
           >
-            <Copy size={15} />
+            {copyState === "copied" ? <Check size={15} /> : <Copy size={15} />}
           </button>
         </div>
         <QRCodeSVG value={mobileUrl} size={132} level="M" includeMargin />
@@ -173,9 +194,19 @@ export default function DisplayPage() {
           <ExternalLink size={13} />
           打开手机页
         </Link>
+        {copyState === "copied" ? (
+          <p className="mt-2 text-center text-[11px] font-medium text-emerald-700">链接已复制</p>
+        ) : null}
+        {copyState === "error" ? (
+          <p className="mt-2 text-center text-[11px] font-medium text-rose-700">复制失败</p>
+        ) : null}
       </div>
 
       <div className="absolute left-4 top-4 z-20 flex max-w-[calc(100%-220px)] flex-wrap items-center gap-2">
+        <ConnectionBadge
+          status={roomSocket.status}
+          canUseLocalFallback={roomSocket.canUseLocalFallback}
+        />
         {currentItem ? (
           <>
             <button
@@ -220,4 +251,38 @@ export default function DisplayPage() {
       </div>
     </main>
   );
+}
+
+function ConnectionBadge({
+  status,
+  canUseLocalFallback,
+}: {
+  status: SocketStatus;
+  canUseLocalFallback: boolean;
+}) {
+  const connected = status === "connected";
+  const Icon = connected ? Wifi : WifiOff;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold backdrop-blur ${
+        connected
+          ? "bg-emerald-500/90 text-emerald-950"
+          : canUseLocalFallback
+            ? "bg-white/12 text-white"
+            : "bg-amber-400/90 text-amber-950"
+      }`}
+    >
+      <Icon size={15} />
+      {connectionLabel(status, canUseLocalFallback)}
+    </span>
+  );
+}
+
+function connectionLabel(status: SocketStatus, canUseLocalFallback: boolean) {
+  if (canUseLocalFallback) return "本地模式";
+  if (status === "connected") return "实时已连接";
+  if (status === "connecting") return "正在连接";
+  if (status === "reconnecting") return "正在重连";
+  return "连接不可用";
 }

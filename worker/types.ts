@@ -7,6 +7,7 @@ export interface Env {
   YOUTUBE_SEARCH_MAX_CALLS_PER_FILL?: string;
   SEARCH_CACHE_TTL_DAYS?: string;
   SEARCH_CACHE_MAX_ENTRY_BYTES?: string;
+  SEARCH_RATE_LIMIT_PER_MINUTE?: string;
 }
 
 export interface RoomRow {

@@ -199,6 +199,17 @@ export function markPlayerEnded(
   );
 }
 
+export function cleanupCompletedItems(
+  snapshot: RoomSnapshot,
+  now = new Date().toISOString(),
+): RoomSnapshot {
+  const queue = snapshot.queue.filter(
+    (item) => item.status !== "completed" && item.status !== "removed",
+  );
+
+  return ensureActiveSong(touchRoom({ ...snapshot, queue }, now), now);
+}
+
 export function ensureActiveSong(
   snapshot: RoomSnapshot,
   now = new Date().toISOString(),

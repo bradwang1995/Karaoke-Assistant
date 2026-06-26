@@ -1,6 +1,6 @@
 # K歌助手项目进展 Tracker
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
 这个文件用来跟踪 `KTV_Assistant_Cloudflare_Design_Doc.md` 里的实现进度。我们后续每一轮都可以按这里的步骤推进：做一小块、验证一小块、更新一小块。
 
@@ -231,19 +231,19 @@ Last updated: 2026-06-25
 
 设计目标：让真实聚会场景更稳、更舒服。
 
-- `[ ]` WebSocket reconnect
-- `[ ]` loading states 统一
-- `[ ]` error states 统一
-- `[ ]` duplicate song warning
-- `[ ]` copy room link button polish
-- `[ ]` debug page `/room/:roomId/debug`
-- `[ ]` basic room cleanup
-- `[ ]` search rate limiting
-- `[ ]` YouTube API 使用说明或 footer
-- `[ ]` 移动端 Safari 测试
-- `[ ]` Android Chrome 测试
-- `[ ]` iPad Safari 测试
-- `[ ]` Desktop Chrome 测试
+- `[x]` WebSocket reconnect retry/backoff
+- `[x]` loading states 统一
+- `[x]` error states 统一
+- `[x]` duplicate song warning
+- `[x]` copy room link button polish
+- `[x]` debug page `/room/:roomId/debug`
+- `[x]` basic room cleanup endpoint `POST /api/rooms/:roomId/cleanup`
+- `[x]` search rate limiting
+- `[x]` YouTube API 使用说明或 footer
+- `[~]` 移动端 Safari 测试：测试清单已补，待实机验收
+- `[~]` Android Chrome 测试：测试清单已补，待实机验收
+- `[~]` iPad Safari 测试：测试清单已补，待实机验收
+- `[~]` Desktop Chrome 测试：测试清单已补，待实机验收
 
 ## Testing Progress
 
@@ -265,8 +265,9 @@ Last updated: 2026-06-25
 - `[x]` WebSocket message unit tests
 - `[x]` Room command unit tests
 - `[x]` WebSocket runtime integration tests
+- `[x]` Search rate-limit unit tests
 - `[ ]` Playwright E2E test
-- `[ ]` Manual QR scan test on phone
+- `[~]` Manual QR scan / device matrix documented in `testing.md`
 
 ## Recommended Next Iterations
 
@@ -294,7 +295,7 @@ Goal: display and mobile can connect to the same room Durable Object.
 - `[x]` Send initial `ROOM_SNAPSHOT`
 - `[x]` Track connected clients
 - `[x]` Add safe frontend WebSocket hook with local fallback
-- `[ ]` Add reconnect retry/backoff
+- `[x]` Add reconnect retry/backoff
 - `[x]` Runtime-test WebSocket with real Cloudflare bindings
 
 ### Iteration 3 - Durable Object queue operations
@@ -340,12 +341,14 @@ Goal: display page detects playback events and advances automatically.
 
 Goal: make the MVP comfortable enough for a real small gathering.
 
-- `[ ]` Phone portrait QA
-- `[ ]` Landscape display QA
-- `[ ]` Better loading/error UI
-- `[ ]` Room link copy polish
-- `[ ]` Duplicate song warning
-- `[ ]` Reconnect polish
+- `[~]` Phone portrait QA documented, awaiting real-device pass
+- `[~]` Landscape display QA documented, awaiting real-device pass
+- `[x]` Better loading/error UI
+- `[x]` Room link copy polish
+- `[x]` Duplicate song warning
+- `[x]` Reconnect polish
+- `[x]` Debug page and cleanup endpoint
+- `[x]` Search rate limiting
 
 ## Current Commands
 
@@ -371,13 +374,14 @@ npx wrangler versions view b430cf03-42ac-42b5-b80f-67754e1e09aa --json
 npx wrangler versions view a22916e8-ddbf-4d94-af0d-ff93ca56e680 --config wrangler.room.toml --json
 curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms
 curl https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/snapshot
+curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/cleanup
 ```
 
-Remote Step 7/8, Step 8.5, Step 8.6, and Step 9.5 verification was run on 2026-06-25.
+Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, and Phase 7 production testing docs were updated through 2026-06-26.
 
 ## Notes
 
-- We are staying on the local `master` branch.
+- We are staying on the local `main` branch.
 - Do not edit files outside `C:\Brad Wang\Repos\K歌助手` for implementation work.
 - The first MVP intentionally prioritizes a usable local flow before replacing the local state layer with Cloudflare infrastructure.
 - YouTube content must remain embedded only. Do not download, extract, transcode, or re-host YouTube videos.

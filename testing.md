@@ -259,7 +259,59 @@ ws.send(JSON.stringify({
 - 下一首 queued 歌变成 `playing`。
 - 如果没有下一首，`playback.playerState` 变成 `"idle"`。
 
-## 中文 5. 不要用本地 server 测这些东西
+## 中文 5. Debug 页和 Cleanup 测试
+
+打开：
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/debug
+```
+
+预期：
+
+- 能看到连接状态、当前播放状态、队列数量和 snapshot JSON。
+- 点击 `刷新远端 snapshot` 后，JSON 应该更新为远端 D1 / Durable Object 当前状态。
+- 点击链接区域的任意链接，应该能复制对应 URL，并显示复制成功状态。
+- 当队列里有 completed / removed 歌曲时，点击 `清理已完成歌曲` 后，这些项目应该从 snapshot 里移除。
+- 清理后 display / mobile 页应该收到更新，或者刷新后看到同样结果。
+
+也可以用 PowerShell 直接测 cleanup endpoint：
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "$base/api/rooms/$roomId/cleanup" |
+  ConvertTo-Json -Depth 20
+```
+
+## 中文 6. 搜索限流测试
+
+搜索限流默认按 room + client identity 做短窗口保护。快速手动测试时，不建议真的刷太多线上请求；只需要确认正常搜索能成功。
+
+如果要验证限流，可以在同一个房间里连续快速调用搜索 API。超过窗口限制后，预期：
+
+- HTTP status 是 `429`。
+- 返回错误 code 是 `SEARCH_RATE_LIMITED`。
+- response header 里有 `retry-after`。
+
+## 中文 7. 实机设备测试矩阵
+
+这些项目需要真实设备手动验收：
+
+- Mobile Safari：扫码进入 mobile 页，搜索、预览、点歌、歌单操作。
+- Android Chrome：扫码进入 mobile 页，搜索、预览、点歌、歌单操作。
+- iPad Safari：横竖屏切换、mobile 页排版、YouTube iframe 行为。
+- Desktop Chrome：display 页播放、二维码、复制链接、自动切歌。
+
+每个设备至少测一遍：
+
+1. 创建新房间。
+2. 手机页搜索并添加两首歌。
+3. 大屏点击 `开始 K 歌`。
+4. 大屏点击 `下一首`。
+5. 打开 debug 页确认 snapshot 和队列状态。
+
+## 中文 8. 不要用本地 server 测这些东西
 
 不要用 `http://localhost:5173` 验证这些 production 功能：
 
@@ -271,7 +323,7 @@ ws.send(JSON.stringify({
 
 本地 Vite 模式可能 fallback 到浏览器本地状态，所以它可能看起来能跑，但其实完全绕过了线上后端。
 
-## 中文 6. 通过标准
+## 中文 9. 通过标准
 
 一次 production 测试通过，至少意味着：
 
@@ -286,7 +338,7 @@ ws.send(JSON.stringify({
 - YouTube 视频自然结束也能推进队列。
 - 队列清空后房间回到 idle。
 
-## 中文 7. 如果测试失败
+## 中文 10. 如果测试失败
 
 按这个顺序查：
 
@@ -558,7 +610,59 @@ Expected:
 - The next queued item becomes `playing`.
 - If no queued item exists, `playback.playerState` becomes `"idle"`.
 
-## English 5. What Not To Test Locally
+## English 5. Debug Page And Cleanup Test
+
+Open:
+
+```txt
+https://ktv-assistant.bradwang1995.workers.dev/room/<roomId>/debug
+```
+
+Expected:
+
+- You can see connection status, playback status, queue count, and snapshot JSON.
+- Clicking `刷新远端 snapshot` refreshes the JSON from remote D1 / Durable Object state.
+- Clicking any link row copies that URL and shows copied feedback.
+- When the queue has completed / removed items, clicking `清理已完成歌曲` removes those items from the snapshot.
+- Display and mobile should receive the update, or show the same result after refresh.
+
+PowerShell cleanup endpoint test:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "$base/api/rooms/$roomId/cleanup" |
+  ConvertTo-Json -Depth 20
+```
+
+## English 6. Search Rate Limit Test
+
+Search rate limiting protects the search route by room + client identity. For normal manual testing, do not spam production unnecessarily; just confirm regular search succeeds.
+
+If you need to verify the limiter, call the search API repeatedly in the same room. After the limit is exceeded, expected behavior is:
+
+- HTTP status is `429`.
+- Error code is `SEARCH_RATE_LIMITED`.
+- The response includes a `retry-after` header.
+
+## English 7. Real Device Test Matrix
+
+These items require real device validation:
+
+- Mobile Safari: QR scan into mobile page, search, preview, add song, queue actions.
+- Android Chrome: QR scan into mobile page, search, preview, add song, queue actions.
+- iPad Safari: orientation changes, mobile layout, YouTube iframe behavior.
+- Desktop Chrome: display playback, QR code, link copying, auto-advance.
+
+For each device, run at least:
+
+1. Create a fresh room.
+2. Search and add two songs from mobile.
+3. Click `开始 K 歌` on display.
+4. Click `下一首` on display.
+5. Open the debug page and confirm snapshot / queue state.
+
+## English 8. What Not To Test Locally
 
 Do not use `http://localhost:5173` to verify these production features:
 
@@ -570,7 +674,7 @@ Do not use `http://localhost:5173` to verify these production features:
 
 Local Vite mode can fall back to local browser state, so it can look like the app works while completely bypassing the production backend.
 
-## English 6. Pass Criteria
+## English 9. Pass Criteria
 
 A production test pass means:
 
@@ -585,7 +689,7 @@ A production test pass means:
 - Natural YouTube video ending also advances the room.
 - Empty queue returns the room to idle.
 
-## English 7. If Something Fails
+## English 10. If Something Fails
 
 Check these in order:
 
