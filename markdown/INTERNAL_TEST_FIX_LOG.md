@@ -51,10 +51,16 @@
   - `npm run typecheck` passed.
   - `npm run test` passed: 11 test files, 41 tests.
   - `npm run build` passed.
+- 2026-07-02 production deployment:
+  - Pushed `main` to `origin/main`.
+  - Deployed `ktv-assistant-room` version `e893a72f-b718-43a7-adc8-60bd63c6444c`.
+  - Deployed `ktv-assistant` version `628c4f22-35e0-481b-8ef4-4be952fc644f`.
+  - Production smoke room `1j000c55`: snapshot idle, queue empty, blank-query recommendations cached with 8 results.
 
 ## Commit Log
 
 - `4c08ec1` - `Add mobile playback controls`
 - `f991c7b` - `Improve mobile entry and previews`
 - `bc39cb1` - `Expand mobile search controls`
-- Documentation/verification commit pending.
+- `99f231c` - `Document internal test fixes`
+- Deployment-record commit pending.

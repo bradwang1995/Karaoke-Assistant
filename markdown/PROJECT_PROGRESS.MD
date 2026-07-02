@@ -415,7 +415,7 @@ curl https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/snapshot
 curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/cleanup
 ```
 
-Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, QR overlay polish, display autoplay follow-up, playback-quality persistence, and the first internal-test fix pass were updated through 2026-07-02. Latest deployed Worker versions should be checked after the next deploy; previous main Worker + Assets deploy version: `369207c2-9359-4b4d-914c-937c4e0f4729`; previous production smoke room: `136v4j2p`.
+Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, QR overlay polish, display autoplay follow-up, playback-quality persistence, and the first internal-test fix pass were updated through 2026-07-02. Latest main Worker + Assets deploy version: `628c4f22-35e0-481b-8ef4-4be952fc644f`; latest Room Worker deploy version: `e893a72f-b718-43a7-adc8-60bd63c6444c`; latest production smoke room: `1j000c55`.
 
 ## Notes
 
