@@ -62,6 +62,13 @@
   - `npm run typecheck` passed.
   - `npm run test` passed: 12 test files, 44 tests.
   - `npm run build` passed.
+- 2026-07-03 production deployment and smoke:
+  - Pushed `main` to `origin/main` at `8ad777a`.
+  - Deployed `ktv-assistant-room` version `fd9accc1-1c03-42d0-a200-2790d1febf0a`.
+  - Deployed `ktv-assistant` version `036c62e4-0999-4cf1-a034-083664f2e97e`.
+  - Production smoke room `6i541m0i`: snapshot idle, queue empty.
+  - `GET /api/youtube/quota` returned `50/50` remaining with `America/Los_Angeles` reset timezone.
+  - Blank-query recommendations returned cached 8 results without spending search quota.
 
 ## Commit Log
 
@@ -69,5 +76,5 @@
 - `aaf92a0` - `Improve search ranking and quota status`
 - `9e05d8b` - `Hide player chrome and add app progress`
 - `a9e842a` - `Expire inactive rooms with alarms`
-- This documentation commit - update README/progress/testing/search docs and record full local verification.
-- Pending: push and redeploy record.
+- `8ad777a` - `Document post internal test pass`
+- This deployment record commit - record push, deploy versions, and production smoke result.
