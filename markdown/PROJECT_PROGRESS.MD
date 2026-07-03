@@ -439,7 +439,7 @@ curl -X POST https://ktv-assistant.bradwang1995.workers.dev/api/rooms/<roomId>/c
 curl https://ktv-assistant.bradwang1995.workers.dev/api/youtube/quota
 ```
 
-Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, QR overlay polish, display autoplay follow-up, playback-quality persistence, the first internal-test fix pass, post-internal-test fix pass 1, and post-internal-test fix pass 2 were updated through 2026-07-03. Latest main Worker + Assets deploy version: pending pass 2 deployment; latest Room Worker deploy version: `fd9accc1-1c03-42d0-a200-2790d1febf0a`; latest production smoke room: pending pass 2 smoke.
+Remote Step 7/8, Step 8.5, Step 8.6, Step 9.5, production testing docs, search quota polish, candidate selection polish, QR overlay polish, display autoplay follow-up, playback-quality persistence, the first internal-test fix pass, post-internal-test fix pass 1, and post-internal-test fix pass 2 were updated through 2026-07-03. Latest main Worker + Assets deploy version: `b3a43603-2208-4a4e-816c-72212d8de3d2`; latest Room Worker deploy version: `fd9accc1-1c03-42d0-a200-2790d1febf0a`; latest production smoke room: `141g331u`.
 
 ## Notes
 

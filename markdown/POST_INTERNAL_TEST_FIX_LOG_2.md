@@ -47,8 +47,16 @@
   - `npm run typecheck` passed.
   - `npm run test` passed: 12 test files, 47 tests.
   - `npm run build` passed.
+- 2026-07-03 production deployment and smoke:
+  - Pushed `main` to `origin/main` at `639238c`.
+  - Deployed `ktv-assistant` version `b3a43603-2208-4a4e-816c-72212d8de3d2`.
+  - Room Worker was not redeployed because Durable Object code/config did not change.
+  - Production smoke room `141g331u`: snapshot idle, queue empty.
+  - `GET /api/youtube/quota` returned `45/50` remaining with `America/Los_Angeles` reset timezone and `2026-07-04T07:00:00.000Z` resetAt.
 
 ## Commit Log
 
 - `5798259` - `Polish playback quality and queue controls`
 - `a79c961` - `Document post internal test pass two`
+- `639238c` - `Record pass two commit log`
+- This deployment record commit - record push, deploy version, and production smoke result.
