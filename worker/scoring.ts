@@ -8,7 +8,7 @@ const TITLE_PREFIX_MATCH_SCORE = 48;
 const TITLE_CONTAINS_QUERY_SCORE = 40;
 const TITLE_TOKEN_MATCH_SCORE = 24;
 const CHANNEL_ONLY_QUERY_SCORE = 2;
-const TITLE_MISS_PENALTY = -24;
+const TITLE_MISS_PENALTY = -72;
 
 interface SearchScoringOptions {
   searchType?: SearchType;

@@ -19,6 +19,8 @@ export interface YouTubePlayer {
   cueVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
   loadVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
   setPlaybackQuality?: (suggestedQuality: string) => void;
+  getAvailableQualityLevels?: () => string[];
+  getPlaybackQuality?: () => string;
   getCurrentTime?: () => number;
   getDuration?: () => number;
   destroy?: () => void;

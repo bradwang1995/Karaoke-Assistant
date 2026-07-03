@@ -59,6 +59,39 @@ describe("search scoring", () => {
     expect(results[0].score).toBeGreaterThan(results[1].score);
   });
 
+  it("keeps partial title matches ahead of unrelated karaoke matches", () => {
+    const results = rankSearchResultsForQuery(
+      [
+        {
+          videoId: "unrelated-karaoke",
+          title: "\u9093\u7d2b\u68cb\u300a\u552f\u4e00\u300b Pinyin Karaoke Version Instrumental KTV",
+          channelTitle: "Karaoke Channel",
+          durationSeconds: 250,
+        },
+        {
+          videoId: "matching-lyrics",
+          title: "\u738b\u8273\u8587 - \u79bb\u5f00\u6211\u7684\u4f9d\u8d56 Lyrics",
+          channelTitle: "Aurora music",
+          durationSeconds: 248,
+        },
+        {
+          videoId: "matching-original",
+          title: "\u79bb\u5f00\u6211\u7684\u4f9d\u8d56 \u5e26\u539f\u5531 KTV",
+          channelTitle: "Fan Upload",
+          durationSeconds: 248,
+        },
+      ],
+      "\u4f9d\u8d56",
+    );
+
+    expect(results.map((result) => result.videoId)).toEqual([
+      "matching-original",
+      "matching-lyrics",
+      "unrelated-karaoke",
+    ]);
+    expect(results[2].reasons).toContain("title does not match query");
+  });
+
   it("keeps KTV-like results ahead even when original vocals are requested", () => {
     const results = rankSearchResultsForQuery(
       [

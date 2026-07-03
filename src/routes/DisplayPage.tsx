@@ -1,14 +1,4 @@
-import {
-  Check,
-  Copy,
-  ExternalLink,
-  MonitorPlay,
-  QrCode,
-  SlidersHorizontal,
-  SkipForward,
-  Wifi,
-  WifiOff,
-} from "lucide-react";
+import { MonitorPlay, SlidersHorizontal, SkipForward, Wifi, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,20 +7,22 @@ import {
   FullscreenPlayer,
   type FullscreenPlayerHandle,
   type PlayerProgress,
+  type PlayerQualityStatus,
 } from "../components/FullscreenPlayer";
 import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
 import { fetchYouTubeQuotaStatus } from "../lib/apiClient";
-import { copyTextToClipboard } from "../lib/clipboard";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
 import {
+  getAvailablePlaybackQualityOptions,
+  getClosestAvailablePlaybackQuality,
   readPreferredYouTubePlaybackQuality,
   resolveYouTubePlaybackQuality,
   savePreferredYouTubePlaybackQuality,
-  YOUTUBE_PLAYBACK_QUALITY_OPTIONS,
   type YouTubePlaybackQuality,
 } from "../lib/youtubePlaybackQuality";
 import type { QueueItem } from "../types/room";
+import type { YouTubeQuotaStatus } from "../types/youtube";
 
 export default function DisplayPage() {
   const { roomId = "" } = useParams();
@@ -40,10 +32,13 @@ export default function DisplayPage() {
   const queuedItems = getQueuedItems(snapshot);
   const [playRequestId, setPlayRequestId] = useState(0);
   const [playerIssue, setPlayerIssue] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [playbackQuality, setPlaybackQuality] = useState<YouTubePlaybackQuality>(() =>
     readPreferredYouTubePlaybackQuality(),
   );
+  const [playerQualityStatus, setPlayerQualityStatus] = useState<PlayerQualityStatus>({
+    availableQualities: [],
+    playbackQuality: null,
+  });
   const [playerProgress, setPlayerProgress] = useState<PlayerProgress>({
     currentTime: 0,
     duration: 0,
@@ -65,6 +60,29 @@ export default function DisplayPage() {
     const path = `/room/${roomId}/mobile`;
     return `${window.location.origin}${path}`;
   }, [roomId]);
+  const qualityOptions = useMemo(
+    () =>
+      getAvailablePlaybackQualityOptions(
+        playerQualityStatus.availableQualities,
+        playerQualityStatus.playbackQuality ?? playbackQuality,
+      ),
+    [playbackQuality, playerQualityStatus.availableQualities, playerQualityStatus.playbackQuality],
+  );
+  const qualitySelectValue = useMemo(() => {
+    const effectiveQuality =
+      playerQualityStatus.playbackQuality ??
+      getClosestAvailablePlaybackQuality(playbackQuality, playerQualityStatus.availableQualities);
+
+    return qualityOptions.some((option) => option.value === effectiveQuality)
+      ? effectiveQuality
+      : (qualityOptions[0]?.value ?? playbackQuality);
+  }, [
+    playbackQuality,
+    playerQualityStatus.availableQualities,
+    playerQualityStatus.playbackQuality,
+    qualityOptions,
+  ]);
+  const hasRealQualityOptions = playerQualityStatus.availableQualities.length > 0;
 
   const sendPlayerStarted = useCallback(
     (item: QueueItem) => {
@@ -114,6 +132,7 @@ export default function DisplayPage() {
       setPlayerProgress({ currentTime: 0, duration: 0 });
       setSeekSeconds(0);
       setIsSeeking(false);
+      setPlayerQualityStatus({ availableQualities: [], playbackQuality: null });
       return;
     }
 
@@ -127,6 +146,7 @@ export default function DisplayPage() {
       snapshot.playback.updatedAt,
     );
     setPlayerIssue(null);
+    setPlayerQualityStatus({ availableQualities: [], playbackQuality: null });
     setPlayRequestId((requestId) => requestId + 1);
   }, [currentItem?.id, snapshot.playback.updatedAt]);
 
@@ -146,14 +166,6 @@ export default function DisplayPage() {
     playerHandleRef.current?.restart();
   }, [currentItem, snapshot.playback.playerState, snapshot.playback.updatedAt]);
 
-  const handleStart = () => {
-    if (!currentItem) return;
-    lastAutoPlayItemIdRef.current = currentItem.id;
-    setPlayerIssue(null);
-    playerHandleRef.current?.play();
-    setPlayRequestId((requestId) => requestId + 1);
-  };
-
   const handlePlaybackStarted = useCallback(() => {
     if (!currentItem) return;
     setPlayerIssue(null);
@@ -170,12 +182,11 @@ export default function DisplayPage() {
   }, []);
 
   const handleAutoplayBlocked = useCallback(() => {
-    setPlayerIssue("浏览器阻止了自动播放，请点底部开始 K 歌。");
+    setPlayerIssue("浏览器阻止了自动播放，请点击播放器画面尝试播放。");
   }, []);
 
-  const handlePlaybackQualityChange = useCallback((nextQuality: YouTubePlaybackQuality) => {
-    setPlaybackQuality(nextQuality);
-    savePreferredYouTubePlaybackQuality(nextQuality);
+  const handlePlaybackQualityStatusChange = useCallback((status: PlayerQualityStatus) => {
+    setPlayerQualityStatus(status);
   }, []);
 
   const handleProgress = useCallback(
@@ -213,17 +224,11 @@ export default function DisplayPage() {
     const nextQuality = resolveYouTubePlaybackQuality(event.target.value);
 
     setPlaybackQuality(nextQuality);
+    setPlayerQualityStatus((current) => ({
+      ...current,
+      playbackQuality: nextQuality,
+    }));
     savePreferredYouTubePlaybackQuality(nextQuality);
-  };
-
-  const copyMobileLink = async () => {
-    try {
-      await copyTextToClipboard(mobileUrl);
-      setCopyState("copied");
-      window.setTimeout(() => setCopyState("idle"), 1_600);
-    } catch {
-      setCopyState("error");
-    }
   };
 
   return (
@@ -231,37 +236,26 @@ export default function DisplayPage() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(20,184,166,0.22),transparent_30%),radial-gradient(circle_at_78%_78%,rgba(251,113,133,0.18),transparent_28%)]" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <div className="absolute right-4 top-20 z-30 hidden rounded-lg bg-white p-3 text-slate-950 shadow-glow sm:block">
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
-              <QrCode size={14} />
-              扫码点歌
-            </span>
-            <button
-              type="button"
-              title="复制手机链接"
-              onClick={copyMobileLink}
-              className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-950"
+        <div className="absolute right-4 top-20 z-30 hidden rounded-lg bg-white p-4 text-slate-950 shadow-glow sm:block">
+          <div className="mb-3 flex items-center justify-center">
+            <Link
+              to={`/room/${roomId}/mobile`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-lg font-bold tracking-normal text-slate-950 transition hover:text-teal-700"
             >
-              {copyState === "copied" ? <Check size={15} /> : <Copy size={15} />}
-            </button>
+              扫码点歌
+            </Link>
           </div>
-          <QRCodeSVG value={mobileUrl} size={132} level="M" includeMargin />
           <Link
             to={`/room/${roomId}/mobile`}
             target="_blank"
             rel="noreferrer"
-            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+            aria-label="打开扫码点歌手机页"
+            className="block rounded-md focus:outline-none focus:ring-4 focus:ring-teal-200"
           >
-            <ExternalLink size={13} />
-            打开手机页
+            <QRCodeSVG value={mobileUrl} size={154} level="M" includeMargin />
           </Link>
-          {copyState === "copied" ? (
-            <p className="mt-2 text-center text-[11px] font-medium text-emerald-700">链接已复制</p>
-          ) : null}
-          {copyState === "error" ? (
-            <p className="mt-2 text-center text-[11px] font-medium text-rose-700">复制失败</p>
-          ) : null}
         </div>
 
         <section className="relative min-h-[360px] flex-1 bg-black">
@@ -278,7 +272,7 @@ export default function DisplayPage() {
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
               onAutoplayBlocked={handleAutoplayBlocked}
-              onPlaybackQualityChange={handlePlaybackQualityChange}
+              onPlaybackQualityStatusChange={handlePlaybackQualityStatusChange}
               onProgress={handleProgress}
             />
           ) : (
@@ -310,11 +304,6 @@ export default function DisplayPage() {
                 <h2 className="truncate text-xl font-semibold tracking-normal sm:text-2xl">
                   {currentItem?.title ?? "等待点歌"}
                 </h2>
-                {currentItem?.channelTitle ? (
-                  <p className="mt-1 truncate text-sm text-slate-300">
-                    {currentItem.channelTitle}
-                  </p>
-                ) : null}
                 {playerIssue ? (
                   <p className="mt-2 text-sm font-medium text-rose-200">{playerIssue}</p>
                 ) : null}
@@ -341,25 +330,18 @@ export default function DisplayPage() {
                     <SlidersHorizontal size={16} />
                     <select
                       aria-label="清晰度"
-                      value={playbackQuality}
+                      value={qualitySelectValue}
                       onChange={handleQualitySelect}
+                      disabled={!hasRealQualityOptions}
                       className="bg-transparent text-sm font-semibold text-white outline-none [&_option]:bg-slate-950"
                     >
-                      {YOUTUBE_PLAYBACK_QUALITY_OPTIONS.map((option) => (
+                      {qualityOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
                       ))}
                     </select>
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleStart}
-                    className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-4 py-2 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-teal-400 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
-                  >
-                    <MonitorPlay size={17} />
-                    开始 K 歌
-                  </button>
                   <button
                     type="button"
                     onClick={handleNext}
@@ -370,7 +352,7 @@ export default function DisplayPage() {
                   </button>
                 </>
               ) : null}
-              <div className="rounded-lg bg-white/10 px-3 py-2 text-right backdrop-blur">
+              <div className="px-1 py-1 text-right">
                 <p className="text-xs text-slate-300">即将播放</p>
                 <p className="text-lg font-semibold">{queuedItems.length} 首</p>
               </div>
@@ -403,8 +385,8 @@ function PlayerProgressControl({
   const disabled = safeDuration <= 0;
 
   return (
-    <div className="mt-3 flex items-center gap-2 text-xs text-slate-300">
-      <span className="w-10 shrink-0 tabular-nums">{formatPlayerTime(safeCurrentTime)}</span>
+    <div className="mt-3 flex items-center gap-3 text-sm text-slate-200 lg:absolute lg:left-1/2 lg:top-1/2 lg:mt-0 lg:w-[42vw] lg:-translate-x-1/2 lg:-translate-y-1/2">
+      <span className="w-12 shrink-0 tabular-nums">{formatPlayerTime(safeCurrentTime)}</span>
       <input
         type="range"
         min={0}
@@ -422,9 +404,9 @@ function PlayerProgressControl({
           onSeekChange(Number(event.target.value));
         }}
         aria-label="播放进度"
-        className="min-w-0 flex-1 accent-teal-400 disabled:opacity-40"
+        className="player-progress-range min-w-0 flex-1 disabled:opacity-40"
       />
-      <span className="w-10 shrink-0 text-right tabular-nums">{formatPlayerTime(safeDuration)}</span>
+      <span className="w-12 shrink-0 text-right tabular-nums">{formatPlayerTime(safeDuration)}</span>
     </div>
   );
 }
@@ -447,13 +429,7 @@ function YouTubeQuotaBadge({
   isLoading,
   isError,
 }: {
-  status:
-    | {
-        dailyLimit: number;
-        remaining: number;
-        exhausted: boolean;
-      }
-    | undefined;
+  status: YouTubeQuotaStatus | undefined;
   isLoading: boolean;
   isError: boolean;
 }) {
@@ -471,9 +447,23 @@ function YouTubeQuotaBadge({
         status.exhausted ? "text-amber-200" : "text-slate-400"
       }`}
     >
-      今日搜索剩余 {status.remaining}/{status.dailyLimit} · PT 00:00 重置
+      今日搜索剩余 {status.remaining}/{status.dailyLimit} · {formatLocalQuotaReset(status.resetAt)}
     </p>
   );
+}
+
+function formatLocalQuotaReset(resetAt: string) {
+  const resetDate = new Date(resetAt);
+
+  if (Number.isNaN(resetDate.getTime())) {
+    return "按浏览器本地时间重置";
+  }
+
+  return `${new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  }).format(resetDate)} 重置`;
 }
 
 function playbackLoadingKey(queueItemId: string, updatedAt: string) {

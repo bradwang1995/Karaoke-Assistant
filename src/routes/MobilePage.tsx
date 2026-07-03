@@ -3,7 +3,6 @@ import {
   Check,
   ListMusic,
   Music2,
-  Play,
   RotateCcw,
   Search,
   SkipForward,
@@ -30,6 +29,7 @@ import {
   useRoomSnapshot,
 } from "../lib/roomState";
 import { youtubeEmbedUrl, youtubeThumbnailUrl } from "../lib/youtube";
+import { PREVIEW_YOUTUBE_PLAYBACK_QUALITY } from "../lib/youtubePlaybackQuality";
 import { useMobileUiStore } from "../stores/mobileUiStore";
 import type { QueueItem } from "../types/room";
 import type { ClientToServerMessage } from "../types/websocket";
@@ -55,7 +55,6 @@ export default function MobilePage() {
     () => (currentItem ? [currentItem, ...queuedItems] : queuedItems),
     [currentItem, queuedItems],
   );
-  const queueTabCount = existingItems.length;
 
   useEffect(() => {
     if (storedActiveTab !== activeTab) {
@@ -112,7 +111,7 @@ export default function MobilePage() {
             <TabButton
               active={activeTab === "queue"}
               icon={<ListMusic size={17} />}
-              label={`歌单 (${queueTabCount})`}
+              label="歌单"
               onClick={() => setActiveTab("queue")}
             />
           </div>
@@ -561,7 +560,7 @@ function SearchTab({
       <MobileToast toast={toast} />
       <AddToQueueTrail trail={addTrail} />
 
-      <div className="sticky top-[8.75rem] z-10 -mx-4 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky top-[9.75rem] z-10 -mx-4 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
         <form onSubmit={submitSearch}>
           <div className="grid grid-cols-[4.65rem_minmax(0,1fr)_4.25rem_2.5rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_4.75rem_2.75rem] sm:gap-2">
             <label className="sr-only" htmlFor="search-type">
@@ -855,9 +854,14 @@ function CandidateVideoCard({
         <div className="aspect-video overflow-hidden rounded-md bg-slate-950">
           {previewActive ? (
             <iframe
-              className="h-full w-full"
+              className="pointer-events-none h-full w-full"
               title={result.title}
-              src={youtubeEmbedUrl(result.videoId, { start: 30, muted: true, autoplay: true })}
+              src={youtubeEmbedUrl(result.videoId, {
+                start: 30,
+                muted: true,
+                autoplay: true,
+                quality: PREVIEW_YOUTUBE_PLAYBACK_QUALITY,
+              })}
               loading="lazy"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
             />
@@ -874,18 +878,13 @@ function CandidateVideoCard({
         </div>
       </div>
       <div className="px-3 pb-3 pt-3">
-        <div className="flex items-start gap-2">
-          <div className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-rose-50 text-rose-700">
-            <Play size={15} />
-          </div>
-          <div className="min-w-0">
+        <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-950">
                 {result.title}
               </h3>
             </div>
             <p className="mt-1 truncate text-xs text-slate-500">{result.channelTitle}</p>
-          </div>
         </div>
       </div>
       {duplicate || selected ? (
@@ -923,26 +922,39 @@ function QueueTab({
 }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<
-    | { type: "promote"; item: QueueItem }
     | { type: "remove"; item: QueueItem }
+    | { type: "restart"; item: QueueItem }
+    | { type: "skip"; item: QueueItem }
     | null
   >(null);
 
   const confirmTitle = useMemo(() => {
     if (!confirmAction) return "";
-    return confirmAction.type === "promote" ? "确定要置顶这首歌吗？" : "确定要删除这首歌吗？";
+    if (confirmAction.type === "remove") return "确定要删除这首歌吗？";
+    if (confirmAction.type === "restart") return "确定要重唱当前歌曲吗？";
+    return "确定要切到下一首吗？";
   }, [confirmAction]);
 
   const handleConfirm = () => {
     if (!confirmAction) return;
 
-    const sentOrFallback = runQueueAction({
-      roomId,
-      action: confirmAction,
-      isSocketConnected,
-      canUseLocalFallback,
-      sendRoomMessage,
-    });
+    const sentOrFallback =
+      confirmAction.type === "remove"
+        ? runQueueAction({
+            roomId,
+            action: confirmAction,
+            isSocketConnected,
+            canUseLocalFallback,
+            sendRoomMessage,
+          })
+        : runPlaybackControl({
+            roomId,
+            action: confirmAction.type,
+            item: confirmAction.item,
+            isSocketConnected,
+            canUseLocalFallback,
+            sendRoomMessage,
+          });
 
     if (!sentOrFallback) {
       setActionError("房间连接正在恢复，请稍后再操作歌单。");
@@ -959,17 +971,20 @@ function QueueTab({
       return;
     }
 
-    const sentOrFallback = runPlaybackControl({
+    setConfirmAction({ type: action, item: currentItem });
+  };
+
+  const handlePromote = (item: QueueItem) => {
+    const sentOrFallback = runQueueAction({
       roomId,
-      action,
-      item: currentItem,
+      action: { type: "promote", item },
       isSocketConnected,
       canUseLocalFallback,
       sendRoomMessage,
     });
 
     if (!sentOrFallback) {
-      setActionError("房间连接正在恢复，请稍后再控制播放。");
+      setActionError("房间连接正在恢复，请稍后再操作歌单。");
       return;
     }
 
@@ -1007,7 +1022,7 @@ function QueueTab({
               <button
                 type="button"
                 onClick={() => handlePlaybackControl("restart")}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-teal-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-teal-400"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <RotateCcw size={16} />
                 重唱
@@ -1015,7 +1030,7 @@ function QueueTab({
               <button
                 type="button"
                 onClick={() => handlePlaybackControl("skip")}
-                className="inline-flex items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <SkipForward size={16} />
                 切歌
@@ -1029,7 +1044,7 @@ function QueueTab({
 
       <div className="mt-5 flex items-center justify-between">
         <h2 className="text-base font-semibold tracking-normal">即将播放</h2>
-        <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+        <span className="text-xs text-slate-500">
           {queuedItems.length} 首
         </span>
       </div>
@@ -1046,7 +1061,7 @@ function QueueTab({
               key={item.id}
               item={item}
               index={index}
-              onPromote={() => setConfirmAction({ type: "promote", item })}
+              onPromote={() => handlePromote(item)}
               onRemove={() => setConfirmAction({ type: "remove", item })}
             />
           ))}
