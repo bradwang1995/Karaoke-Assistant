@@ -35,3 +35,36 @@ iframe {
   scrollbar-width: thin;
 }
 
+@keyframes mobile-toast-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes add-to-queue-trail {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.7);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(var(--trail-x) - 50%), calc(var(--trail-y) - 50%)) scale(0.35);
+  }
+}
+
+.mobile-toast-enter {
+  animation: mobile-toast-enter 180ms ease-out both;
+}
+
+.add-to-queue-trail {
+  animation: add-to-queue-trail 850ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}

@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusMessage } from "../components/StatusMessage";
@@ -47,6 +47,7 @@ export default function MobilePage() {
   const snapshot = useRoomSnapshot(roomId);
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
+  const queueTargetRef = useRef<HTMLDivElement | null>(null);
   const storedActiveTab = useMobileUiStore((state) => state.activeTab);
   const setStoredActiveTab = useMobileUiStore((state) => state.setActiveTab);
   const activeTab = parseMobileTab(searchParams.get("tab"));
@@ -54,6 +55,7 @@ export default function MobilePage() {
     () => (currentItem ? [currentItem, ...queuedItems] : queuedItems),
     [currentItem, queuedItems],
   );
+  const queueTabCount = existingItems.length;
 
   useEffect(() => {
     if (storedActiveTab !== activeTab) {
@@ -89,7 +91,7 @@ export default function MobilePage() {
               <p className="text-xs text-slate-500">房间 {roomId}</p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <div className="rounded-lg bg-teal-50 px-3 py-2 text-right">
+              <div ref={queueTargetRef} className="rounded-lg bg-teal-50 px-3 py-2 text-right">
                 <p className="text-[11px] text-teal-700">即将播放</p>
                 <p className="text-sm font-semibold text-teal-950">{queuedItems.length} 首</p>
               </div>
@@ -110,7 +112,7 @@ export default function MobilePage() {
             <TabButton
               active={activeTab === "queue"}
               icon={<ListMusic size={17} />}
-              label="歌单"
+              label={`歌单 (${queueTabCount})`}
               onClick={() => setActiveTab("queue")}
             />
           </div>
@@ -123,6 +125,7 @@ export default function MobilePage() {
             isSocketConnected={roomSocket.status === "connected"}
             canUseLocalFallback={roomSocket.canUseLocalFallback}
             sendRoomMessage={roomSocket.send}
+            queueTargetRef={queueTargetRef}
           />
         ) : (
           <QueueTab
@@ -174,12 +177,14 @@ function SearchTab({
   isSocketConnected,
   canUseLocalFallback,
   sendRoomMessage,
+  queueTargetRef,
 }: {
   roomId: string;
   existingItems: QueueItem[];
   isSocketConnected: boolean;
   canUseLocalFallback: boolean;
   sendRoomMessage: (message: ClientToServerMessage) => boolean;
+  queueTargetRef: RefObject<HTMLElement>;
 }) {
   const [initialSearchState] = useState(() => readPersistedSearchState(roomId));
   const [query, setQuery] = useState(initialSearchState?.query ?? "");
@@ -198,9 +203,8 @@ function SearchTab({
   const [selected, setSelected] = useState<VideoSearchResult | null>(() =>
     findPersistedResult(initialSearchState?.response, initialSearchState?.selectedVideoId),
   );
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [recentlyAddedVideoId, setRecentlyAddedVideoId] = useState<string | null>(null);
+  const [toast, setToast] = useState<MobileToastState | null>(null);
+  const [addTrail, setAddTrail] = useState<AddToQueueTrailState | null>(null);
   const [duplicateCandidate, setDuplicateCandidate] = useState<VideoSearchResult | null>(null);
   const [activePreviewVideoId, setActivePreviewVideoId] = useState(
     findPersistedResult(initialSearchState?.response, initialSearchState?.activePreviewVideoId)
@@ -208,21 +212,40 @@ function SearchTab({
   );
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [scrollY, setScrollY] = useState(initialSearchState?.scrollY ?? 0);
+  const resultCardRefs = useRef(new Map<string, HTMLElement>());
+  const resultsGridRef = useRef<HTMLDivElement | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
+  const addTrailTimeoutRef = useRef<number | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const restoredScrollRef = useRef(false);
 
   useEffect(() => {
-    if (!recentlyAddedVideoId) {
+    if (!toast) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
-      setRecentlyAddedVideoId(null);
-      setActionSuccess(null);
-    }, 2_400);
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 2_300);
+
+    toastTimeoutRef.current = timeoutId;
 
     return () => window.clearTimeout(timeoutId);
-  }, [recentlyAddedVideoId]);
+  }, [toast]);
+
+  useEffect(
+    () => () => {
+      if (toastTimeoutRef.current !== null) {
+        window.clearTimeout(toastTimeoutRef.current);
+      }
+
+      if (addTrailTimeoutRef.current !== null) {
+        window.clearTimeout(addTrailTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const recommendationsQuery = useQuery({
     queryKey: ["search-recommendations", roomId],
@@ -263,7 +286,6 @@ function SearchTab({
       }
     },
     onSuccess: (response) => {
-      setActionError(null);
       setSearchResponse(response);
       setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
       setActivePreviewVideoId(null);
@@ -379,6 +401,26 @@ function SearchTab({
   }, []);
 
   useEffect(() => {
+    if (!activePreviewVideoId) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (target instanceof Node && resultsGridRef.current?.contains(target)) {
+        return;
+      }
+
+      setActivePreviewVideoId(null);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [activePreviewVideoId]);
+
+  useEffect(() => {
     writePersistedSearchState(roomId, {
       query,
       searchType,
@@ -401,6 +443,49 @@ function SearchTab({
     visibleResultCount,
   ]);
 
+  const showToast = (nextToast: Omit<MobileToastState, "id">) => {
+    setToast({ ...nextToast, id: Date.now() });
+  };
+
+  const registerCardRef = (videoId: string, node: HTMLElement | null) => {
+    if (node) {
+      resultCardRefs.current.set(videoId, node);
+      return;
+    }
+
+    resultCardRefs.current.delete(videoId);
+  };
+
+  const startAddTrail = (videoId: string) => {
+    const source = resultCardRefs.current.get(videoId);
+    const target = queueTargetRef.current;
+
+    if (!source || !target) {
+      return;
+    }
+
+    const sourceRect = source.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const from = {
+      x: sourceRect.left + sourceRect.width / 2,
+      y: sourceRect.top + sourceRect.height / 2,
+    };
+    const to = {
+      x: targetRect.left + targetRect.width / 2,
+      y: targetRect.top + targetRect.height / 2,
+    };
+
+    if (addTrailTimeoutRef.current !== null) {
+      window.clearTimeout(addTrailTimeoutRef.current);
+    }
+
+    setAddTrail({ id: Date.now(), from, to });
+    addTrailTimeoutRef.current = window.setTimeout(() => {
+      setAddTrail(null);
+      addTrailTimeoutRef.current = null;
+    }, 900);
+  };
+
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
     const nextQuery = query.trim();
@@ -409,8 +494,7 @@ function SearchTab({
       return;
     }
 
-    setActionError(null);
-    setActionSuccess(null);
+    setToast(null);
     setDuplicateCandidate(null);
     setSearchResponse(null);
     setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
@@ -447,97 +531,98 @@ function SearchTab({
       });
 
       if (!sent) {
-        setActionError("房间连接正在恢复，请稍后再试。");
+        showToast({ tone: "warning", message: "房间连接正在恢复，请稍后再试。" });
         return;
       }
     } else if (canUseLocalFallback) {
       addSongToRoom(roomId, payload);
     } else {
-      setActionError("房间连接正在恢复，请稍后再点歌。");
+      showToast({ tone: "warning", message: "房间连接正在恢复，请稍后再点歌。" });
       return;
     }
 
-    setActionError(null);
-    setActionSuccess(`已加入播放列表：${result.title}`);
-    setRecentlyAddedVideoId(result.videoId);
+    showToast({ tone: "success", message: `已点歌成功：${result.title}` });
+    startAddTrail(result.videoId);
     setDuplicateCandidate(null);
   };
 
   const showingRecommendations = !searchResponse;
   const isLoadingResults =
     searchMutation.isPending || (showingRecommendations && recommendationsQuery.isPending);
+  const resultHeading = showingRecommendations ? "缓存推荐" : "搜索结果";
+  const resultCountLabel = isLoadingResults
+    ? "加载中"
+    : showingRecommendations
+      ? `${activeResults.length} 首`
+      : `${visibleResults.length}/${activeResults.length} 首`;
 
   return (
-    <section className="flex-1 px-4 py-4">
-      <form onSubmit={submitSearch} className="grid gap-3">
-        <div className="grid grid-cols-[6.5rem_1fr] gap-2 sm:grid-cols-[7rem_1fr_auto]">
-          <label className="sr-only" htmlFor="search-type">
-            搜索类型
-          </label>
-          <select
-            id="search-type"
-            value={searchType}
-            onChange={(event) => setSearchType(event.target.value as SearchType)}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-3 text-base font-semibold text-slate-800 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
-          >
-            <option value="song">歌名</option>
-            <option value="artist">歌手</option>
-          </select>
-          <label className="sr-only" htmlFor="song-search">
-            搜索歌曲
-          </label>
-          <input
-            id="song-search"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
+    <section className="relative flex-1 px-4 pb-4">
+      <MobileToast toast={toast} />
+      <AddToQueueTrail trail={addTrail} />
 
-              if (!event.target.value.trim()) {
-                searchMutation.reset();
-                setSearchResponse(null);
-                setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
-                setSelected(null);
-                setActivePreviewVideoId(null);
-              }
-            }}
-            placeholder={searchType === "artist" ? "请输入歌手名" : "请输入歌名"}
-            className="min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-3 text-base outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
-          />
-          <button
-            type="submit"
-            disabled={!query.trim() || searchMutation.isPending}
-            className="col-span-2 inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:col-span-1"
-          >
-            <Search size={18} />
-            搜索
-          </button>
+      <div className="sticky top-[8.75rem] z-10 -mx-4 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+        <form onSubmit={submitSearch}>
+          <div className="grid grid-cols-[4.65rem_minmax(0,1fr)_4.25rem_2.5rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_4.75rem_2.75rem] sm:gap-2">
+            <label className="sr-only" htmlFor="search-type">
+              搜索类型
+            </label>
+            <select
+              id="search-type"
+              value={searchType}
+              onChange={(event) => setSearchType(event.target.value as SearchType)}
+              className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-800 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+            >
+              <option value="song">歌名</option>
+              <option value="artist">歌手</option>
+            </select>
+            <label className="sr-only" htmlFor="song-search">
+              搜索歌曲
+            </label>
+            <input
+              id="song-search"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+
+                if (!event.target.value.trim()) {
+                  searchMutation.reset();
+                  setSearchResponse(null);
+                  setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
+                  setSelected(null);
+                  setActivePreviewVideoId(null);
+                }
+              }}
+              placeholder={searchType === "artist" ? "歌手名" : "歌名"}
+              className="h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+            />
+            <PillToggle
+              label="原唱"
+              checked={includeOriginalVocal}
+              onChange={setIncludeOriginalVocal}
+            />
+            <button
+              type="submit"
+              aria-label="搜索"
+              title="搜索"
+              disabled={!query.trim() || searchMutation.isPending}
+              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-11"
+            >
+              <Search size={18} />
+            </button>
+          </div>
+        </form>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-slate-700">{resultHeading}</h2>
+          <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+            {resultCountLabel}
+          </span>
         </div>
-        <label className="inline-flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-          <span>带原唱</span>
-          <input
-            type="checkbox"
-            checked={includeOriginalVocal}
-            onChange={(event) => setIncludeOriginalVocal(event.target.checked)}
-            className="h-5 w-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
-          />
-        </label>
-      </form>
+      </div>
 
       {searchMutation.isError ? (
         <StatusMessage tone="error" title="搜索失败" className="mt-4">
           {searchErrorMessage(searchMutation.error)}
-        </StatusMessage>
-      ) : null}
-
-      {actionError ? (
-        <StatusMessage tone="warning" title="暂时不能点歌" className="mt-4">
-          {actionError}
-        </StatusMessage>
-      ) : null}
-
-      {actionSuccess ? (
-        <StatusMessage tone="success" className="mt-4">
-          {actionSuccess}
         </StatusMessage>
       ) : null}
 
@@ -569,29 +654,18 @@ function SearchTab({
 
       {!isLoadingResults && activeResults.length > 0 ? (
         <>
-          <div className="mt-5 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-slate-700">
-              {showingRecommendations ? "缓存推荐" : "搜索结果"}
-            </h2>
-            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
-              {showingRecommendations
-                ? `${activeResults.length} 首`
-                : `${visibleResults.length}/${activeResults.length} 首`}
-            </span>
-          </div>
-          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div ref={resultsGridRef} className="mt-5 grid gap-4 sm:grid-cols-2">
             {visibleResults.map((result, index) => (
               <CandidateVideoCard
                 key={`${result.videoId}-${index}`}
+                cardRef={(node) => registerCardRef(result.videoId, node)}
                 result={result}
                 selected={selected?.videoId === result.videoId}
                 previewActive={activePreviewVideoId === result.videoId}
                 duplicate={existingItems.some((item) => item.videoId === result.videoId)}
-                recentlyAdded={recentlyAddedVideoId === result.videoId}
                 onSelect={() => {
                   setSelected(result);
                   setActivePreviewVideoId(result.videoId);
-                  setActionError(null);
                 }}
               />
             ))}
@@ -646,19 +720,111 @@ function SearchTab({
   );
 }
 
+interface MobileToastState {
+  id: number;
+  tone: "success" | "warning";
+  message: string;
+}
+
+interface AddToQueueTrailState {
+  id: number;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+}
+
+function PillToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={checked}
+      onClick={() => onChange(!checked)}
+      className={`inline-flex h-10 items-center justify-center gap-1 rounded-full border px-1.5 text-[11px] font-semibold transition focus:outline-none focus:ring-4 focus:ring-teal-100 ${
+        checked
+          ? "border-teal-400 bg-teal-500 text-teal-950"
+          : "border-slate-300 bg-slate-100 text-slate-600"
+      }`}
+    >
+      <span className="whitespace-nowrap">{label}</span>
+      <span
+        className={`relative h-5 w-8 rounded-full transition ${
+          checked ? "bg-teal-700/30" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition ${
+            checked ? "left-3.5" : "left-0.5"
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
+function MobileToast({ toast }: { toast: MobileToastState | null }) {
+  if (!toast) {
+    return null;
+  }
+
+  return (
+    <div className="pointer-events-none fixed left-1/2 top-3 z-50 w-[calc(100%-2rem)] max-w-sm -translate-x-1/2">
+      <div
+        key={toast.id}
+        className={`rounded-full px-4 py-2 text-center text-sm font-semibold shadow-lg mobile-toast-enter ${
+          toast.tone === "success"
+            ? "bg-emerald-500 text-emerald-950"
+            : "bg-amber-400 text-amber-950"
+        }`}
+      >
+        {toast.message}
+      </div>
+    </div>
+  );
+}
+
+function AddToQueueTrail({ trail }: { trail: AddToQueueTrailState | null }) {
+  if (!trail) {
+    return null;
+  }
+
+  const style = {
+    left: `${trail.from.x}px`,
+    top: `${trail.from.y}px`,
+    "--trail-x": `${trail.to.x - trail.from.x}px`,
+    "--trail-y": `${trail.to.y - trail.from.y}px`,
+  } as CSSProperties;
+
+  return (
+    <div
+      key={trail.id}
+      className="pointer-events-none fixed z-50 grid h-12 w-12 place-items-center rounded-full border-2 border-emerald-400 bg-emerald-300/25 text-emerald-200 shadow-[0_0_24px_rgba(16,185,129,0.65)] add-to-queue-trail"
+      style={style}
+    >
+      <Check size={20} />
+    </div>
+  );
+}
+
 function CandidateVideoCard({
+  cardRef,
   result,
   selected,
   previewActive,
   duplicate,
-  recentlyAdded,
   onSelect,
 }: {
+  cardRef: (node: HTMLElement | null) => void;
   result: VideoSearchResult;
   selected: boolean;
   previewActive: boolean;
   duplicate: boolean;
-  recentlyAdded: boolean;
   onSelect: () => void;
 }) {
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
@@ -672,16 +838,15 @@ function CandidateVideoCard({
 
   return (
     <article
+      ref={cardRef}
       role="button"
       tabIndex={0}
       aria-pressed={selected}
       aria-label={`选择 ${result.title}`}
       onPointerDownCapture={onSelect}
       onKeyDown={handleKeyDown}
-      className={`cursor-pointer overflow-hidden rounded-lg border bg-white text-left transition focus:outline-none focus:ring-4 ${
-        recentlyAdded
-          ? "border-emerald-500 ring-4 ring-emerald-100"
-          : selected
+      className={`relative cursor-pointer overflow-hidden rounded-lg border bg-white text-left transition focus:outline-none focus:ring-4 ${
+        selected
           ? "border-teal-500 ring-4 ring-teal-100"
           : "border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-teal-100"
       }`}
@@ -695,7 +860,6 @@ function CandidateVideoCard({
               src={youtubeEmbedUrl(result.videoId, { start: 30, muted: true, autoplay: true })}
               loading="lazy"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
             />
           ) : (
             <div className="relative h-full w-full">
@@ -705,12 +869,6 @@ function CandidateVideoCard({
                 loading="lazy"
                 className="h-full w-full object-cover opacity-85"
               />
-              <div className="absolute inset-0 grid place-items-center bg-black/20">
-                <span className="inline-flex items-center gap-2 rounded-lg bg-white/90 px-3 py-2 text-sm font-semibold text-slate-950 shadow-sm">
-                  <Play size={16} />
-                  预览
-                </span>
-              </div>
             </div>
           )}
         </div>
@@ -727,24 +885,23 @@ function CandidateVideoCard({
               </h3>
             </div>
             <p className="mt-1 truncate text-xs text-slate-500">{result.channelTitle}</p>
-            {duplicate ? (
-              <span className="mt-2 inline-flex rounded-md bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
-                已在歌单
-              </span>
-            ) : null}
-            {selected ? (
-              <span className="mt-2 inline-flex rounded-md bg-teal-50 px-2 py-1 text-[11px] font-semibold text-teal-700">
-                已选中
-              </span>
-            ) : null}
-            {recentlyAdded ? (
-              <span className="mt-2 inline-flex rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">
-                已加入播放列表
-              </span>
-            ) : null}
           </div>
         </div>
       </div>
+      {duplicate || selected ? (
+        <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-col items-end gap-1">
+          {duplicate ? (
+            <span className="rounded-full bg-amber-50/95 px-2 py-1 text-[11px] font-semibold text-amber-700 shadow-sm ring-1 ring-amber-100">
+              已在歌单
+            </span>
+          ) : null}
+          {selected ? (
+            <span className="rounded-full bg-teal-50/95 px-2 py-1 text-[11px] font-semibold text-teal-700 shadow-sm ring-1 ring-teal-100">
+              已选中
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </article>
   );
 }

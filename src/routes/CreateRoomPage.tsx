@@ -1,4 +1,4 @@
-import { MonitorPlay, Plus, QrCode, Smartphone } from "lucide-react";
+import { MonitorPlay, Plus, Smartphone } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -8,12 +8,11 @@ import { createRoomId, hydrateRoomSnapshot, readRoomSnapshot } from "../lib/room
 
 export default function CreateRoomPage() {
   const navigate = useNavigate();
-  const [creatingTarget, setCreatingTarget] = useState<"display" | "mobile" | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
-  const isCreating = creatingTarget !== null;
 
-  const createRoom = async (target: "display" | "mobile") => {
-    setCreatingTarget(target);
+  const createRoom = async () => {
+    setIsCreating(true);
     setNotice(null);
 
     try {
@@ -23,7 +22,7 @@ export default function CreateRoomPage() {
         hydrateRoomSnapshot(response.snapshot);
       }
 
-      navigate(target === "display" ? response.displayUrl : response.mobileUrl);
+      navigate(response.displayUrl);
     } catch (error) {
       const roomId = createRoomId();
       readRoomSnapshot(roomId);
@@ -34,9 +33,9 @@ export default function CreateRoomPage() {
         setNotice("后端 API 暂不可用，已使用本地房间继续。");
       }
 
-      navigate(target === "display" ? `/room/${roomId}/display` : `/room/${roomId}/mobile`);
+      navigate(`/room/${roomId}/display`);
     } finally {
-      setCreatingTarget(null);
+      setIsCreating(false);
     }
   };
 
@@ -66,24 +65,15 @@ export default function CreateRoomPage() {
             <p className="mt-5 text-base leading-7 text-slate-600">
               创建房间后，把大屏页面留在电视或电脑上，再让朋友用手机扫码进入同一个房间。
             </p>
-            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+            <div className="mt-8">
               <button
                 type="button"
-                onClick={() => createRoom("display")}
+                onClick={createRoom}
                 disabled={isCreating}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-5 py-3 text-base font-semibold text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:cursor-not-allowed disabled:bg-slate-400 sm:w-auto"
               >
                 <Plus size={20} />
-                {creatingTarget === "display" ? "创建中" : "创建房间"}
-              </button>
-              <button
-                type="button"
-                onClick={() => createRoom("mobile")}
-                disabled={isCreating}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-teal-300 bg-teal-50 px-5 py-3 text-base font-semibold text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-4 focus:ring-teal-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
-              >
-                <QrCode size={20} />
-                {creatingTarget === "mobile" ? "创建中" : "扫码点歌"}
+                {isCreating ? "创建中" : "创建房间"}
               </button>
             </div>
             {notice ? (

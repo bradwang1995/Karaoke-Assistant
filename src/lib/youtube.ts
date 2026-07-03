@@ -10,7 +10,9 @@ export function youtubeEmbedUrl(
     playsinline: "1",
     modestbranding: "1",
     rel: "0",
-    controls: "1",
+    controls: "0",
+    disablefs: "1",
+    iv_load_policy: "3",
     start: String(options.start ?? 0),
   });
 
@@ -19,4 +21,3 @@ export function youtubeEmbedUrl(
 
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
-
