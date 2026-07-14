@@ -249,8 +249,9 @@ Current coverage：
 | 2026-07-02 | Main `628c4f22-35e0-481b-8ef4-4be952fc644f`；Room `e893a72f-b718-43a7-adc8-60bd63c6444c`。 |
 | 2026-07-03 pass 1 | Main `036c62e4-0999-4cf1-a034-083664f2e97e`；Room `fd9accc1-1c03-42d0-a200-2790d1febf0a`。 |
 | 2026-07-03 pass 2 | Main `b3a43603-2208-4a4e-816c-72212d8de3d2`；Room unchanged。 |
+| 2026-07-13 pass 3 | Main `e7fc338f-11ff-42b9-9523-df64de2a06c6`；Room `92c36603-e923-4665-b334-d10cadd28f78`。 |
 
-Last smoke room `141g331u`：idle、empty queue；quota 45/50、Pacific reset timezone。2026-07-13 文档整理没有改 production code 或 redeploy。
+Last smoke room `6m6w6z37`：active、idle、empty queue；普通/原唱各 50 条且 top order 不同；recommendations 200；quota 46/50；display 显示 `America/Toronto` 本地 reset。Production mobile 已确认实时连接、2 columns、16px input；display 已确认 168px QR 和无失效 quality selector。
 
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但 YouTube embed 在自动化环境返回 error 150；仍不替代真实设备 autoplay/playsinline/网络画质 QA。
 
