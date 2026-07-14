@@ -1,49 +1,164 @@
 # K歌助手
 
-一个适合朋友聚会的 Web KTV 点歌助手：大屏播放、手机扫码点歌，同一房间通过 Cloudflare Durable Object 和 WebSocket 实时同步。
+一个面向朋友聚会的 Web KTV 点歌助手：大屏负责播放，手机负责扫码点歌，同一房间通过 Cloudflare Worker、Durable Object 和 WebSocket 实时同步。
 
 Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
-## 使用方式
+仓库只维护两份长期文档：
 
-- `/create`：创建房间并进入大屏。
-- `/room/:roomId/display`：播放当前歌曲、切歌、调整进度和清晰度，并显示手机点歌二维码。
-- `/room/:roomId/mobile`：搜索、预览、点歌和管理歌单。
-- `/room/:roomId/debug`：查看远端 snapshot、房间链接和 cleanup 操作。
+- `README.md`：产品、架构、search technical design、手动配置、部署和测试。
+- `progress.md`：实现状态、历史修复、验证记录和待办。
 
-手机端支持歌名/歌手搜索、`带原唱`、缓存推荐、单预览、搜索状态恢复、连续点歌、置顶/删除，以及远程重唱和切歌。大屏使用 YouTube IFrame Player API 自动续播，并记住本机的清晰度偏好。
+## 1. 产品与使用流程
 
-## 架构
+1. 主持人在 `/create` 创建房间。
+2. 浏览器进入 `/room/:roomId/display`，作为电脑、电视或投影大屏。
+3. 参与者扫描二维码进入 `/room/:roomId/mobile`。
+4. 手机搜索、预览并点歌；Durable Object 持久化并广播新 snapshot。
+5. 大屏用 YouTube IFrame Player API 播放；结束、重唱或切歌会同步到房间。
 
-- React + TypeScript + Vite：前端与静态资源。
-- Cloudflare Worker：API 和 production assets。
-- Durable Object：房间状态、WebSocket 广播、心跳和 5 分钟 inactive cleanup。
-- D1：房间与歌单持久化。
-- KV：搜索缓存、推荐池、限流和 YouTube quota 估算。
-- YouTube Data API / IFrame Player API：搜索和官方嵌入播放。
+| Route | 用途 |
+| --- | --- |
+| `/create` | 创建房间。 |
+| `/room/:roomId/display` | 播放、二维码、下一首、seek、quality 和 quota。 |
+| `/room/:roomId/mobile` | 搜索、preview、点歌和队列管理。 |
+| `/room/:roomId/debug` | Snapshot、房间链接和 cleanup。 |
 
-Production 资源：
+当前核心体验：
+
+- 第一首歌自动成为 `playing`；后续歌曲 `queued`，不会打断当前播放。
+- Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、单个 480p preview 和缓存内加载更多。
+- Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
+- 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。
+- Display 自动尝试播放，提供 app-owned progress/seek、下一首和实际 quality options。
+- WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
+
+## 2. 技术架构
+
+| 组件 | 职责 |
+| --- | --- |
+| React + TypeScript + Vite | 页面、mobile UI state、播放器和 local development。 |
+| Main Worker `ktv-assistant` | API router、YouTube search、production assets。 |
+| Room Worker `ktv-assistant-room` | 导出 `RoomDurableObject`。 |
+| Durable Object | WebSocket clients、命令顺序、broadcast、heartbeat、alarm。 |
+| D1 `DB` | 房间、队列和 playback persistence。 |
+| KV `SEARCH_CACHE` | Search family cache、index、推荐、rate limit、quota estimate。 |
+| YouTube APIs | Worker-only search 和官方 iframe playback。 |
+
+### 2.1 房间数据流
+
+创建房间：
+
+1. Frontend `POST /api/rooms`。
+2. Main Worker 生成 8 位小写字母/数字 room id。
+3. D1 写入 `rooms` 和初始 `playback_states`。
+4. API 返回 display/mobile URLs 和 initial snapshot。
+
+实时同步：
+
+1. Display/mobile 连接 `/api/rooms/:roomId/ws`。
+2. Main Worker 把 upgrade 转给按 room id 命名的 Durable Object。
+3. `JOIN_ROOM` 返回 `ROOM_SNAPSHOT`。
+4. Queue/player command 通过共享 reducer 得到 next snapshot。
+5. DO 写 D1，再用 `ROOM_UPDATED` 广播给所有 clients。
+
+队列 invariant：
+
+- 新增第一首时进入 `playing + loading`。
+- Add/promote queued item 不替换当前 playing item。
+- Player event 的 queue item id 和 video id 必须匹配当前播放。
+- `PLAYER_ENDED` 完成当前歌曲并选择 sort key 最小的下一首。
+- `RESTART_CURRENT_ITEM` 只重置为 `loading`，不改变顺序。
+- 没有 queued item 时 playback 回到 `idle`。
+
+### 2.2 D1 与房间生命周期
+
+`migrations/0001_initial.sql` 包含：
+
+- `rooms`：名称、时间和 `is_active`。
+- `queue_items`：YouTube metadata、status 和 sort key。
+- `playback_states`：当前 item/video 和 player state。
+- `playback_events`：预留 event audit table。
+
+Snapshot 包含 `room`、`queue`、`playback` 和 `connectedClients`。Activity 写入 DO storage 并更新 D1；alarm 到期时：
+
+- 有 active socket：延期。
+- 未满 5 分钟：按最后 activity 重新安排。
+- 已 inactive 5 分钟：room 设为 inactive，queue 清空，playback 设为 idle。
+
+### 2.3 Local 与 production
+
+本地 Vite 保留 `localStorage + BroadcastChannel` fallback；只有 localhost origin 在 socket 未连接时允许使用。以下必须在线上验证：
+
+- Durable Object、WebSocket、D1 和 KV。
+- Search cache、quota 和 rate limit。
+- Worker + Assets routing。
+- 真实 browser autoplay、playsinline 和 iframe policy。
+
+主要代码位置：
+
+```txt
+src/routes/                 create、display、mobile、debug
+src/hooks/useRoomSocket.ts  connection、heartbeat、reconnect
+src/lib/roomReducer.ts      shared queue rules
+worker/router.ts            HTTP API
+worker/roomDurableObject.ts realtime room lifecycle
+worker/search*.ts           query family、service、ranking
+worker/kvCache.ts           cache/index/recommendations
+worker/youtube*.ts          live search、quota
+```
+
+## 3. Production 资源与配置
 
 | 资源 | 名称 / ID |
 | --- | --- |
-| Main Worker | `ktv-assistant` |
+| Cloudflare account | `Bradwang1995@gmail.com's Account` / `7b1b04c010c424952c9d2cbcbea76145` |
+| Main Worker + Assets | `ktv-assistant` |
+| Production origin | `ktv-assistant.bradwang1995.workers.dev` |
 | Room Worker | `ktv-assistant-room` |
-| Durable Object class | `RoomDurableObject` |
+| Durable Object | `RoomDurableObject` / `0b4ed7f219e94e1fb685b7f554808aba` |
 | D1 | `ktv-assistant-db` / `a2fe987b-5191-4ac3-9d01-f923d19c731a` |
 | KV | `SEARCH_CACHE` / `aedd751919314f9e81f1917e59a859bd` |
+| Secret | `YOUTUBE_API_KEY`，已配置在两个 Worker |
 
-`YOUTUBE_API_KEY` 已作为 encrypted secret 配置在两个 Worker 中，不应写入代码、文档或 Wrangler config。
+Main Worker bindings：
 
-## 本地开发
+```txt
+DB           -> ktv-assistant-db
+SEARCH_CACHE -> SEARCH_CACHE
+ROOM_OBJECT  -> RoomDurableObject in ktv-assistant-room
+```
+
+Room Worker 使用相同 D1/KV，并通过 `[[migrations]]` 创建 `RoomDurableObject`。`workers_dev = false`，不需要独立 public URL。
+
+Runtime variables：
+
+| Variable | Value | 作用 |
+| --- | ---: | --- |
+| `YOUTUBE_SEARCH_DAILY_LIMIT` | `50` | Project search-call guardrail。 |
+| `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` | `1` | 每个 cold family 最多一次 search。 |
+| `SEARCH_CACHE_TTL_DAYS` | `365` | KV cache TTL。 |
+| `SEARCH_CACHE_MAX_ENTRY_BYTES` | `524288` | Family payload 上限约 512 KiB。 |
+| `SEARCH_RATE_LIMIT_PER_MINUTE` | `20` | Room + identity search rate limit。 |
+
+Google 当前文档的默认 `search.list` bucket 是 100 calls/day、每次计 1 call；本项目主动限制为 50/day。实际平台上限以 Google Cloud Console 为准，项目变量只控制 app guardrail 和 estimate。
+
+## 4. 本地开发
 
 ```bash
 npm install
 npm run dev
 ```
 
-本地 Vite 模式适合 UI 开发，并会保留 browser-local fallback。D1、KV、Durable Object、WebSocket 和 production assets 的真实行为必须在线上环境验证。
+| Command | 作用 |
+| --- | --- |
+| `npm run dev` | Vite dev server。 |
+| `npm run typecheck` | Frontend + Worker TypeScript。 |
+| `npm run test` | 全部 Vitest tests。 |
+| `npm run build` | TypeScript + Worker + production assets。 |
+| `npm run preview` | Preview built assets。 |
 
-## 验证
+提交前：
 
 ```bash
 npm run typecheck
@@ -51,66 +166,431 @@ npm run test
 npm run build
 ```
 
-最短 production 验收流程：
+## 5. API 与 WebSocket protocol
 
-1. 从 `/create` 创建一个新房间，在大屏页打开二维码对应的手机页。
-2. 手机搜索并加入两首歌；确认大屏无需刷新即可同步，第一首播放、第二首排队。
-3. 确认搜索模式、`带原唱`、预览、继续加载、点歌反馈和刷新后的 tab/search 状态。
-4. 确认大屏自动播放尝试、进度 seek、清晰度记忆、手动下一首和自然播完自动续播。
-5. 确认手机端置顶/删除，以及需要确认的重唱/切歌。
-6. 打开 debug 页检查 snapshot；确认 quota 状态，并在所有客户端关闭 5 分钟后检查 inactive cleanup。
-7. 发布前至少覆盖 Mobile Safari、Android Chrome、iPad Safari 和 Desktop Chrome。
+| Method | Path | 说明 |
+| --- | --- | --- |
+| `POST` | `/api/rooms` | 创建房间。 |
+| `GET` | `/api/rooms/:roomId/snapshot` | 当前 snapshot。 |
+| `GET` | `/api/rooms/:roomId/ws` | WebSocket upgrade。 |
+| `POST` | `/api/rooms/:roomId/search` | 搜索或默认推荐。 |
+| `POST` | `/api/rooms/:roomId/cleanup` | 删除 completed/removed items。 |
+| `GET` | `/api/youtube/quota` | 应用估算的 search quota。 |
 
-API smoke test（PowerShell）：
+Room id 必须是 8 位小写字母/数字。Error response 使用 `error.code` 和 `error.message`。
 
-```powershell
-$base = "https://ktv-assistant.bradwang1995.workers.dev"
-$room = Invoke-RestMethod -Method Post -Uri "$base/api/rooms"
-Invoke-RestMethod -Uri "$base/api/rooms/$($room.roomId)/snapshot"
-Invoke-RestMethod -Uri "$base/api/youtube/quota"
+Client → server messages：
+
+- `JOIN_ROOM`：`role`、`clientId`、可选 `displayName`。
+- `ADD_QUEUE_ITEM`：video metadata。
+- `PROMOTE_QUEUE_ITEM` / `REMOVE_QUEUE_ITEM`：`queueItemId`。
+- `PLAYER_STARTED` / `PLAYER_ENDED` / `RESTART_CURRENT_ITEM`：当前 ids。
+- `PING`：heartbeat。
+
+Server → client：`ROOM_SNAPSHOT`、`ROOM_UPDATED`、`PONG`、`ERROR`。
+
+Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。Production socket unavailable 时不会把 command 写入本地假 snapshot。
+
+## 6. Search technical design
+
+Search 的目标不是每次只返回 8 个临时结果，而是用一次 cold request 建立可复用、可重新排序的 KTV candidate pool。
+
+### 6.1 目标与约束
+
+- API key 只存在于 Worker secret。
+- Cold search family 默认只发一次 `search.list`。
+- 一次最多取 50 个 embeddable candidates，去重、补 duration、打分、缓存。
+- UI 最多取 40，先显示 8，再按 8 条从当前 response 展开。
+- Cache hit、空查询推荐和 client-side load-more 不增加 search call。
+- 排序先保证 title/artist 相关，再考虑 KTV、伴奏、lyrics 和原唱意图。
+- Guardrails 通过 Wrangler variables 配置。
+
+Google `search.list` 当前 `maxResults` 是 0–50；`q` 支持 OR `|` 和 NOT `-`。额外 page request 会消耗新的 search call，因此默认只取第一页。
+
+### 6.2 Request / response
+
+```json
+{
+  "query": "后来",
+  "limit": 40,
+  "searchType": "song",
+  "includeOriginalVocal": false,
+  "cacheFill": true
+}
 ```
 
-通过标准：新房间初始 queue 为空且 player 为 `idle`；手机点歌后多端实时同步；切歌或视频结束能推进队列；空队列回到 `idle`。
+Request rules：
 
-## 搜索规则
+- `query` required，trim 后最多 100 characters。
+- `limit` 默认 8，clamp 到 1–40。
+- `artist` optional，最多 100 characters；API 支持，mobile UI 暂不单独发送。
+- `searchType` 是 `song` 或 `artist`，默认 `song`。
+- `includeOriginalVocal` 默认 `false`。
+- `cacheFill` 默认 `true`。设为 `false` 会把 cold target 缩到当前 limit，但 cache miss 仍可能发一次 YouTube request。
+- Empty query 直接读 recommendations，不发 live search。
 
-- Endpoint：`POST /api/rooms/:roomId/search`。
-- 支持 `searchType: "song" | "artist"` 和 `includeOriginalVocal`。
-- 前端最多取得 40 条缓存候选，先显示 8 条，再从当前结果继续展开，不重复请求 API。
-- 冷缓存默认只使用一次 YouTube `search.list`，最多缓存 50 条；空查询推荐不消耗 search quota。
-- 排序先保证歌名/歌手相关性，再优先 KTV/karaoke，最后结合伴奏、歌词、MV 和原唱意图。
-- Quota 估算默认 50 calls/day，按 Pacific Time 午夜重置；状态由 `GET /api/youtube/quota` 提供。
+Response 保留：
 
-## 部署与维护
+- `query`、`normalizedQuery`、`searchType`、`includeOriginalVocal`。
+- `cached` 和 scored `results`。
+- `cacheMeta`：search calls、cached count、videos calls、source queries、pruned count 和 quota snapshot。
 
-只改主应用 Worker 或前端：
+### 6.3 Query family
+
+`buildSearchQueryFamily`：
+
+1. Normalize case/spacing。
+2. 反复移除结尾 `ktv`、`karaoke`、`instrumental`、`pinyin`、`伴奏`、`卡拉OK`。
+3. 用 canonical query、artist、type 和 vocal intent 生成稳定 hash。
+4. 生成 aliases、normalized query 和 source queries。
+
+Hash input：
+
+```txt
+canonicalQuery | artist | searchType | original-or-karaoke
+```
+
+所以 song/artist、伴奏/原唱和明确 artist 的结果不会错误共享同一 family。
+
+Song/KTV aliases：
+
+```txt
+后来
+后来 ktv
+后来 karaoke
+后来 伴奏
+后来 卡拉OK
+后来 pinyin karaoke
+后来 instrumental
+```
+
+Original-vocal aliases：
+
+```txt
+后来
+后来 lyric video
+后来 lyrics
+后来 歌词
+后来 MV
+后来 original with lyrics
+```
+
+Artist mode 使用 artist-oriented `ktv / karaoke / classic songs` 或 `lyrics / MV / official`。Aliases 以 `|` 合成最多 450 characters 的 broad query；hot path 使用第一条 source query，无需在 request 中调用 LLM。
+
+### 6.4 Live fetch pipeline
+
+1. Read KV family/index cache。
+2. Read quota estimate，决定 allowed search calls。
+3. `search.list` 使用 `type=video`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
+4. Deduplicate by `videoId`。
+5. `videos.list(part=contentDetails)` 读取 duration，每 50 ids 一批。
+6. 针对 current user query 排序。
+7. 写 family cache、normalized indexes 和 recommendation pool。
+8. 返回 requested slice，最多 40 条。
+
+没有 `YOUTUBE_API_KEY` 时使用 mock provider。Quota exhausted 且 cache miss 时返回空 results 和 quota metadata；已有 cache 仍可使用。
+
+### 6.5 Ranking
+
+相关性高于通用 KTV keyword，避免无关 KTV 视频压过真正的歌曲：
+
+| Signal | Score / behavior |
+| --- | --- |
+| Exact title | +60 |
+| Title prefix | +48 |
+| Title contains query | +40 |
+| Query tokens in title | +24 |
+| Channel-only match | +2 |
+| Song title miss | -72 |
+| Artist in title/channel | +42 / +32 |
+| KTV / 卡拉OK / karaoke | +30 / +30 / +24 |
+| 伴奏 / instrumental | +20 / +16 |
+| Lyric video / lyrics / 歌词 | Secondary positive |
+| Original / 原唱 / MV / official | 只在 vocal intent 时额外加分 |
+| Live、现场、reaction、cover | Downrank |
+| Remix、tutorial、教学、shorts | Downrank |
+| Duration < 60s 或 > 15min | Downrank |
+
+带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。Result 保留 `score` 和 `reasons` 供 test/debug。
+
+关键 regression：搜索 `依赖` 时，`离开我的依赖` 的 KTV/lyrics/伴奏必须高于标题无关的 `唯一` KTV。
+
+### 6.6 KV cache
+
+Keys：
+
+```txt
+yt-search:v3:<familyHash>:CA:zh-Hans
+yt-search-index:v1:<normalizedQuery>:CA:zh-Hans
+yt-search-recommendations:v1:CA:zh-Hans
+yt-search-quota:v1:<Pacific-date>
+```
+
+Family entry 保存：
+
+- Canonical/normalized query、artist、type、vocal intent、aliases、hash。
+- Created/expiry timestamps 和 source queries。
+- 最多 50 条 results。
+- Search/videos call counts、payload bytes、pruned count。
+- Hit count 和 last accessed time。
+
+读取先查 normalized index，再 fallback 到 family hash。Cache hit 会按当前 query 重新打分、增加 hit count，但不延长原 expiry。
+
+写入先限制 50 条，再测 UTF-8 JSON bytes；超过 512 KiB 时从尾部裁剪。默认 TTL 365 天。Search cache 可重建，因此不写 D1。
+
+### 6.7 Recommendations、quota、rate limit
+
+- 每次成功写 family 时合并 recommendation pool，按 video id 去重，最多 40 条；mobile 空查询取 8。
+- Recommendation key 不存在时，可从最近 family entries 生成 fallback。
+- Project guardrail：50 search calls/day、1 call/cold fill。
+- Quota day 按 `America/Los_Angeles`，PT 午夜重置。
+- `GET /api/youtube/quota` 返回 remaining/reset；display 转成本地时区。
+- Estimate 不替代 Google Cloud Console，失败/无效请求可能造成 drift。
+- 非空搜索默认同 room + IP identity 每分钟 20 次。
+- 超限：HTTP 429、`SEARCH_RATE_LIMITED`、`retry-after`。
+
+### 6.8 Mobile search state
+
+每个 room 的 localStorage state 保留 24 小时：
+
+- Query、type、original-vocal toggle。
+- Full response cache 和 visible count（8–40）。
+- Selected result、active preview、scroll。
+- Search/queue tab URL state。
+
+继续加载只扩展当前 response。切 tab、refresh 或连续点歌都应保留上下文。
+
+### 6.9 后续 search 方向
+
+- 根据真实 hit rate 决定 exact query、song family 或 artist catalog 的 cache boundary。
+- 用 curated/offline tooling 增加中文别名、拼音、英文名和 typo。
+- 增加 cache age、hits、payload、quota drift 的 admin visibility。
+- 决定是否提供显式 prewarm。
+- 按实际 KV limits/cost 设计 eviction。
+- 若增加多 source-query，仍受 daily/per-fill caps 限制。
+
+## 7. YouTube preview 与 display player
+
+Mobile preview：
+
+- 从约 30 秒开始、mute、playsinline、480p preference。
+- 只有 active card 挂载 iframe；点击卡片选择并 preview，点击外部停止。
+- 当前仍是普通 embed；精确 IFrame Player API control 和 load error fallback 是后续项。
+
+Display：
+
+- IFrame Player API + autoplay intent；API 未 ready 时等待。
+- 短延迟 retry；browser block 时显示提示。
+- 实际 PLAYING 才发送 `PLAYER_STARTED`；ENDED 发送 `PLAYER_ENDED`。
+- Mobile restart 从头播放；manual skip 和 natural end 共用推进规则。
+- App-owned next、progress/seek 和 quality。
+- 默认 1080p preference；显示当前有效 quality，并保留下首偏好。
+
+## 8. Cloudflare 手动配置
+
+当前 production 资源已经创建。以下用于新环境、恢复或迁移。
+
+### 8.1 登录
 
 ```bash
+npx wrangler login
+npx wrangler whoami
+```
+
+### 8.2 D1
+
+```bash
+npx wrangler d1 create ktv-assistant-db
+npx wrangler d1 execute ktv-assistant-db --file ./migrations/0001_initial.sql --remote
+```
+
+把新 `database_id` 写入两个 Wrangler config。Local D1 可使用 `--local`；production schema change 必须通过 migration，不直接手改线上表。
+
+### 8.3 KV
+
+```bash
+npx wrangler kv namespace create SEARCH_CACHE
+```
+
+把 namespace id 写入两个 config 的 `SEARCH_CACHE` binding。
+
+### 8.4 YouTube API key
+
+1. Google Cloud 创建/选择 project。
+2. 启用 YouTube Data API v3。
+3. 创建并限制 API key。
+4. 写入两个 encrypted Worker secrets：
+
+```bash
+npx wrangler secret put YOUTUBE_API_KEY
+npx wrangler secret put YOUTUBE_API_KEY --config wrangler.room.toml
+```
+
+Secret 不写入代码、README、`.env`、`.dev.vars` 或 Wrangler config。
+
+### 8.5 首次部署
+
+```bash
+npx wrangler deploy --config wrangler.room.toml --dry-run
+npx wrangler deploy --config wrangler.room.toml --keep-vars
 npm run build
 npx wrangler deploy --keep-vars
 ```
 
-如果改到 Room Durable Object，再先部署 Room Worker：
+确认 Main Worker bindings：
+
+```txt
+DB           -> ktv-assistant-db
+SEARCH_CACHE -> SEARCH_CACHE
+ROOM_OBJECT  -> RoomDurableObject, script_name = ktv-assistant-room
+```
+
+## 9. 日常部署
+
+Main Worker/frontend only：
 
 ```bash
+npm run typecheck
+npm run test
+npm run build
+npx wrangler deploy --keep-vars
+```
+
+改到 DO/Room Worker：
+
+```bash
+npm run typecheck
+npm run test
 npm run build
 npx wrangler deploy --config wrangler.room.toml --keep-vars
 npx wrangler deploy --keep-vars
 ```
 
-首次配置或恢复资源时常用命令：
+Room Worker 先部署；`--keep-vars` 防止覆盖 Dashboard variables/secrets。`git push` 不等于 deploy；纯文档更新不 redeploy。
 
-```bash
-npx wrangler login
-npx wrangler d1 execute ktv-assistant-db --file ./migrations/0001_initial.sql --remote
-npx wrangler secret put YOUTUBE_API_KEY
-npx wrangler secret put YOUTUBE_API_KEY --config wrangler.room.toml
+## 10. Production 测试
+
+### 10.1 End-to-end
+
+1. 用 production `/create` 创建 fresh room。
+2. Display 打开 mobile link/QR，不覆盖 display tab。
+3. Mobile 搜 `后来`，测试 song/artist 和 `带原唱`。
+4. 确认 title-related result 高于无关 KTV。
+5. 确认只有一个 preview，点击外部停止。
+6. 点第一首后仍在 search，display 无刷新更新并尝试播放。
+7. 再点第二首，确认第一首不被打断。
+8. Refresh mobile，tab/search state 应恢复。
+9. 测置顶、删除、重唱、切歌。
+10. Display 测 seek、quality preference 和 next。
+11. 让短视频自然结束，确认推进；队列空后 idle。
+12. Debug 检查 snapshot 和 cleanup。
+
+Display 专项：
+
+- `PLAYER_STARTED` 只在实际播放后出现。
+- Autoplay blocked 时提示清楚。
+- 1080p preference 跨 refresh/next song 保留。
+- 不可用时显示实际 quality，不显示虚构“最高”。
+- QR 不遮挡 player；quota reset 使用 browser timezone。
+
+### 10.2 API/search smoke
+
+```powershell
+$base = "https://ktv-assistant.bradwang1995.workers.dev"
+$room = Invoke-RestMethod -Method Post -Uri "$base/api/rooms"
+$roomId = $room.roomId
+Invoke-RestMethod -Uri "$base/api/rooms/$roomId/snapshot"
+Invoke-RestMethod -Uri "$base/api/youtube/quota"
+
+$body = @{
+  query = "后来"
+  limit = 40
+  searchType = "song"
+  includeOriginalVocal = $false
+  cacheFill = $true
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "$base/api/rooms/$roomId/search" `
+  -ContentType "application/json" `
+  -Body $body
 ```
 
-使用 `--keep-vars` 避免覆盖 Dashboard 中已有变量。数据库结构应通过 migration 修改，不要直接手改 production D1。
+期望：
 
-如果 production 测试失败，先确认使用的是线上域名和新房间，再检查浏览器 Console/Network、Worker bindings、`YOUTUBE_API_KEY`、quota 和 KV cache。
+- New room queue empty、player idle。
+- Cold search 通常 `cached=false`；repeat family `cached=true`。
+- Results 最多 40，metadata 可显示最多 50 cached candidates。
+- Empty query 返回最多 8 recommendations，且不增加 search estimate。
 
-## 内容约束
+### 10.3 WebSocket smoke
 
-YouTube 内容只通过官方 embed / IFrame Player API 播放；不下载、不提取、不转码、不重新托管。
+```js
+const roomId = "<roomId>";
+const ws = new WebSocket(
+  "wss://ktv-assistant.bradwang1995.workers.dev/api/rooms/" + roomId + "/ws",
+);
+ws.onopen = () => {
+  ws.send(JSON.stringify({
+    type: "JOIN_ROOM",
+    role: "mobile",
+    clientId: crypto.randomUUID(),
+  }));
+  ws.send(JSON.stringify({ type: "PING" }));
+};
+ws.onmessage = (event) => console.log(JSON.parse(event.data));
+```
+
+期望 `ROOM_SNAPSHOT`、`PONG`；第二个 client 连接时 connected count 变化。再发送两次 `ADD_QUEUE_ITEM`：第一首 playing、第二首 queued；`PLAYER_ENDED` 推进；`RESTART_CURRENT_ITEM` 保持当前 item 并回到 loading。
+
+### 10.4 Cleanup、rate limit、devices
+
+Debug page 应能 refresh snapshot、复制链接、删除 completed/removed items。关闭所有 display/mobile/debug 页面至少 5 分钟后，snapshot 应显示 inactive、empty queue、idle playback。
+
+Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返回 HTTP 429、`SEARCH_RATE_LIMITED` 和 `retry-after`。
+
+| Device | 重点 |
+| --- | --- |
+| Mobile Safari | QR、sticky controls、preview、playsinline、queue。 |
+| Android Chrome | Search、load-more、preview、sync。 |
+| iPad Safari | Orientation、layout、iframe。 |
+| Desktop Chrome | Autoplay、quality、seek、auto-advance。 |
+
+通过标准：
+
+- 创建真实 D1 room。
+- Search 返回相关 candidates。
+- 手机连续点歌，大屏无刷新同步。
+- 多 clients snapshot 一致。
+- Restart、skip、natural end 正确。
+- 空队列 idle。
+- Quota 可见。
+- 5-minute inactivity cleanup 正确。
+
+故障排查顺序：
+
+1. 确认 production URL 和 fresh room。
+2. 查看 Console/Network。
+3. 跑 create/snapshot API smoke。
+4. 跑 `JOIN_ROOM/PING`。
+5. 确认最新 commit 是否真正 deploy。
+6. Search 检查 secret、Google quota、KV、rate limit。
+7. Sync 检查 `ROOM_OBJECT`、Room Worker、D1。
+8. Autoplay/quality 必须在目标浏览器复现。
+
+## 11. 安全与内容约束
+
+- Secrets 不 commit。
+- D1 schema 通过 migration。
+- Production 断线不伪造 command success。
+- YouTube 只使用官方 embed / IFrame Player API。
+- 不下载、不提取、不转码、不重新托管视频。
+
+## 12. 官方参考
+
+- YouTube search：<https://developers.google.com/youtube/v3/docs/search/list>
+- YouTube quota：<https://developers.google.com/youtube/v3/determine_quota_cost>
+- Cloudflare D1 commands：<https://developers.cloudflare.com/d1/wrangler-commands/>
+- Cloudflare KV commands：<https://developers.cloudflare.com/kv/reference/kv-commands/>
+- Durable Objects：<https://developers.cloudflare.com/durable-objects/get-started/>
