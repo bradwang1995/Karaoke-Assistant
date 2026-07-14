@@ -1,5 +1,3 @@
-import type { YouTubePlaybackQuality } from "./youtubePlaybackQuality";
-
 export function youtubeThumbnailUrl(videoId: string) {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 }
@@ -10,7 +8,6 @@ export function youtubeEmbedUrl(
     start?: number;
     muted?: boolean;
     autoplay?: boolean;
-    quality?: YouTubePlaybackQuality;
   } = {},
 ) {
   const params = new URLSearchParams({
@@ -26,7 +23,5 @@ export function youtubeEmbedUrl(
 
   if (options.muted) params.set("mute", "1");
   if (options.autoplay) params.set("autoplay", "1");
-  if (options.quality) params.set("vq", options.quality);
-
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }

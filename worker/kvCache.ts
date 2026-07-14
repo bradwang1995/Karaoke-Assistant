@@ -8,7 +8,7 @@ const SEARCH_RECOMMENDATIONS_VERSION = "v1";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
-const MAX_RECOMMENDED_SEARCH_RESULTS = 40;
+export const MAX_RECOMMENDED_SEARCH_RESULTS = 200;
 
 interface JsonKvNamespace {
   get<T>(key: string, options: { type: "json" }): Promise<T | null>;
@@ -171,11 +171,16 @@ export async function readSearchRecommendations(
     { type: "json" },
   );
 
-  if (isValidRecommendationsEntry(recommendations)) {
-    return recommendations.results.slice(0, limit);
+  const storedResults = isValidRecommendationsEntry(recommendations)
+    ? recommendations.results
+    : [];
+
+  if (storedResults.length >= limit) {
+    return storedResults.slice(0, limit);
   }
 
-  return readRecommendationsFromFamilyCaches(namespace, limit);
+  const familyResults = await readRecommendationsFromFamilyCaches(namespace, limit);
+  return uniqueResults([...storedResults, ...familyResults]).slice(0, limit);
 }
 
 export async function touchSearchCache(
@@ -355,7 +360,7 @@ async function readRecommendationsFromFamilyCaches(
 
   const listed = await namespace.list({
     prefix: searchCacheFamilyKeyPrefix(),
-    limit: 20,
+    limit: Math.min(Math.max(Math.ceil(limit / 10), 20), 1_000),
   });
   const entries = (
     await Promise.all(
@@ -368,7 +373,7 @@ async function readRecommendationsFromFamilyCaches(
   ).filter(isValidSearchCacheEntry);
   const results = entries
     .sort((a, b) => cacheEntryTimestamp(b) - cacheEntryTimestamp(a))
-    .flatMap((entry) => entry.results.slice(0, limit));
+    .flatMap((entry) => entry.results);
 
   return uniqueResults(results).slice(0, limit);
 }

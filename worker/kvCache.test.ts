@@ -74,6 +74,29 @@ describe("KV search cache", () => {
     expect(recommendations[0].videoId).toBe("video-0");
   });
 
+  it("keeps at least 100 unique cached recommendations for infinite expansion", async () => {
+    const kv = new MemoryKv();
+
+    for (let familyIndex = 0; familyIndex < 2; familyIndex += 1) {
+      const family = buildSearchQueryFamily(`Singer ${familyIndex}`);
+      const response = buildResponse(
+        `Singer ${familyIndex}`,
+        family.normalizedQuery,
+        buildResults(50, familyIndex * 50),
+      );
+
+      await writeSearchCache(kv, family, response, {
+        ttlSeconds: 60 * 60 * 24 * 365,
+        maxEntryBytes: 100_000,
+      });
+    }
+
+    const recommendations = await readSearchRecommendations(kv, 100);
+
+    expect(recommendations).toHaveLength(100);
+    expect(new Set(recommendations.map((result) => result.videoId)).size).toBe(100);
+  });
+
   it("prunes low-ranked hits when a cache entry would be too large", async () => {
     const kv = new MemoryKv();
     const family = buildSearchQueryFamily("Later");
@@ -113,12 +136,12 @@ function buildResponse(
   };
 }
 
-function buildResults(count: number): VideoSearchResult[] {
+function buildResults(count: number, offset = 0): VideoSearchResult[] {
   return Array.from({ length: count }, (_, index) => ({
-    videoId: `video-${index}`,
-    title: `Later KTV ${index}`,
+    videoId: `video-${index + offset}`,
+    title: `Later KTV ${index + offset}`,
     channelTitle: "Karaoke Studio",
-    thumbnailUrl: `https://img.youtube.com/vi/video-${index}/hqdefault.jpg`,
+    thumbnailUrl: `https://img.youtube.com/vi/video-${index + offset}/hqdefault.jpg`,
     durationSeconds: 240,
     publishedAt: "2026-01-01T00:00:00Z",
     score: 100 - index,

@@ -12,10 +12,10 @@ Last updated: 2026-07-13
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
 | YouTube search | MVP complete | Live API、family cache、ranking、推荐、rate limit、quota 已完成。 |
-| Mobile preview | Partial | 单个 480p iframe 可用；精确 Player API control 待做。 |
-| Display player | MVP complete | Autoplay attempt、seek、quality、auto-advance 已完成。 |
+| Mobile preview | MVP complete | 2–4 列、单 iframe、600ms debounce、spinner/timeout fallback 已完成。 |
+| Display player | MVP complete | Autoplay attempt、restart、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 12 files / 47 tests | Route/DO integration 和 Playwright 待补。 |
+| Automated tests | 11 files / 44 tests | Route/DO integration 和 Playwright E2E 待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | 只保留 root README + progress。 |
 
@@ -85,7 +85,9 @@ Last updated: 2026-07-13
 - `[x]` Partial-title regression coverage。
 - `[x]` KV v3 family cache、index、metadata、payload pruning。
 - `[x]` Recommendation pool 和 cached re-ranking。
-- `[x]` API 40 results；mobile 8-at-a-time expansion。
+- `[x]` API 50 results；mobile 10-at-a-time expansion。
+- `[x]` Recommendation pool 200 results；缓存耗尽前自动无限滚动。
+- `[x]` Original-vocal toggle 自动重搜并使用对立权重，顺序有明确变化。
 - `[x]` 20/min rate limit。
 - `[x]` Project quota 50/day、1/fill、Pacific reset 和 status API。
 - `[x]` Real YouTube result + repeat-query cache hit verified。
@@ -96,14 +98,14 @@ Last updated: 2026-07-13
 - `[x]` Sticky type/query/toggle/search controls。
 - `[x]` 24-hour per-room search state。
 - `[x]` Queue tab URL persistence。
-- `[x]` One active 480p preview iframe。
-- `[x]` Select-and-preview；click outside stops。
+- `[x]` Portrait 2-column、wide/landscape 3–4-column compact previews。
+- `[x]` One active adaptive-quality preview iframe；click outside stops。
+- `[x]` 600ms debounce、pending/loading spinner、10s slow-load retry hint。
 - `[x]` Overlay selection/queue tags。
 - `[x]` Page toast + add-to-queue animation。
 - `[x]` Stay on search after adding；duplicate warning。
 - `[x]` Direct promote；confirm remove/restart/skip。
-- `[ ]` Preview IFrame Player API control。
-- `[ ]` Preview load-failure fallback。
+- `[x]` Preview iframe load/timeout fallback。
 - `[~]` Mobile autoplay/playsinline real-device check。
 
 ### Phase 6 — Display playback
@@ -112,11 +114,11 @@ Last updated: 2026-07-13
 - `[x]` Autoplay intent、ready guard、retry、blocked hint。
 - `[x]` PLAYING/ENDED → room commands。
 - `[x]` Natural end、manual skip、mobile restart。
-- `[x]` App next、progress/seek、quality controls。
+- `[x]` App next、restart、progress/seek controls。
 - `[x]` YouTube chrome cleanup。
-- `[x]` 1080p default + persistent preference。
-- `[x]` Concrete available/effective qualities。
-- `[x]` Clean QR card 和 local-time quota footer。
+- `[x]` 已移除官方明确失效的 quality APIs 和误导性 selector；YouTube 自适应画质。
+- `[x]` High-contrast QR；room-level connection/quota/local-time status 在 footer 最左。
+- `[x]` Center title above progress，和歌名不再重叠。
 - `[ ]` Real-browser autoplay matrix。
 
 ### Phase 7 — Reliability
@@ -143,7 +145,7 @@ Last updated: 2026-07-13
 | Mobile tab | `?tab=queue` survives refresh。 |
 | Recommendations | KV defaults；empty query uses no search call。 |
 | Autoplay | Params、retry、play intent、Player-ready guard。 |
-| Quality | 1080p default、selector、persistence。 |
+| Quality | 早期 selector 方案；第三轮按 YouTube 官方弃用说明移除。 |
 | Display layout | Controls outside iframe；mobile link new tab；QR offset。 |
 | Quota | One call / up to 50 results per cold fill。 |
 | Preview | Interacting with iframe first selects result。 |
@@ -176,7 +178,7 @@ Last updated: 2026-07-13
 | PIT-07 | P1 | Pill toggle + compact toolbar。 |
 | PIT-08 | P1 | Sticky controls/result count。 |
 | PIT-09 | P1 | Less preview chrome；outside click stops。 |
-| PIT-10–12 | P1 | Display chrome、app seek、authoritative quality UI。 |
+| PIT-10–12 | P1 | Display chrome、app seek；quality UI 后在第三轮因官方 API 失效移除。 |
 | PIT-13 | P0 | 5-minute inactive cleanup。 |
 | PIT-14 | P0 | Open-client heartbeat。 |
 | PIT-15 | P1 | Quota estimate and Pacific reset。 |
@@ -186,15 +188,33 @@ Last updated: 2026-07-13
 | ID | P | Completed |
 | --- | --- | --- |
 | PIT2-01 | P1 | Sticky header clipping fix。 |
-| PIT2-02 | P1 | Auto-preview、less hover chrome、480p。 |
+| PIT2-02 | P1 | Auto-preview、less hover chrome；固定画质假设后在第三轮修正为 adaptive。 |
 | PIT2-03 | P0 | Partial title above unrelated KTV。 |
-| PIT2-04 | P0 | Persistent 1080p and real quality options。 |
+| PIT2-04 | P0 | 早期 quality preference 尝试；第三轮确认官方 API no-op 后移除。 |
 | PIT2-05 | P1 | Remove start button；larger centered progress。 |
 | PIT2-06 | P1 | Hide uploader；local quota reset time。 |
 | PIT2-07 | P1 | Simplified linked QR card。 |
 | PIT2-08 | P1 | Remove duplicate queue-tab count。 |
 | PIT2-09 | P1 | Confirm restart/skip；direct promote。 |
 | PIT2-10 | P1 | Verification、release、documentation。 |
+
+### 2026-07-13 post-internal pass 3
+
+| ID | P | Completed |
+| --- | --- | --- |
+| PIT3-01 | P0 | QR 改为纯黑/纯白、高纠错级别、增大尺寸和白色发光边界。 |
+| PIT3-02 | P1 | `正在播放`、连接、今日剩余额度、本地 reset 日期/时间/时区固定在 footer 最左。 |
+| PIT3-03 | P0 | 移除 YouTube 已废弃且实际 no-op 的 quality selector/API/retry/storage。 |
+| PIT3-04 | P0 | Restart 重置 player flags/progress，重新 load 0 秒并再次同步 started。 |
+| PIT3-05 | P1 | 歌名移到 footer 中间，progress/时间置于其下，消除 overlap。 |
+| PIT3-06 | P1 | Display iframe 禁止 hover pointer，保留 app click-to-play，尽量减少 title/share/end chrome。 |
+| PIT3-07 | P1 | Recommendation pool 从 40 扩为 200，旧 pool 不足时合并 family fallback。 |
+| PIT3-08 | P1 | Mobile preview 改为 portrait 2 列、宽屏 3–4 列的小卡片并移除 app title/channel chrome。 |
+| PIT3-09 | P0 | Preview 600ms debounce、单 iframe、spinner、10s timeout/retry hint。 |
+| PIT3-10 | P1 | Solid header/tags、固定 sticky 高度、16px search input，修复标签溢出和 iOS focus zoom。 |
+| PIT3-11 | P0 | 原唱 toggle 自动重搜；原唱/KTV intent 使用相反加减分，结果顺序真实变化。 |
+| PIT3-12 | P1 | 非空搜索最多 50，首批和后续每批 10。 |
+| PIT3-13 | P1 | README/progress、自动测试、responsive browser smoke 和 release。 |
 
 ## 4. Verification record
 
@@ -206,6 +226,8 @@ Last updated: 2026-07-13
 | 2026-07-03 pass 1 | Search/quota/heartbeat targeted tests；full 12 files / 44 tests。 |
 | 2026-07-03 pass 2 | Ranking/quality targeted tests；full 12 files / 47 tests。 |
 | 2026-07-13 docs | Typecheck、12 files / 47 tests、production build passed；no deploy。 |
+| 2026-07-13 pass 3 | Typecheck、11 files / 44 tests、production build、`git diff --check` passed。 |
+| 2026-07-13 pass 3 UI | 390×844：2 columns、16px input、single debounced iframe、original auto-search；1280×720：QR/footer/title-progress layout passed。 |
 
 Current coverage：
 
@@ -213,7 +235,7 @@ Current coverage：
 - `[x]` Room commands、WebSocket validation/runtime。
 - `[x]` KV keys/family/recommendations/size policy。
 - `[x]` Search family、ranking、rate limit、YouTube parsing。
-- `[x]` Pacific quota reset、playback quality。
+- `[x]` Pacific quota reset、本地时区显示、restart player state。
 - `[ ]` Main Worker route integration。
 - `[ ]` DO storage/alarm integration。
 - `[ ]` Playwright E2E。
@@ -230,7 +252,7 @@ Current coverage：
 
 Last smoke room `141g331u`：idle、empty queue；quota 45/50、Pacific reset timezone。2026-07-13 文档整理没有改 production code 或 redeploy。
 
-Known limitation：post-internal pass 2 的 sandbox Vite browser smoke 因 `listen UNKNOWN` 无法 bind local port。自动验证通过，但不替代真实设备 visual/autoplay QA。
+Known limitation：本轮已在本地浏览器完成 responsive smoke，但 YouTube embed 在自动化环境返回 error 150；仍不替代真实设备 autoplay/playsinline/网络画质 QA。
 
 ## 5. Remaining work
 
@@ -239,7 +261,7 @@ Known limitation：post-internal pass 2 的 sandbox Vite browser smoke 因 `list
 - `[ ]` Mobile Safari：QR、sticky UI、preview、playsinline、queue。
 - `[ ]` Android Chrome：search/load-more、preview、sync/reconnect。
 - `[ ]` iPad Safari：orientation、layout、iframe。
-- `[ ]` Desktop Chrome：autoplay、quality、seek、auto-advance。
+- `[ ]` Desktop Chrome：autoplay、restart、seek、auto-advance。
 - `[ ]` Two real mobile clients concurrent queue operations。
 
 每个平台至少：fresh room、点两首歌、display sync、manual next、natural end、debug snapshot。
@@ -250,8 +272,7 @@ Known limitation：post-internal pass 2 的 sandbox Vite browser smoke 因 `list
 - `[ ]` DO storage、alarm、socket count、D1 recovery tests。
 - `[ ]` Playwright create → search → queue → display flow。
 - `[ ]` Injected-clock inactivity test。
-- `[ ]` Mobile preview Player API control。
-- `[ ]` Iframe unavailable/load-error fallback。
+- `[ ]` 真实 YouTube iframe unavailable/slow-load UX 验收。
 - `[ ]` Mobile autoplay/playsinline guidance。
 
 ### P2 — Search evolution

@@ -1,26 +1,17 @@
-import { MonitorPlay, SlidersHorizontal, SkipForward, Wifi, WifiOff } from "lucide-react";
+import { MonitorPlay, SkipForward, Wifi, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   FullscreenPlayer,
   type FullscreenPlayerHandle,
   type PlayerProgress,
-  type PlayerQualityStatus,
 } from "../components/FullscreenPlayer";
 import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
 import { fetchYouTubeQuotaStatus } from "../lib/apiClient";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
-import {
-  getAvailablePlaybackQualityOptions,
-  getClosestAvailablePlaybackQuality,
-  readPreferredYouTubePlaybackQuality,
-  resolveYouTubePlaybackQuality,
-  savePreferredYouTubePlaybackQuality,
-  type YouTubePlaybackQuality,
-} from "../lib/youtubePlaybackQuality";
 import type { QueueItem } from "../types/room";
 import type { YouTubeQuotaStatus } from "../types/youtube";
 
@@ -32,13 +23,6 @@ export default function DisplayPage() {
   const queuedItems = getQueuedItems(snapshot);
   const [playRequestId, setPlayRequestId] = useState(0);
   const [playerIssue, setPlayerIssue] = useState<string | null>(null);
-  const [playbackQuality, setPlaybackQuality] = useState<YouTubePlaybackQuality>(() =>
-    readPreferredYouTubePlaybackQuality(),
-  );
-  const [playerQualityStatus, setPlayerQualityStatus] = useState<PlayerQualityStatus>({
-    availableQualities: [],
-    playbackQuality: null,
-  });
   const [playerProgress, setPlayerProgress] = useState<PlayerProgress>({
     currentTime: 0,
     duration: 0,
@@ -60,29 +44,6 @@ export default function DisplayPage() {
     const path = `/room/${roomId}/mobile`;
     return `${window.location.origin}${path}`;
   }, [roomId]);
-  const qualityOptions = useMemo(
-    () =>
-      getAvailablePlaybackQualityOptions(
-        playerQualityStatus.availableQualities,
-        playerQualityStatus.playbackQuality ?? playbackQuality,
-      ),
-    [playbackQuality, playerQualityStatus.availableQualities, playerQualityStatus.playbackQuality],
-  );
-  const qualitySelectValue = useMemo(() => {
-    const effectiveQuality =
-      playerQualityStatus.playbackQuality ??
-      getClosestAvailablePlaybackQuality(playbackQuality, playerQualityStatus.availableQualities);
-
-    return qualityOptions.some((option) => option.value === effectiveQuality)
-      ? effectiveQuality
-      : (qualityOptions[0]?.value ?? playbackQuality);
-  }, [
-    playbackQuality,
-    playerQualityStatus.availableQualities,
-    playerQualityStatus.playbackQuality,
-    qualityOptions,
-  ]);
-  const hasRealQualityOptions = playerQualityStatus.availableQualities.length > 0;
 
   const sendPlayerStarted = useCallback(
     (item: QueueItem) => {
@@ -132,7 +93,6 @@ export default function DisplayPage() {
       setPlayerProgress({ currentTime: 0, duration: 0 });
       setSeekSeconds(0);
       setIsSeeking(false);
-      setPlayerQualityStatus({ availableQualities: [], playbackQuality: null });
       return;
     }
 
@@ -146,7 +106,6 @@ export default function DisplayPage() {
       snapshot.playback.updatedAt,
     );
     setPlayerIssue(null);
-    setPlayerQualityStatus({ availableQualities: [], playbackQuality: null });
     setPlayRequestId((requestId) => requestId + 1);
   }, [currentItem?.id, snapshot.playback.updatedAt]);
 
@@ -185,10 +144,6 @@ export default function DisplayPage() {
     setPlayerIssue("浏览器阻止了自动播放，请点击播放器画面尝试播放。");
   }, []);
 
-  const handlePlaybackQualityStatusChange = useCallback((status: PlayerQualityStatus) => {
-    setPlayerQualityStatus(status);
-  }, []);
-
   const handleProgress = useCallback(
     (progress: PlayerProgress) => {
       setPlayerProgress(progress);
@@ -220,29 +175,18 @@ export default function DisplayPage() {
     sendPlayerEnded(currentItem);
   };
 
-  const handleQualitySelect = (event: ChangeEvent<HTMLSelectElement>) => {
-    const nextQuality = resolveYouTubePlaybackQuality(event.target.value);
-
-    setPlaybackQuality(nextQuality);
-    setPlayerQualityStatus((current) => ({
-      ...current,
-      playbackQuality: nextQuality,
-    }));
-    savePreferredYouTubePlaybackQuality(nextQuality);
-  };
-
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(20,184,166,0.22),transparent_30%),radial-gradient(circle_at_78%_78%,rgba(251,113,133,0.18),transparent_28%)]" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <div className="absolute right-4 top-20 z-30 hidden rounded-lg bg-white p-4 text-slate-950 shadow-glow sm:block">
+        <div className="absolute right-5 top-20 z-30 hidden rounded-xl border-4 border-white bg-white p-4 text-slate-950 shadow-[0_0_36px_rgba(255,255,255,0.5)] sm:block">
           <div className="mb-3 flex items-center justify-center">
             <Link
               to={`/room/${roomId}/mobile`}
               target="_blank"
               rel="noreferrer"
-              className="text-lg font-bold tracking-normal text-slate-950 transition hover:text-teal-700"
+              className="text-lg font-extrabold tracking-normal text-black transition hover:text-teal-700"
             >
               扫码点歌
             </Link>
@@ -252,9 +196,15 @@ export default function DisplayPage() {
             target="_blank"
             rel="noreferrer"
             aria-label="打开扫码点歌手机页"
-            className="block rounded-md focus:outline-none focus:ring-4 focus:ring-teal-200"
+            className="block rounded-md bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-200"
           >
-            <QRCodeSVG value={mobileUrl} size={154} level="M" includeMargin />
+            <QRCodeSVG
+              value={mobileUrl}
+              size={168}
+              level="H"
+              bgColor="#ffffff"
+              fgColor="#000000"
+            />
           </Link>
         </div>
 
@@ -264,15 +214,12 @@ export default function DisplayPage() {
               ref={playerHandleRef}
               key={currentItem.id}
               videoId={currentItem.videoId}
-              title={currentItem.title}
               autoPlay
               playRequestId={playRequestId}
-              playbackQuality={playbackQuality}
               onPlaybackStarted={handlePlaybackStarted}
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
               onAutoplayBlocked={handleAutoplayBlocked}
-              onPlaybackQualityStatusChange={handlePlaybackQualityStatusChange}
               onProgress={handleProgress}
             />
           ) : (
@@ -292,65 +239,47 @@ export default function DisplayPage() {
           )}
         </section>
 
-        <section className="relative z-20 border-t border-white/10 bg-slate-950/95 px-4 py-3 shadow-2xl">
-          <div className="flex flex-col gap-3 text-sm lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-start">
+        <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-4 shadow-2xl">
+          <div className="grid gap-4 text-sm lg:grid-cols-[13rem_minmax(0,1fr)_13rem] lg:items-center">
+            <div className="min-w-0 lg:self-start">
+              <p className="mb-2 text-xs font-semibold text-teal-200">正在播放</p>
               <ConnectionBadge
                 status={roomSocket.status}
                 canUseLocalFallback={roomSocket.canUseLocalFallback}
               />
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-teal-200">正在播放</p>
-                <h2 className="truncate text-xl font-semibold tracking-normal sm:text-2xl">
-                  {currentItem?.title ?? "等待点歌"}
-                </h2>
-                {playerIssue ? (
-                  <p className="mt-2 text-sm font-medium text-rose-200">{playerIssue}</p>
-                ) : null}
-                <YouTubeQuotaBadge
-                  status={quotaQuery.data}
-                  isLoading={quotaQuery.isPending}
-                  isError={quotaQuery.isError}
-                />
-                {currentItem ? (
-                  <PlayerProgressControl
-                    currentTime={isSeeking ? seekSeconds : playerProgress.currentTime}
-                    duration={playerProgress.duration}
-                    onSeekStart={() => setIsSeeking(true)}
-                    onSeekChange={handleSeekChange}
-                    onSeekCommit={commitSeek}
-                  />
-                ) : null}
-              </div>
+              <YouTubeQuotaStatus
+                status={quotaQuery.data}
+                isLoading={quotaQuery.isPending}
+                isError={quotaQuery.isError}
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="min-w-0 text-center">
+              <h2 className="truncate text-xl font-semibold tracking-normal sm:text-2xl">
+                {currentItem?.title ?? "等待点歌"}
+              </h2>
+              {playerIssue ? (
+                <p className="mt-2 text-sm font-medium text-rose-200">{playerIssue}</p>
+              ) : null}
               {currentItem ? (
-                <>
-                  <label className="inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white backdrop-blur">
-                    <SlidersHorizontal size={16} />
-                    <select
-                      aria-label="清晰度"
-                      value={qualitySelectValue}
-                      onChange={handleQualitySelect}
-                      disabled={!hasRealQualityOptions}
-                      className="bg-transparent text-sm font-semibold text-white outline-none [&_option]:bg-slate-950"
-                    >
-                      {qualityOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleNext}
-                    className="inline-flex items-center gap-2 rounded-lg bg-white/12 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
-                  >
-                    <SkipForward size={17} />
-                    下一首
-                  </button>
-                </>
+                <PlayerProgressControl
+                  currentTime={isSeeking ? seekSeconds : playerProgress.currentTime}
+                  duration={playerProgress.duration}
+                  onSeekStart={() => setIsSeeking(true)}
+                  onSeekChange={handleSeekChange}
+                  onSeekCommit={commitSeek}
+                />
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {currentItem ? (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  className="inline-flex items-center gap-2 rounded-lg bg-white/12 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
+                >
+                  <SkipForward size={17} />
+                  下一首
+                </button>
               ) : null}
               <div className="px-1 py-1 text-right">
                 <p className="text-xs text-slate-300">即将播放</p>
@@ -385,7 +314,7 @@ function PlayerProgressControl({
   const disabled = safeDuration <= 0;
 
   return (
-    <div className="mt-3 flex items-center gap-3 text-sm text-slate-200 lg:absolute lg:left-1/2 lg:top-1/2 lg:mt-0 lg:w-[42vw] lg:-translate-x-1/2 lg:-translate-y-1/2">
+    <div className="mx-auto mt-3 flex w-full max-w-3xl items-center gap-3 text-sm text-slate-200">
       <span className="w-12 shrink-0 tabular-nums">{formatPlayerTime(safeCurrentTime)}</span>
       <input
         type="range"
@@ -424,7 +353,7 @@ function formatPlayerTime(seconds: number) {
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
-function YouTubeQuotaBadge({
+function YouTubeQuotaStatus({
   status,
   isLoading,
   isError,
@@ -442,13 +371,14 @@ function YouTubeQuotaBadge({
   }
 
   return (
-    <p
-      className={`mt-2 text-xs font-medium ${
+    <div
+      className={`mt-2 space-y-1 text-xs font-medium ${
         status.exhausted ? "text-amber-200" : "text-slate-400"
       }`}
     >
-      今日搜索剩余 {status.remaining}/{status.dailyLimit} · {formatLocalQuotaReset(status.resetAt)}
-    </p>
+      <p>今日搜索剩余 {status.remaining}/{status.dailyLimit}</p>
+      <p>{formatLocalQuotaReset(status.resetAt)}</p>
+    </div>
   );
 }
 
@@ -459,11 +389,16 @@ function formatLocalQuotaReset(resetAt: string) {
     return "按浏览器本地时间重置";
   }
 
-  return `${new Intl.DateTimeFormat(undefined, {
+  const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const formatted = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
     timeZoneName: "short",
-  }).format(resetDate)} 重置`;
+  }).format(resetDate);
+
+  return `本地重置 ${formatted}${localTimeZone ? ` · ${localTimeZone}` : ""}`;
 }
 
 function playbackLoadingKey(queueItemId: string, updatedAt: string) {

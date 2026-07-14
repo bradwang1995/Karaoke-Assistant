@@ -37,10 +37,24 @@ const LYRICS_VIDEO_SIGNALS = [
 ];
 
 const ORIGINAL_VOCAL_INTENT_SIGNALS = [
-  { text: "original", score: 10, reason: "title contains original vocal marker" },
-  { text: "原唱", score: 10, reason: "title contains 原唱" },
-  { text: "mv", score: 8, reason: "title contains MV" },
-  { text: "official", score: 6, reason: "title contains official" },
+  { text: "original", score: 34, reason: "title contains original vocal marker" },
+  { text: "原唱", score: 38, reason: "title contains 原唱" },
+  { text: "mv", score: 24, reason: "title contains MV" },
+  { text: "official", score: 20, reason: "title contains official" },
+];
+
+const ORIGINAL_VOCAL_EXCLUSION_SIGNALS = [
+  { text: "original", score: -12, reason: "original-vocal result deprioritized" },
+  { text: "原唱", score: -14, reason: "original-vocal result deprioritized" },
+  { text: "mv", score: -10, reason: "official MV deprioritized for karaoke intent" },
+  { text: "official", score: -8, reason: "official video deprioritized for karaoke intent" },
+];
+
+const ORIGINAL_VOCAL_KARAOKE_PENALTIES = [
+  { text: "伴奏", score: -30, reason: "accompaniment conflicts with original-vocal intent" },
+  { text: "instrumental", score: -28, reason: "instrumental conflicts with original-vocal intent" },
+  { text: "karaoke", score: -14, reason: "karaoke-only result deprioritized for original vocals" },
+  { text: "卡拉ok", score: -14, reason: "karaoke-only result deprioritized for original vocals" },
 ];
 
 const NEGATIVE_SIGNALS = [
@@ -67,12 +81,20 @@ export function scoreSearchResult(
   const reasons: string[] = [];
   let score = 0;
 
-  for (const signal of [
-    ...KTV_PRIMARY_SIGNALS,
-    ...ACCOMPANIMENT_SIGNALS,
-    ...LYRICS_VIDEO_SIGNALS,
-    ...(options.includeOriginalVocal ? ORIGINAL_VOCAL_INTENT_SIGNALS : []),
-  ]) {
+  const intentSignals = options.includeOriginalVocal
+    ? [
+        ...LYRICS_VIDEO_SIGNALS,
+        ...ORIGINAL_VOCAL_INTENT_SIGNALS,
+        ...ORIGINAL_VOCAL_KARAOKE_PENALTIES,
+      ]
+    : [
+        ...KTV_PRIMARY_SIGNALS,
+        ...ACCOMPANIMENT_SIGNALS,
+        ...LYRICS_VIDEO_SIGNALS,
+        ...ORIGINAL_VOCAL_EXCLUSION_SIGNALS,
+      ];
+
+  for (const signal of intentSignals) {
     if (haystack.includes(signal.text)) {
       score += signal.score;
       reasons.push(signal.reason);

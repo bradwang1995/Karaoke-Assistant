@@ -49,7 +49,7 @@ export async function cleanupRoomViaApi(roomId: string) {
 export async function searchVideosViaApi(
   roomId: string,
   query: string,
-  limit = 8,
+  limit = 10,
   options: { cacheFill?: boolean; searchType?: SearchType; includeOriginalVocal?: boolean } = {},
 ) {
   const response = await fetch(`/api/rooms/${roomId}/search`, {

@@ -50,7 +50,7 @@ const MOCK_DURATIONS = [265, 241, 304, 278, 252, 299, 286, 270];
 
 export async function searchMockVideos(
   query: string,
-  limit = 8,
+  limit = 10,
   options: { searchType?: SearchType; includeOriginalVocal?: boolean } = {},
 ): Promise<SearchResponse> {
   const normalizedQuery = normalizeQuery(query);
@@ -67,7 +67,9 @@ export async function searchMockVideos(
 
   await new Promise((resolve) => window.setTimeout(resolve, 350));
 
-  const results: VideoSearchResult[] = Array.from({ length: limit }, (_, index) => {
+  const results: VideoSearchResult[] = Array.from(
+    { length: Math.min(limit, patterns.length) },
+    (_, index) => {
     const pattern = patterns[index % patterns.length];
     const videoId = MOCK_VIDEO_IDS[index % MOCK_VIDEO_IDS.length];
     const title =
@@ -75,16 +77,17 @@ export async function searchMockVideos(
         ? pattern.replace("{query}", `${query.trim()} 经典歌曲 ${index + 1}`)
         : pattern.replace("{query}", query.trim());
 
-    return {
-      videoId,
-      title,
-      channelTitle: MOCK_CHANNEL_TITLES[index % MOCK_CHANNEL_TITLES.length],
-      thumbnailUrl: youtubeThumbnailUrl(videoId),
-      durationSeconds: MOCK_DURATIONS[index % MOCK_DURATIONS.length],
-      score: 32 - index * 0.5,
-      reasons: ["mock result", "title contains KTV", "starts near 30 seconds"],
-    };
-  });
+      return {
+        videoId,
+        title,
+        channelTitle: MOCK_CHANNEL_TITLES[index % MOCK_CHANNEL_TITLES.length],
+        thumbnailUrl: youtubeThumbnailUrl(videoId),
+        durationSeconds: MOCK_DURATIONS[index % MOCK_DURATIONS.length],
+        score: 32 - index * 0.5,
+        reasons: ["mock result", "title contains KTV"],
+      };
+    },
+  );
 
   return {
     query,

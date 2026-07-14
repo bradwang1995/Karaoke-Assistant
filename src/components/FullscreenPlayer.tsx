@@ -5,14 +5,8 @@ import {
   type YouTubePlayer,
   type YouTubePlayerErrorEvent,
   type YouTubePlayerEvent,
-  type YouTubePlayerQualityChangeEvent,
   type YouTubePlayerStateChangeEvent,
 } from "../lib/youtubeIframeApi";
-import {
-  isYouTubePlaybackQuality,
-  normalizeAvailableYouTubePlaybackQualities,
-  type YouTubePlaybackQuality,
-} from "../lib/youtubePlaybackQuality";
 
 type PlayerStatus =
   | "loading"
@@ -26,15 +20,12 @@ type PlayerStatus =
 
 interface FullscreenPlayerProps {
   videoId: string;
-  title: string;
   autoPlay: boolean;
   playRequestId: number;
-  playbackQuality: YouTubePlaybackQuality;
   onPlaybackStarted: () => void;
   onPlaybackEnded: () => void;
   onPlaybackError: (errorCode: number) => void;
   onAutoplayBlocked: () => void;
-  onPlaybackQualityStatusChange?: (status: PlayerQualityStatus) => void;
   onProgress?: (progress: PlayerProgress) => void;
 }
 
@@ -49,24 +40,16 @@ export interface PlayerProgress {
   duration: number;
 }
 
-export interface PlayerQualityStatus {
-  availableQualities: YouTubePlaybackQuality[];
-  playbackQuality: YouTubePlaybackQuality | null;
-}
-
 export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPlayerProps>(
   function FullscreenPlayer(
     {
       videoId,
-      title,
       autoPlay,
       playRequestId,
-      playbackQuality,
       onPlaybackStarted,
       onPlaybackEnded,
       onPlaybackError,
       onAutoplayBlocked,
-      onPlaybackQualityStatusChange,
       onProgress,
     },
     ref,
@@ -79,17 +62,12 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   const endedRef = useRef(false);
   const lastPlayRequestRef = useRef(0);
   const playRetryTimeoutsRef = useRef<number[]>([]);
-  const qualityRetryTimeoutsRef = useRef<number[]>([]);
-  const qualityStatusTimeoutsRef = useRef<number[]>([]);
   const progressIntervalRef = useRef<number | null>(null);
-  const lastQualityStatusSignatureRef = useRef("");
-  const playbackQualityRef = useRef(playbackQuality);
   const callbacksRef = useRef({
     onPlaybackStarted,
     onPlaybackEnded,
     onPlaybackError,
     onAutoplayBlocked,
-    onPlaybackQualityStatusChange,
     onProgress,
   });
   const [status, setStatus] = useState<PlayerStatus>("loading");
@@ -101,22 +79,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     }
 
     playRetryTimeoutsRef.current = [];
-  };
-
-  const clearQualityRetryTimeouts = () => {
-    for (const timeoutId of qualityRetryTimeoutsRef.current) {
-      window.clearTimeout(timeoutId);
-    }
-
-    qualityRetryTimeoutsRef.current = [];
-  };
-
-  const clearQualityStatusTimeouts = () => {
-    for (const timeoutId of qualityStatusTimeoutsRef.current) {
-      window.clearTimeout(timeoutId);
-    }
-
-    qualityStatusTimeoutsRef.current = [];
   };
 
   const clearProgressInterval = () => {
@@ -136,40 +98,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       currentTime: Number.isFinite(currentTime) ? Math.max(currentTime, 0) : 0,
       duration: Number.isFinite(duration) ? Math.max(duration, 0) : 0,
     });
-  };
-
-  const reportQualityStatus = (player: YouTubePlayer) => {
-    const availableQualities = normalizeAvailableYouTubePlaybackQualities(
-      player.getAvailableQualityLevels?.() ?? [],
-    );
-    const rawPlaybackQuality = player.getPlaybackQuality?.();
-    const playbackQuality = isYouTubePlaybackQuality(rawPlaybackQuality)
-      ? rawPlaybackQuality
-      : null;
-    const signature = `${playbackQuality ?? ""}|${availableQualities.join(",")}`;
-
-    if (signature === lastQualityStatusSignatureRef.current) {
-      return;
-    }
-
-    lastQualityStatusSignatureRef.current = signature;
-    callbacksRef.current.onPlaybackQualityStatusChange?.({
-      availableQualities,
-      playbackQuality,
-    });
-  };
-
-  const scheduleQualityStatusReports = (player: YouTubePlayer) => {
-    clearQualityStatusTimeouts();
-    reportQualityStatus(player);
-
-    for (const delay of [300, 1_000, 2_500, 5_000]) {
-      const timeoutId = window.setTimeout(() => {
-        reportQualityStatus(player);
-      }, delay);
-
-      qualityStatusTimeoutsRef.current.push(timeoutId);
-    }
   };
 
   const startProgressInterval = (player: YouTubePlayer) => {
@@ -200,30 +128,20 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   };
 
   const requestRestart = (player: YouTubePlayer) => {
+    clearPlayRetryTimeouts();
     pendingRestartRef.current = false;
     pendingPlayRef.current = true;
+    startedRef.current = false;
+    endedRef.current = false;
+    callbacksRef.current.onProgress?.({ currentTime: 0, duration: 0 });
+    setStatus("loading");
 
     if (typeof player.loadVideoById === "function") {
       player.loadVideoById({ videoId, startSeconds: 0 });
-    } else {
-      player.seekTo?.(0, true);
     }
 
+    player.seekTo?.(0, true);
     requestPlay(player);
-  };
-
-  const applyPlaybackQuality = (player: YouTubePlayer) => {
-    clearQualityRetryTimeouts();
-    player.setPlaybackQuality?.(playbackQualityRef.current);
-
-    for (const delay of [250, 900, 2_000, 4_000]) {
-      const timeoutId = window.setTimeout(() => {
-        player.setPlaybackQuality?.(playbackQualityRef.current);
-        reportQualityStatus(player);
-      }, delay);
-
-      qualityRetryTimeoutsRef.current.push(timeoutId);
-    }
   };
 
   useImperativeHandle(ref, () => ({
@@ -258,26 +176,15 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       onPlaybackEnded,
       onPlaybackError,
       onAutoplayBlocked,
-      onPlaybackQualityStatusChange,
       onProgress,
     };
   }, [
     onAutoplayBlocked,
     onPlaybackEnded,
     onPlaybackError,
-    onPlaybackQualityStatusChange,
     onProgress,
     onPlaybackStarted,
   ]);
-
-  useEffect(() => {
-    playbackQualityRef.current = playbackQuality;
-
-    if (playerRef.current) {
-      applyPlaybackQuality(playerRef.current);
-      scheduleQualityStatusReports(playerRef.current);
-    }
-  }, [playbackQuality]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -286,15 +193,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     startedRef.current = false;
     endedRef.current = false;
     pendingRestartRef.current = false;
-    clearQualityStatusTimeouts();
-    lastQualityStatusSignatureRef.current = "";
     pendingPlayRef.current = autoPlay || playRequestId > 0;
     lastPlayRequestRef.current = playRequestId;
     callbacksRef.current.onProgress?.({ currentTime: 0, duration: 0 });
-    callbacksRef.current.onPlaybackQualityStatusChange?.({
-      availableQualities: [],
-      playbackQuality: null,
-    });
     setStatus("loading");
     setErrorCode(null);
 
@@ -321,6 +222,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
           playerVars: {
             autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
             controls: 0,
+            cc_load_policy: 0,
             disablefs: 1,
             enablejsapi: 1,
             iv_load_policy: 3,
@@ -328,13 +230,11 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
             playsinline: 1,
             rel: 0,
             origin: window.location.origin,
-            vq: playbackQualityRef.current,
           },
           events: {
             onReady: handleReady,
             onStateChange: handleStateChange,
             onError: handleError,
-            onPlaybackQualityChange: handlePlaybackQualityChange,
             onAutoplayBlocked: handleAutoplayBlocked,
           },
         });
@@ -350,8 +250,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     return () => {
       cancelled = true;
       clearPlayRetryTimeouts();
-      clearQualityRetryTimeouts();
-      clearQualityStatusTimeouts();
       clearProgressInterval();
       playerRef.current?.destroy?.();
       playerRef.current = null;
@@ -366,9 +264,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
         allowIframeAutoplay(event.target, currentShell);
       }
 
-      applyPlaybackQuality(event.target);
       startProgressInterval(event.target);
-      scheduleQualityStatusReports(event.target);
 
       if (pendingRestartRef.current) {
         requestRestart(event.target);
@@ -384,8 +280,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
         pendingPlayRef.current = false;
         clearPlayRetryTimeouts();
-        event.target.setPlaybackQuality?.(playbackQualityRef.current);
-        scheduleQualityStatusReports(event.target);
         startProgressInterval(event.target);
         setStatus("playing");
 
@@ -410,22 +304,18 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.BUFFERING) {
-        event.target.setPlaybackQuality?.(playbackQualityRef.current);
-        scheduleQualityStatusReports(event.target);
         startProgressInterval(event.target);
         setStatus("buffering");
         return;
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) {
-        reportQualityStatus(event.target);
         reportProgress(event.target);
         setStatus("paused");
         return;
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.CUED) {
-        scheduleQualityStatusReports(event.target);
         setStatus("ready");
       }
     }
@@ -436,10 +326,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       setErrorCode(event.data);
       setStatus("error");
       callbacksRef.current.onPlaybackError(event.data);
-    }
-
-    function handlePlaybackQualityChange(event: YouTubePlayerQualityChangeEvent) {
-      reportQualityStatus(event.target);
     }
 
     function handleAutoplayBlocked() {
@@ -469,9 +355,19 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     <>
       <div
         ref={shellRef}
-        title={title}
-        className="absolute inset-0 h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full"
+        className="absolute inset-0 h-full w-full bg-black [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full"
       />
+      <button
+        type="button"
+        aria-label="播放当前歌曲"
+        onClick={() => {
+          if (playerRef.current) {
+            requestPlay(playerRef.current);
+          }
+        }}
+        className="absolute inset-0 z-[5] cursor-default bg-transparent focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-teal-300/60"
+      />
+      {status === "ended" ? <div className="pointer-events-none absolute inset-0 z-[6] bg-black" /> : null}
       {statusText ? (
         <div className="pointer-events-none absolute left-4 top-16 z-10 rounded-lg bg-black/60 px-3 py-2 text-sm font-medium text-white backdrop-blur">
           {statusText}

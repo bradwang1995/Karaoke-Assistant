@@ -33,7 +33,7 @@ export async function searchVideos({
   artist,
   searchType = "song",
   includeOriginalVocal = false,
-  limit = 8,
+  limit = 10,
   cacheFill = true,
   env,
 }: SearchVideosOptions): Promise<SearchResponse> {
@@ -109,7 +109,7 @@ export async function searchVideos({
 }
 
 export async function getSearchRecommendations({
-  limit = 8,
+  limit = 10,
   env,
 }: {
   limit?: number;

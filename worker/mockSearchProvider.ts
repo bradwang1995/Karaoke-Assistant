@@ -23,7 +23,7 @@ const TITLE_PATTERNS = [
   "{query} instrumental karaoke",
 ];
 
-export function searchMockVideos(query: string, limit = 8): SearchResponse {
+export function searchMockVideos(query: string, limit = 10): SearchResponse {
   const normalizedQuery = normalizeQuery(query);
 
   if (!normalizedQuery) {
@@ -55,7 +55,7 @@ export function searchMockVideos(query: string, limit = 8): SearchResponse {
         durationSeconds: [265, 241, 304, 278, 252, 299, 286, 270][index],
         publishedAt: "2026-01-01T00:00:00Z",
         score: 32 - index * 3,
-        reasons: ["mock result", "title contains KTV", "starts near 30 seconds"],
+        reasons: ["mock result", "title contains KTV"],
       };
     },
   );

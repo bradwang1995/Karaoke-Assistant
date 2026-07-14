@@ -85,14 +85,14 @@ describe("search scoring", () => {
     );
 
     expect(results.map((result) => result.videoId)).toEqual([
-      "matching-original",
       "matching-lyrics",
+      "matching-original",
       "unrelated-karaoke",
     ]);
     expect(results[2].reasons).toContain("title does not match query");
   });
 
-  it("keeps KTV-like results ahead even when original vocals are requested", () => {
+  it("moves original-vocal results ahead when original vocals are requested", () => {
     const results = rankSearchResultsForQuery(
       [
         {
@@ -112,9 +112,11 @@ describe("search scoring", () => {
       { includeOriginalVocal: true },
     );
 
-    expect(results[0].videoId).toBe("karaoke");
-    expect(results[0].reasons).toContain("title contains KTV");
-    expect(results[1].reasons).toContain("title contains lyric video");
+    expect(results[0].videoId).toBe("lyrics");
+    expect(results[0].reasons).toContain("title contains lyric video");
+    expect(results[1].reasons).toContain(
+      "accompaniment conflicts with original-vocal intent",
+    );
   });
 
   it("uses original-vocal intent to rank non-KTV results", () => {
@@ -139,6 +141,33 @@ describe("search scoring", () => {
 
     expect(results[0].videoId).toBe("official");
     expect(results[0].reasons).toContain("title contains 原唱");
+  });
+
+  it("produces visibly different ordering for karaoke and original-vocal intent", () => {
+    const candidates = [
+      {
+        videoId: "karaoke",
+        title: "后来 KTV 伴奏版",
+        channelTitle: "KTV Channel",
+        durationSeconds: 280,
+      },
+      {
+        videoId: "original",
+        title: "后来 official MV 原唱 歌词",
+        channelTitle: "Official Channel",
+        durationSeconds: 280,
+      },
+    ];
+
+    const karaokeOrder = rankSearchResultsForQuery(candidates, "后来", {
+      includeOriginalVocal: false,
+    });
+    const originalOrder = rankSearchResultsForQuery(candidates, "后来", {
+      includeOriginalVocal: true,
+    });
+
+    expect(karaokeOrder.map((result) => result.videoId)).toEqual(["karaoke", "original"]);
+    expect(originalOrder.map((result) => result.videoId)).toEqual(["original", "karaoke"]);
   });
 
   it("prioritizes artist metadata in artist search mode", () => {

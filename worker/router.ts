@@ -16,7 +16,9 @@ import { getYouTubeSearchQuotaStatus } from "./youtubeQuota";
 
 const CREATE_ROOM_ATTEMPTS = 3;
 const DEFAULT_SEARCH_RATE_LIMIT_PER_MINUTE = 20;
-const MAX_SEARCH_RESPONSE_LIMIT = 40;
+const DEFAULT_SEARCH_RESPONSE_LIMIT = 10;
+const MAX_SEARCH_RESPONSE_LIMIT = 50;
+const MAX_RECOMMENDATION_RESPONSE_LIMIT = 200;
 
 export async function handleApiRequest(request: Request, env: Env) {
   const url = new URL(request.url);
@@ -183,7 +185,10 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
   }
 
   const query = body.query.trim();
-  const limit = clampLimit(body.limit);
+  const limit = clampLimit(
+    body.limit,
+    query.length === 0 ? MAX_RECOMMENDATION_RESPONSE_LIMIT : MAX_SEARCH_RESPONSE_LIMIT,
+  );
 
   if (query.length === 0) {
     return jsonResponse(await getSearchRecommendations({ limit, env }));
@@ -350,12 +355,12 @@ function isSearchRequestBody(
   );
 }
 
-function clampLimit(limit: number | undefined) {
+function clampLimit(limit: number | undefined, maximum: number) {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
-    return 8;
+    return DEFAULT_SEARCH_RESPONSE_LIMIT;
   }
 
-  return Math.min(Math.max(Math.floor(limit), 1), MAX_SEARCH_RESPONSE_LIMIT);
+  return Math.min(Math.max(Math.floor(limit), 1), maximum);
 }
 
 function normalizeSearchType(value: unknown): SearchType {

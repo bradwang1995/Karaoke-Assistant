@@ -2,6 +2,7 @@ import {
   ArrowUpToLine,
   Check,
   ListMusic,
+  LoaderCircle,
   Music2,
   RotateCcw,
   Search,
@@ -29,14 +30,16 @@ import {
   useRoomSnapshot,
 } from "../lib/roomState";
 import { youtubeEmbedUrl, youtubeThumbnailUrl } from "../lib/youtube";
-import { PREVIEW_YOUTUBE_PLAYBACK_QUALITY } from "../lib/youtubePlaybackQuality";
 import { useMobileUiStore } from "../stores/mobileUiStore";
 import type { QueueItem } from "../types/room";
 import type { ClientToServerMessage } from "../types/websocket";
 import type { SearchResponse, SearchType, VideoSearchResult } from "../types/youtube";
 
-const SEARCH_RESULT_PAGE_SIZE = 8;
-const SEARCH_FETCH_LIMIT = 40;
+const SEARCH_RESULT_PAGE_SIZE = 10;
+const SEARCH_FETCH_LIMIT = 50;
+const RECOMMENDATION_FETCH_LIMIT = 200;
+const PREVIEW_DEBOUNCE_MS = 600;
+const PREVIEW_LOAD_TIMEOUT_MS = 10_000;
 const SEARCH_STATE_TTL_MS = 1000 * 60 * 60 * 24;
 type MobileTab = "search" | "queue";
 
@@ -83,7 +86,7 @@ export default function MobilePage() {
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
       <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col bg-white shadow-sm">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+        <header className="sticky top-0 z-20 min-h-[9.75rem] border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-lg font-semibold tracking-normal">K歌助手</h1>
@@ -209,14 +212,17 @@ function SearchTab({
     findPersistedResult(initialSearchState?.response, initialSearchState?.activePreviewVideoId)
       ?.videoId ?? null,
   );
+  const [pendingPreviewVideoId, setPendingPreviewVideoId] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [scrollY, setScrollY] = useState(initialSearchState?.scrollY ?? 0);
   const resultCardRefs = useRef(new Map<string, HTMLElement>());
   const resultsGridRef = useRef<HTMLDivElement | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const addTrailTimeoutRef = useRef<number | null>(null);
+  const previewDebounceTimeoutRef = useRef<number | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const restoredScrollRef = useRef(false);
+  const latestSearchRequestRef = useRef(0);
 
   useEffect(() => {
     if (!toast) {
@@ -242,6 +248,10 @@ function SearchTab({
       if (addTrailTimeoutRef.current !== null) {
         window.clearTimeout(addTrailTimeoutRef.current);
       }
+
+      if (previewDebounceTimeoutRef.current !== null) {
+        window.clearTimeout(previewDebounceTimeoutRef.current);
+      }
     },
     [],
   );
@@ -250,12 +260,12 @@ function SearchTab({
     queryKey: ["search-recommendations", roomId],
     queryFn: async () => {
       try {
-        return await searchVideosViaApi(roomId, "", SEARCH_RESULT_PAGE_SIZE, {
+        return await searchVideosViaApi(roomId, "", RECOMMENDATION_FETCH_LIMIT, {
           cacheFill: false,
         });
       } catch (error) {
         if (canUseLocalFallback) {
-          return searchMockVideos("经典 KTV", SEARCH_RESULT_PAGE_SIZE);
+          return searchMockVideos("经典 KTV", RECOMMENDATION_FETCH_LIMIT);
         }
 
         throw error;
@@ -267,27 +277,42 @@ function SearchTab({
   });
 
   const searchMutation = useMutation({
-    mutationFn: async (nextQuery: string) => {
+    mutationFn: async ({
+      query: nextQuery,
+      searchType: nextSearchType,
+      includeOriginalVocal: nextIncludeOriginalVocal,
+      requestId,
+    }: {
+      query: string;
+      searchType: SearchType;
+      includeOriginalVocal: boolean;
+      requestId: number;
+    }) => {
       try {
         return await searchVideosViaApi(roomId, nextQuery.trim(), SEARCH_FETCH_LIMIT, {
-          searchType,
-          includeOriginalVocal,
+          searchType: nextSearchType,
+          includeOriginalVocal: nextIncludeOriginalVocal,
         });
       } catch (error) {
         if (canUseLocalFallback) {
           return searchMockVideos(nextQuery, SEARCH_FETCH_LIMIT, {
-            searchType,
-            includeOriginalVocal,
+            searchType: nextSearchType,
+            includeOriginalVocal: nextIncludeOriginalVocal,
           });
         }
 
         throw error;
       }
     },
-    onSuccess: (response) => {
+    onSuccess: (response, request) => {
+      if (request.requestId !== latestSearchRequestRef.current) {
+        return;
+      }
+
       setSearchResponse(response);
       setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
       setActivePreviewVideoId(null);
+      setPendingPreviewVideoId(null);
       setSelected(response.results[0] ?? null);
     },
   });
@@ -298,14 +323,11 @@ function SearchTab({
   );
   const visibleResults = useMemo(
     () =>
-      searchResponse
-        ? activeResults.slice(0, Math.min(visibleResultCount, SEARCH_FETCH_LIMIT))
-        : activeResults,
-    [activeResults, searchResponse, visibleResultCount],
+      activeResults.slice(0, Math.min(visibleResultCount, activeResults.length)),
+    [activeResults, visibleResultCount],
   );
   const canLoadMore =
-    Boolean(searchResponse) &&
-    visibleResults.length < Math.min(activeResults.length, SEARCH_FETCH_LIMIT);
+    visibleResults.length < activeResults.length;
   const resultSignature = useMemo(
     () => activeResults.map((result) => result.videoId).join(","),
     [activeResults],
@@ -322,6 +344,9 @@ function SearchTab({
     setActivePreviewVideoId((current) =>
       current && activeResults.some((result) => result.videoId === current) ? current : null,
     );
+    setPendingPreviewVideoId((current) =>
+      current && activeResults.some((result) => result.videoId === current) ? current : null,
+    );
   }, [activeResults, resultSignature]);
 
   const loadMoreResults = useCallback(() => {
@@ -332,10 +357,10 @@ function SearchTab({
     setIsLoadingMore(true);
     window.setTimeout(() => {
       setVisibleResultCount((current) =>
-        Math.min(current + SEARCH_RESULT_PAGE_SIZE, activeResults.length, SEARCH_FETCH_LIMIT),
+        Math.min(current + SEARCH_RESULT_PAGE_SIZE, activeResults.length),
       );
       setIsLoadingMore(false);
-    }, 260);
+    }, 120);
   }, [activeResults.length, canLoadMore, isLoadingMore]);
 
   useEffect(() => {
@@ -400,7 +425,7 @@ function SearchTab({
   }, []);
 
   useEffect(() => {
-    if (!activePreviewVideoId) {
+    if (!activePreviewVideoId && !pendingPreviewVideoId) {
       return;
     }
 
@@ -412,12 +437,17 @@ function SearchTab({
       }
 
       setActivePreviewVideoId(null);
+      setPendingPreviewVideoId(null);
+      if (previewDebounceTimeoutRef.current !== null) {
+        window.clearTimeout(previewDebounceTimeoutRef.current);
+        previewDebounceTimeoutRef.current = null;
+      }
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [activePreviewVideoId]);
+  }, [activePreviewVideoId, pendingPreviewVideoId]);
 
   useEffect(() => {
     writePersistedSearchState(roomId, {
@@ -444,6 +474,27 @@ function SearchTab({
 
   const showToast = (nextToast: Omit<MobileToastState, "id">) => {
     setToast({ ...nextToast, id: Date.now() });
+  };
+
+  const cancelPendingPreview = () => {
+    if (previewDebounceTimeoutRef.current !== null) {
+      window.clearTimeout(previewDebounceTimeoutRef.current);
+      previewDebounceTimeoutRef.current = null;
+    }
+
+    setPendingPreviewVideoId(null);
+  };
+
+  const schedulePreview = (result: VideoSearchResult) => {
+    setSelected(result);
+    setActivePreviewVideoId(null);
+    cancelPendingPreview();
+    setPendingPreviewVideoId(result.videoId);
+    previewDebounceTimeoutRef.current = window.setTimeout(() => {
+      setPendingPreviewVideoId(null);
+      setActivePreviewVideoId(result.videoId);
+      previewDebounceTimeoutRef.current = null;
+    }, PREVIEW_DEBOUNCE_MS);
   };
 
   const registerCardRef = (videoId: string, node: HTMLElement | null) => {
@@ -485,21 +536,42 @@ function SearchTab({
     }, 900);
   };
 
-  const submitSearch = (event: FormEvent) => {
-    event.preventDefault();
-    const nextQuery = query.trim();
+  const runSearch = (
+    nextQuery: string,
+    nextSearchType: SearchType,
+    nextIncludeOriginalVocal: boolean,
+  ) => {
+    const trimmedQuery = nextQuery.trim();
 
-    if (!nextQuery || searchMutation.isPending) {
+    if (!trimmedQuery) {
       return;
     }
 
+    const requestId = latestSearchRequestRef.current + 1;
+    latestSearchRequestRef.current = requestId;
     setToast(null);
     setDuplicateCandidate(null);
     setSearchResponse(null);
     setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
     setSelected(null);
     setActivePreviewVideoId(null);
-    searchMutation.mutate(nextQuery);
+    cancelPendingPreview();
+    searchMutation.mutate({
+      query: trimmedQuery,
+      searchType: nextSearchType,
+      includeOriginalVocal: nextIncludeOriginalVocal,
+      requestId,
+    });
+  };
+
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault();
+
+    if (searchMutation.isPending) {
+      return;
+    }
+
+    runSearch(query, searchType, includeOriginalVocal);
   };
 
   const addSelectedSong = () => {
@@ -552,15 +624,15 @@ function SearchTab({
   const resultCountLabel = isLoadingResults
     ? "加载中"
     : showingRecommendations
-      ? `${activeResults.length} 首`
+      ? `${visibleResults.length}/${activeResults.length} 首`
       : `${visibleResults.length}/${activeResults.length} 首`;
 
   return (
-    <section className="relative flex-1 px-4 pb-4">
+    <section className="relative flex-1 px-4 pb-24">
       <MobileToast toast={toast} />
       <AddToQueueTrail trail={addTrail} />
 
-      <div className="sticky top-[9.75rem] z-10 -mx-4 border-b border-slate-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+      <div className="sticky top-[9.75rem] z-10 -mx-4 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
         <form onSubmit={submitSearch}>
           <div className="grid grid-cols-[4.65rem_minmax(0,1fr)_4.25rem_2.5rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_4.75rem_2.75rem] sm:gap-2">
             <label className="sr-only" htmlFor="search-type">
@@ -569,7 +641,14 @@ function SearchTab({
             <select
               id="search-type"
               value={searchType}
-              onChange={(event) => setSearchType(event.target.value as SearchType)}
+              onChange={(event) => {
+                const nextSearchType = event.target.value as SearchType;
+                setSearchType(nextSearchType);
+
+                if (query.trim() && searchResponse) {
+                  runSearch(query, nextSearchType, includeOriginalVocal);
+                }
+              }}
               className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-800 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
             >
               <option value="song">歌名</option>
@@ -585,20 +664,29 @@ function SearchTab({
                 setQuery(event.target.value);
 
                 if (!event.target.value.trim()) {
+                  latestSearchRequestRef.current += 1;
                   searchMutation.reset();
                   setSearchResponse(null);
                   setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
                   setSelected(null);
                   setActivePreviewVideoId(null);
+                  cancelPendingPreview();
                 }
               }}
               placeholder={searchType === "artist" ? "歌手名" : "歌名"}
-              className="h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+              enterKeyHint="search"
+              className="h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
             />
             <PillToggle
               label="原唱"
               checked={includeOriginalVocal}
-              onChange={setIncludeOriginalVocal}
+              onChange={(checked) => {
+                setIncludeOriginalVocal(checked);
+
+                if (query.trim() && searchResponse) {
+                  runSearch(query, searchType, checked);
+                }
+              }}
             />
             <button
               type="submit"
@@ -632,9 +720,9 @@ function SearchTab({
       ) : null}
 
       {isLoadingResults ? (
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          {[0, 1, 2, 3, 4, 5, 6, 7].map((item) => (
-            <div key={item} className="h-52 animate-pulse rounded-lg bg-slate-100" />
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          {Array.from({ length: SEARCH_RESULT_PAGE_SIZE }, (_, item) => (
+            <div key={item} className="aspect-video animate-pulse rounded-lg bg-slate-100" />
           ))}
         </div>
       ) : null}
@@ -653,7 +741,7 @@ function SearchTab({
 
       {!isLoadingResults && activeResults.length > 0 ? (
         <>
-          <div ref={resultsGridRef} className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div ref={resultsGridRef} className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {visibleResults.map((result, index) => (
               <CandidateVideoCard
                 key={`${result.videoId}-${index}`}
@@ -661,32 +749,28 @@ function SearchTab({
                 result={result}
                 selected={selected?.videoId === result.videoId}
                 previewActive={activePreviewVideoId === result.videoId}
+                previewPending={pendingPreviewVideoId === result.videoId}
                 duplicate={existingItems.some((item) => item.videoId === result.videoId)}
-                onSelect={() => {
-                  setSelected(result);
-                  setActivePreviewVideoId(result.videoId);
-                }}
+                onSelect={() => schedulePreview(result)}
               />
             ))}
           </div>
-          {searchResponse ? (
-            <div ref={loadMoreRef} className="mt-4 min-h-12">
-              {isLoadingMore ? (
-                <StatusMessage tone="loading">正在加载更多缓存结果</StatusMessage>
-              ) : canLoadMore ? (
-                <button
-                  type="button"
-                  onClick={loadMoreResults}
-                  className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  加载更多
-                </button>
-              ) : (
-                <p className="py-3 text-center text-xs text-slate-500">已经显示全部缓存结果</p>
-              )}
-            </div>
-          ) : null}
-          <div className="sticky bottom-0 -mx-4 mt-4 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+          <div ref={loadMoreRef} className="mt-4 min-h-12">
+            {isLoadingMore ? (
+              <StatusMessage tone="loading">正在加载更多缓存结果</StatusMessage>
+            ) : canLoadMore ? (
+              <button
+                type="button"
+                onClick={loadMoreResults}
+                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                加载更多
+              </button>
+            ) : (
+              <p className="py-3 text-center text-xs text-slate-500">已经显示全部缓存结果</p>
+            )}
+          </div>
+          <div className="sticky bottom-0 z-20 -mx-4 mt-4 border-t border-slate-200 bg-white px-4 py-3">
             <button
               type="button"
               onClick={addSelectedSong}
@@ -816,6 +900,7 @@ function CandidateVideoCard({
   result,
   selected,
   previewActive,
+  previewPending,
   duplicate,
   onSelect,
 }: {
@@ -823,6 +908,7 @@ function CandidateVideoCard({
   result: VideoSearchResult;
   selected: boolean;
   previewActive: boolean;
+  previewPending: boolean;
   duplicate: boolean;
   onSelect: () => void;
 }) {
@@ -844,64 +930,96 @@ function CandidateVideoCard({
       aria-label={`选择 ${result.title}`}
       onPointerDownCapture={onSelect}
       onKeyDown={handleKeyDown}
-      className={`relative cursor-pointer overflow-hidden rounded-lg border bg-white text-left transition focus:outline-none focus:ring-4 ${
+      className={`relative aspect-video cursor-pointer overflow-hidden rounded-lg border bg-white text-left transition focus:outline-none focus:ring-4 ${
         selected
           ? "border-teal-500 ring-4 ring-teal-100"
           : "border-slate-200 hover:border-slate-300 focus:border-teal-500 focus:ring-teal-100"
       }`}
     >
-      <div className="p-2 pb-0">
-        <div className="aspect-video overflow-hidden rounded-md bg-slate-950">
-          {previewActive ? (
-            <iframe
-              className="pointer-events-none h-full w-full"
-              title={result.title}
-              src={youtubeEmbedUrl(result.videoId, {
-                start: 30,
-                muted: true,
-                autoplay: true,
-                quality: PREVIEW_YOUTUBE_PLAYBACK_QUALITY,
-              })}
-              loading="lazy"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            />
-          ) : (
-            <div className="relative h-full w-full">
-              <img
-                src={result.thumbnailUrl ?? youtubeThumbnailUrl(result.videoId)}
-                alt=""
-                loading="lazy"
-                className="h-full w-full object-cover opacity-85"
-              />
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="px-3 pb-3 pt-3">
-        <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-slate-950">
-                {result.title}
-              </h3>
-            </div>
-            <p className="mt-1 truncate text-xs text-slate-500">{result.channelTitle}</p>
-        </div>
-      </div>
+      <CandidatePreview
+        result={result}
+        active={previewActive}
+        pending={previewPending}
+      />
       {duplicate || selected ? (
-        <div className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-col items-end gap-1">
+        <div className="pointer-events-none absolute right-1.5 top-1.5 z-10 flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1">
           {duplicate ? (
-            <span className="rounded-full bg-amber-50/95 px-2 py-1 text-[11px] font-semibold text-amber-700 shadow-sm ring-1 ring-amber-100">
+            <span className="max-w-full truncate rounded-md bg-amber-100 px-1.5 py-1 text-[10px] font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200">
               已在歌单
             </span>
           ) : null}
           {selected ? (
-            <span className="rounded-full bg-teal-50/95 px-2 py-1 text-[11px] font-semibold text-teal-700 shadow-sm ring-1 ring-teal-100">
+            <span className="max-w-full truncate rounded-md bg-teal-100 px-1.5 py-1 text-[10px] font-semibold text-teal-800 shadow-sm ring-1 ring-teal-200">
               已选中
             </span>
           ) : null}
         </div>
       ) : null}
     </article>
+  );
+}
+
+function CandidatePreview({
+  result,
+  active,
+  pending,
+}: {
+  result: VideoSearchResult;
+  active: boolean;
+  pending: boolean;
+}) {
+  const [loadStatus, setLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">(
+    "idle",
+  );
+
+  useEffect(() => {
+    if (!active) {
+      setLoadStatus("idle");
+      return;
+    }
+
+    setLoadStatus("loading");
+    const timeoutId = window.setTimeout(() => {
+      setLoadStatus((current) => (current === "loading" ? "error" : current));
+    }, PREVIEW_LOAD_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [active, result.videoId]);
+
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-slate-950">
+      <img
+        src={result.thumbnailUrl ?? youtubeThumbnailUrl(result.videoId)}
+        alt=""
+        loading="lazy"
+        className="h-full w-full object-cover"
+      />
+      {active ? (
+        <iframe
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          title="视频预览"
+          src={youtubeEmbedUrl(result.videoId, {
+            muted: true,
+            autoplay: true,
+          })}
+          loading="eager"
+          allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+          onLoad={() => setLoadStatus("loaded")}
+          onError={() => setLoadStatus("error")}
+        />
+      ) : null}
+      {pending || loadStatus === "loading" ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/80 text-white">
+          <LoaderCircle className="animate-spin" size={22} />
+          <span className="sr-only">预览加载中</span>
+        </div>
+      ) : null}
+      {loadStatus === "error" ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 px-2 text-center text-[11px] font-semibold text-white">
+          预览加载较慢，点一下重试
+        </div>
+      ) : null}
+    </div>
   );
 }
 

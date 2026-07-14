@@ -18,9 +18,6 @@ export interface YouTubePlayer {
   seekTo?: (seconds: number, allowSeekAhead?: boolean) => void;
   cueVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
   loadVideoById?: (options: { videoId: string; startSeconds?: number }) => void;
-  setPlaybackQuality?: (suggestedQuality: string) => void;
-  getAvailableQualityLevels?: () => string[];
-  getPlaybackQuality?: () => string;
   getCurrentTime?: () => number;
   getDuration?: () => number;
   destroy?: () => void;
@@ -39,10 +36,6 @@ export interface YouTubePlayerErrorEvent extends YouTubePlayerEvent {
   data: number;
 }
 
-export interface YouTubePlayerQualityChangeEvent extends YouTubePlayerEvent {
-  data: string;
-}
-
 export interface YouTubePlayerOptions {
   videoId?: string;
   width?: string | number;
@@ -52,7 +45,6 @@ export interface YouTubePlayerOptions {
     onReady?: (event: YouTubePlayerEvent) => void;
     onStateChange?: (event: YouTubePlayerStateChangeEvent) => void;
     onError?: (event: YouTubePlayerErrorEvent) => void;
-    onPlaybackQualityChange?: (event: YouTubePlayerQualityChangeEvent) => void;
     onAutoplayBlocked?: (event: YouTubePlayerEvent) => void;
   };
 }
