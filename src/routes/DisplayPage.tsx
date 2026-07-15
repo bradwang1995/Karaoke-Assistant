@@ -1,4 +1,12 @@
-import { MonitorPlay, Play, SkipForward, Wifi, WifiOff } from "lucide-react";
+import {
+  MonitorPlay,
+  Pause,
+  Play,
+  RotateCcw,
+  SkipForward,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { QRCodeCanvas } from "qrcode.react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -7,16 +15,25 @@ import {
   FullscreenPlayer,
   type FullscreenPlayerHandle,
   type PlayerProgress,
+  type PlayerStatus,
 } from "../components/FullscreenPlayer";
 import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
 import { fetchYouTubeQuotaStatus } from "../lib/apiClient";
 import { formatRelativeQuotaReset } from "../lib/quotaReset";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
-import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
+import {
+  createPlayerProgressSession,
+  getPlayerProgressForItem,
+  type PlayerProgressSession,
+} from "../lib/playerProgress";
+import {
+  playerEnded,
+  playerStarted,
+  restartCurrentSong,
+  useRoomSnapshot,
+} from "../lib/roomState";
 import type { QueueItem } from "../types/room";
 import type { YouTubeQuotaStatus } from "../types/youtube";
-
-type QualityMode = "auto" | "manual";
 
 export default function DisplayPage() {
   const { roomId = "" } = useParams();
@@ -26,14 +43,12 @@ export default function DisplayPage() {
   const queuedItems = getQueuedItems(snapshot);
   const [playRequestId, setPlayRequestId] = useState(0);
   const [playerIssue, setPlayerIssue] = useState<string | null>(null);
-  const [playerProgress, setPlayerProgress] = useState<PlayerProgress>({
-    currentTime: 0,
-    duration: 0,
-  });
+  const [playerProgress, setPlayerProgress] = useState<PlayerProgressSession>(() =>
+    createPlayerProgressSession(null),
+  );
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
-  const [qualityMode, setQualityMode] = useState<QualityMode>("auto");
-  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("loading");
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
   const handledLoadingPlaybackKeyRef = useRef<string | null>(null);
@@ -92,14 +107,41 @@ export default function DisplayPage() {
     [roomId, roomSocket],
   );
 
+  const sendRestartCurrentItem = useCallback(
+    (item: QueueItem) => {
+      if (roomSocket.status === "connected") {
+        if (!roomSocket.send({
+          type: "RESTART_CURRENT_ITEM",
+          payload: {
+            queueItemId: item.id,
+            videoId: item.videoId,
+          },
+        })) {
+          setPlayerIssue("房间连接正在恢复，请稍后再重播。");
+          return false;
+        }
+
+        return true;
+      }
+
+      if (roomSocket.canUseLocalFallback) {
+        restartCurrentSong(roomId, item.id, item.videoId);
+        return true;
+      }
+
+      setPlayerIssue("房间连接正在恢复，请稍后再重播。");
+      return false;
+    },
+    [roomId, roomSocket],
+  );
+
   useEffect(() => {
     if (!currentItem) {
       lastAutoPlayItemIdRef.current = null;
-      setPlayerProgress({ currentTime: 0, duration: 0 });
+      setPlayerProgress(createPlayerProgressSession(null));
       setSeekSeconds(0);
       setIsSeeking(false);
-      setQualityMode("auto");
-      setAutoplayBlocked(false);
+      setPlayerStatus("loading");
       return;
     }
 
@@ -112,8 +154,11 @@ export default function DisplayPage() {
       currentItem.id,
       snapshot.playback.updatedAt,
     );
+    setPlayerProgress(createPlayerProgressSession(currentItem.id));
+    setSeekSeconds(0);
+    setIsSeeking(false);
+    setPlayerStatus("loading");
     setPlayerIssue(null);
-    setAutoplayBlocked(false);
     setPlayRequestId((requestId) => requestId + 1);
   }, [currentItem?.id, snapshot.playback.updatedAt]);
 
@@ -136,7 +181,6 @@ export default function DisplayPage() {
   const handlePlaybackStarted = useCallback(() => {
     if (!currentItem) return;
     setPlayerIssue(null);
-    setAutoplayBlocked(false);
     sendPlayerStarted(currentItem);
   }, [currentItem, sendPlayerStarted]);
 
@@ -150,19 +194,22 @@ export default function DisplayPage() {
   }, []);
 
   const handleAutoplayBlocked = useCallback(() => {
-    setAutoplayBlocked(true);
-    setPlayerIssue("浏览器阻止了自动播放，请使用下方播放按钮。");
+    setPlayerIssue("浏览器阻止了自动播放，请使用下方的播放按钮。");
   }, []);
 
   const handleProgress = useCallback(
     (progress: PlayerProgress) => {
-      setPlayerProgress(progress);
+      if (!currentItem) {
+        return;
+      }
+
+      setPlayerProgress(createPlayerProgressSession(currentItem.id, progress));
 
       if (!isSeeking) {
         setSeekSeconds(progress.currentTime);
       }
     },
-    [isSeeking],
+    [currentItem, isSeeking],
   );
 
   const handleSeekChange = (seconds: number) => {
@@ -185,18 +232,46 @@ export default function DisplayPage() {
     sendPlayerEnded(currentItem);
   };
 
+  const handleRestart = () => {
+    if (!currentItem) return;
+    setPlayerIssue(null);
+    sendRestartCurrentItem(currentItem);
+  };
+
+  const handlePauseToggle = () => {
+    if (!currentItem) return;
+    setPlayerIssue(null);
+
+    if (playerStatus === "playing" || playerStatus === "buffering") {
+      playerHandleRef.current?.pause();
+      return;
+    }
+
+    playerHandleRef.current?.play();
+  };
+
+  const currentProgress = getPlayerProgressForItem(playerProgress, currentItem?.id ?? null);
+  const pauseButtonLabel =
+    playerStatus === "playing" || playerStatus === "buffering"
+      ? "暂停"
+      : playerStatus === "paused"
+        ? "继续"
+        : "播放";
+  const PauseButtonIcon =
+    playerStatus === "playing" || playerStatus === "buffering" ? Pause : Play;
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(20,184,166,0.22),transparent_30%),radial-gradient(circle_at_78%_78%,rgba(251,113,133,0.18),transparent_28%)]" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <div className="qr-code-card absolute right-5 top-20 z-30 hidden rounded-xl border-4 border-white bg-white p-4 text-slate-950 shadow-[0_0_36px_rgba(255,255,255,0.5)] sm:block">
-          <div className="mb-3 flex items-center justify-center">
+        <div className="qr-code-card absolute right-5 top-16 z-30 hidden rounded-2xl border border-white/15 bg-slate-950/90 p-3 text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur sm:block">
+          <div className="mb-2 flex items-center justify-center">
             <Link
               to={`/room/${roomId}/mobile`}
               target="_blank"
               rel="noreferrer"
-              className="text-lg font-extrabold tracking-normal text-black transition hover:text-teal-700"
+              className="text-sm font-bold tracking-wide text-white transition hover:text-teal-200"
             >
               扫码点歌
             </Link>
@@ -206,11 +281,11 @@ export default function DisplayPage() {
             target="_blank"
             rel="noreferrer"
             aria-label="打开扫码点歌手机页"
-            className="qr-code-surface block rounded-md bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-200"
+            className="qr-code-surface block rounded-lg bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
           >
             <QRCodeCanvas
               value={mobileUrl}
-              size={168}
+              size={140}
               level="H"
               bgColor="#ffffff"
               fgColor="#000000"
@@ -227,13 +302,12 @@ export default function DisplayPage() {
               videoId={currentItem.videoId}
               autoPlay
               playRequestId={playRequestId}
-              showNativeControls={qualityMode === "manual"}
-              startAtSeconds={playerProgress.currentTime}
               onPlaybackStarted={handlePlaybackStarted}
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
               onAutoplayBlocked={handleAutoplayBlocked}
               onProgress={handleProgress}
+              onStatusChange={setPlayerStatus}
             />
           ) : (
             <div className="grid h-full min-h-[420px] place-items-center px-6 text-center">
@@ -253,7 +327,7 @@ export default function DisplayPage() {
         </section>
 
         <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-4 shadow-2xl">
-          <div className="grid gap-4 text-sm lg:grid-cols-[13rem_minmax(0,1fr)_13rem] lg:items-center">
+          <div className="grid gap-4 text-sm lg:grid-cols-[12rem_minmax(0,1fr)_22rem] lg:items-center">
             <div className="min-w-0 lg:self-start">
               <ConnectionBadge
                 status={roomSocket.status}
@@ -264,9 +338,6 @@ export default function DisplayPage() {
                 isLoading={quotaQuery.isPending}
                 isError={quotaQuery.isError}
               />
-              {currentItem ? (
-                <QualityModeSelect value={qualityMode} onChange={setQualityMode} />
-              ) : null}
             </div>
             <div className="min-w-0 text-center">
               <h2 className="truncate text-xl font-semibold tracking-normal sm:text-2xl">
@@ -277,36 +348,44 @@ export default function DisplayPage() {
               ) : null}
               {currentItem ? (
                 <PlayerProgressControl
-                  currentTime={isSeeking ? seekSeconds : playerProgress.currentTime}
-                  duration={playerProgress.duration}
+                  currentTime={isSeeking ? seekSeconds : currentProgress.currentTime}
+                  duration={currentProgress.duration}
                   onSeekStart={() => setIsSeeking(true)}
                   onSeekChange={handleSeekChange}
                   onSeekCommit={commitSeek}
                 />
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {currentItem && autoplayBlocked ? (
-                <button
-                  type="button"
-                  onClick={() => playerHandleRef.current?.play()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-teal-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-teal-300 focus:outline-none focus:ring-4 focus:ring-teal-300/30"
-                >
-                  <Play size={17} />
-                  播放
-                </button>
-              ) : null}
+            <div className="flex flex-wrap items-center justify-end gap-3">
               {currentItem ? (
-                <button
-                  type="button"
-                  onClick={handleNext}
-                  className="inline-flex items-center gap-2 rounded-lg bg-white/12 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
-                >
-                  <SkipForward size={17} />
-                  下一首
-                </button>
+                <div className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.07] p-1.5 shadow-lg shadow-black/20">
+                  <button
+                    type="button"
+                    onClick={handleRestart}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
+                  >
+                    <RotateCcw size={17} />
+                    重播
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePauseToggle}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-400 px-3 py-2 text-sm font-bold text-slate-950 transition hover:bg-teal-300 focus:outline-none focus:ring-4 focus:ring-teal-300/30"
+                  >
+                    <PauseButtonIcon size={17} />
+                    {pauseButtonLabel}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/15 px-3 py-2 text-sm font-semibold text-rose-50 transition hover:bg-rose-300/25 focus:outline-none focus:ring-4 focus:ring-rose-300/20"
+                  >
+                    <SkipForward size={17} />
+                    下一首
+                  </button>
+                </div>
               ) : null}
-              <div className="px-1 py-1 text-right">
+              <div className="border-l border-white/15 py-1 pl-3 text-right">
                 <p className="text-xs text-slate-300">即将播放</p>
                 <p className="text-lg font-semibold">{queuedItems.length} 首</p>
               </div>
@@ -315,33 +394,6 @@ export default function DisplayPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-function QualityModeSelect({
-  value,
-  onChange,
-}: {
-  value: QualityMode;
-  onChange: (value: QualityMode) => void;
-}) {
-  return (
-    <label className="mt-2 block max-w-[12rem]">
-      <span className="sr-only">画质模式</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as QualityMode)}
-        title="自动模式由 YouTube 自适应画质；手动模式显示 YouTube 原生画质菜单。"
-        className="h-8 w-full rounded-md border border-white/15 bg-white/10 px-2 text-xs font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-2 focus:ring-teal-300/30"
-      >
-        <option value="auto" className="text-slate-950">
-          画质：自动（推荐）
-        </option>
-        <option value="manual" className="text-slate-950">
-          画质：手动设置
-        </option>
-      </select>
-    </label>
   );
 }
 
@@ -364,29 +416,38 @@ function PlayerProgressControl({
     safeDuration || 0,
   );
   const disabled = safeDuration <= 0;
+  const playedPercent = disabled ? 0 : (safeCurrentTime / safeDuration) * 100;
 
   return (
     <div className="mx-auto mt-3 flex w-full max-w-3xl items-center gap-3 text-sm text-slate-200">
       <span className="w-12 shrink-0 tabular-nums">{formatPlayerTime(safeCurrentTime)}</span>
-      <input
-        type="range"
-        min={0}
-        max={Math.max(Math.floor(safeDuration), 0)}
-        step={1}
-        value={disabled ? 0 : Math.floor(safeCurrentTime)}
-        disabled={disabled}
-        onPointerDown={onSeekStart}
-        onPointerUp={onSeekCommit}
-        onBlur={onSeekCommit}
-        onKeyDown={onSeekStart}
-        onKeyUp={onSeekCommit}
-        onChange={(event) => {
-          onSeekStart();
-          onSeekChange(Number(event.target.value));
-        }}
-        aria-label="播放进度"
-        className="player-progress-range min-w-0 flex-1 disabled:opacity-40"
-      />
+      <div className="relative min-w-0 flex-1">
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[0.45rem] -translate-y-1/2 overflow-hidden rounded-full bg-slate-500/60">
+          <div
+            className="h-full rounded-full bg-teal-400"
+            style={{ width: `${playedPercent}%` }}
+          />
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={Math.max(Math.floor(safeDuration), 0)}
+          step={1}
+          value={disabled ? 0 : Math.floor(safeCurrentTime)}
+          disabled={disabled}
+          onPointerDown={onSeekStart}
+          onPointerUp={onSeekCommit}
+          onBlur={onSeekCommit}
+          onKeyDown={onSeekStart}
+          onKeyUp={onSeekCommit}
+          onChange={(event) => {
+            onSeekStart();
+            onSeekChange(Number(event.target.value));
+          }}
+          aria-label="播放进度"
+          className="player-progress-range relative z-10 w-full disabled:opacity-40"
+        />
+      </div>
       <span className="w-12 shrink-0 text-right tabular-nums">{formatPlayerTime(safeDuration)}</span>
     </div>
   );

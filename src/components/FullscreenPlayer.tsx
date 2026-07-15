@@ -7,8 +7,12 @@ import {
   type YouTubePlayerEvent,
   type YouTubePlayerStateChangeEvent,
 } from "../lib/youtubeIframeApi";
+import {
+  DISPLAY_PLAYBACK_START_SECONDS,
+  type PlayerProgress,
+} from "../lib/playerProgress";
 
-type PlayerStatus =
+export type PlayerStatus =
   | "loading"
   | "ready"
   | "buffering"
@@ -22,25 +26,22 @@ interface FullscreenPlayerProps {
   videoId: string;
   autoPlay: boolean;
   playRequestId: number;
-  showNativeControls: boolean;
-  startAtSeconds?: number;
   onPlaybackStarted: () => void;
   onPlaybackEnded: () => void;
   onPlaybackError: (errorCode: number) => void;
   onAutoplayBlocked: () => void;
   onProgress?: (progress: PlayerProgress) => void;
+  onStatusChange?: (status: PlayerStatus) => void;
 }
 
 export interface FullscreenPlayerHandle {
   play: () => void;
+  pause: () => void;
   restart: () => void;
   seekTo: (seconds: number) => void;
 }
 
-export interface PlayerProgress {
-  currentTime: number;
-  duration: number;
-}
+export type { PlayerProgress } from "../lib/playerProgress";
 
 export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPlayerProps>(
   function FullscreenPlayer(
@@ -48,13 +49,12 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       videoId,
       autoPlay,
       playRequestId,
-      showNativeControls,
-      startAtSeconds = 0,
       onPlaybackStarted,
       onPlaybackEnded,
       onPlaybackError,
       onAutoplayBlocked,
       onProgress,
+      onStatusChange,
     },
     ref,
   ) {
@@ -73,8 +73,14 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onPlaybackError,
     onAutoplayBlocked,
     onProgress,
+    onStatusChange,
   });
   const [status, setStatus] = useState<PlayerStatus>("loading");
+
+  const updateStatus = (nextStatus: PlayerStatus) => {
+    setStatus(nextStatus);
+    callbacksRef.current.onStatusChange?.(nextStatus);
+  };
 
   const clearPlayRetryTimeouts = () => {
     for (const timeoutId of playRetryTimeoutsRef.current) {
@@ -136,14 +142,20 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     pendingPlayRef.current = true;
     startedRef.current = false;
     endedRef.current = false;
-    callbacksRef.current.onProgress?.({ currentTime: 0, duration: 0 });
-    setStatus("loading");
+    callbacksRef.current.onProgress?.({
+      currentTime: DISPLAY_PLAYBACK_START_SECONDS,
+      duration: 0,
+    });
+    updateStatus("loading");
 
     if (typeof player.loadVideoById === "function") {
-      player.loadVideoById({ videoId, startSeconds: 0 });
+      player.loadVideoById({
+        videoId,
+        startSeconds: DISPLAY_PLAYBACK_START_SECONDS,
+      });
     }
 
-    player.seekTo?.(0, true);
+    player.seekTo?.(DISPLAY_PLAYBACK_START_SECONDS, true);
     requestPlay(player);
   };
 
@@ -154,6 +166,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       } else {
         pendingPlayRef.current = true;
       }
+    },
+    pause() {
+      playerRef.current?.pauseVideo?.();
     },
     restart() {
       if (playerRef.current) {
@@ -180,6 +195,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       onPlaybackError,
       onAutoplayBlocked,
       onProgress,
+      onStatusChange,
     };
   }, [
     onAutoplayBlocked,
@@ -187,6 +203,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onPlaybackError,
     onProgress,
     onPlaybackStarted,
+    onStatusChange,
   ]);
 
   useEffect(() => {
@@ -196,14 +213,14 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     pendingRestartRef.current = false;
     pendingPlayRef.current = autoPlay || playRequestId > 0;
     lastPlayRequestRef.current = playRequestId;
-    const safeStartAtSeconds = Number.isFinite(startAtSeconds)
-      ? Math.max(Math.floor(startAtSeconds), 0)
-      : 0;
-    callbacksRef.current.onProgress?.({ currentTime: safeStartAtSeconds, duration: 0 });
-    setStatus("loading");
+    callbacksRef.current.onProgress?.({
+      currentTime: DISPLAY_PLAYBACK_START_SECONDS,
+      duration: 0,
+    });
+    updateStatus("loading");
 
     if (!shell) {
-      setStatus("error");
+      updateStatus("error");
       return;
     }
 
@@ -224,15 +241,15 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
           videoId,
           playerVars: {
             autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
-            controls: showNativeControls ? 1 : 0,
+            controls: 0,
             cc_load_policy: 0,
-            disablekb: showNativeControls ? 0 : 1,
+            disablekb: 1,
             enablejsapi: 1,
-            fs: showNativeControls ? 1 : 0,
+            fs: 0,
             iv_load_policy: 3,
             playsinline: 1,
             rel: 0,
-            start: safeStartAtSeconds,
+            start: DISPLAY_PLAYBACK_START_SECONDS,
             origin: window.location.origin,
           },
           events: {
@@ -247,7 +264,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       })
       .catch(() => {
         if (!cancelled) {
-          setStatus("error");
+          updateStatus("error");
         }
       });
 
@@ -261,7 +278,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     };
 
     function handleReady(event: YouTubePlayerEvent) {
-      setStatus("ready");
+      updateStatus("ready");
       const currentShell = shellRef.current;
 
       if (currentShell) {
@@ -285,7 +302,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
         pendingPlayRef.current = false;
         clearPlayRetryTimeouts();
         startProgressInterval(event.target);
-        setStatus("playing");
+        updateStatus("playing");
 
         if (!startedRef.current) {
           startedRef.current = true;
@@ -298,7 +315,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
         clearPlayRetryTimeouts();
         reportProgress(event.target);
         clearProgressInterval();
-        setStatus("ended");
+        updateStatus("ended");
 
         if (!endedRef.current) {
           endedRef.current = true;
@@ -309,25 +326,25 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
 
       if (event.data === YOUTUBE_PLAYER_STATE.BUFFERING) {
         startProgressInterval(event.target);
-        setStatus("buffering");
+        updateStatus("buffering");
         return;
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) {
         reportProgress(event.target);
-        setStatus("paused");
+        updateStatus("paused");
         return;
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.CUED) {
-        setStatus("ready");
+        updateStatus("ready");
       }
     }
 
     function handleError(event: YouTubePlayerErrorEvent) {
       clearPlayRetryTimeouts();
       clearProgressInterval();
-      setStatus("error");
+      updateStatus("error");
       callbacksRef.current.onPlaybackError(event.data);
     }
 
@@ -335,10 +352,10 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       pendingPlayRef.current = false;
       clearPlayRetryTimeouts();
       clearProgressInterval();
-      setStatus("blocked");
+      updateStatus("blocked");
       callbacksRef.current.onAutoplayBlocked();
     }
-  }, [autoPlay, showNativeControls, videoId]);
+  }, [autoPlay, videoId]);
 
   useEffect(() => {
     if (playRequestId <= lastPlayRequestRef.current) {
@@ -355,9 +372,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   return (
     <div
       ref={shellRef}
-      className={`absolute inset-0 h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full ${
-        showNativeControls ? "[&_iframe]:pointer-events-auto" : "[&_iframe]:pointer-events-none"
-      } ${status === "ended" || status === "error" ? "invisible" : ""}`}
+      className={`absolute inset-0 h-full w-full bg-black [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full ${
+        status === "ended" || status === "error" ? "invisible" : ""
+      }`}
     />
   );
   },

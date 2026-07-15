@@ -30,19 +30,9 @@ iframe {
   border: 0;
 }
 
-.qr-code-card,
 .qr-code-surface {
   color-scheme: only light;
   forced-color-adjust: none;
-}
-
-.qr-code-card {
-  background-color: #ffffff !important;
-  color: #000000 !important;
-}
-
-.qr-code-card a {
-  color: #000000 !important;
 }
 
 .qr-code-surface,
@@ -106,7 +96,7 @@ iframe {
 .player-progress-range::-webkit-slider-runnable-track {
   height: 0.45rem;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.55);
+  background: transparent;
 }
 
 .player-progress-range::-webkit-slider-thumb {
@@ -122,7 +112,13 @@ iframe {
 .player-progress-range::-moz-range-track {
   height: 0.45rem;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.55);
+  background: transparent;
+}
+
+.player-progress-range::-moz-range-progress {
+  height: 0.45rem;
+  border-radius: 999px;
+  background: transparent;
 }
 
 .player-progress-range::-moz-range-thumb {

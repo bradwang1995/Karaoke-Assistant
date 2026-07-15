@@ -29,7 +29,7 @@ import {
   restartCurrentSong,
   useRoomSnapshot,
 } from "../lib/roomState";
-import { youtubeEmbedUrl, youtubeThumbnailUrl } from "../lib/youtube";
+import { youtubePreviewEmbedUrl, youtubeThumbnailUrl } from "../lib/youtube";
 import { useMobileUiStore } from "../stores/mobileUiStore";
 import type { QueueItem } from "../types/room";
 import type { ClientToServerMessage } from "../types/websocket";
@@ -1001,10 +1001,7 @@ function CandidatePreview({
         <iframe
           className="pointer-events-none absolute inset-0 h-full w-full"
           title="视频预览"
-          src={youtubeEmbedUrl(result.videoId, {
-            muted: true,
-            autoplay: true,
-          })}
+          src={youtubePreviewEmbedUrl(result.videoId)}
           loading="eager"
           allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
           onLoad={() => setLoadStatus("loaded")}
