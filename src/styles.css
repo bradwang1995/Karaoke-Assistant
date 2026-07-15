@@ -52,6 +52,67 @@ iframe {
   scrollbar-width: thin;
 }
 
+@keyframes create-room-gradient {
+  0%,
+  100% {
+    background-position: 0% 50%;
+    box-shadow: 0 18px 48px rgba(45, 212, 191, 0.28), 0 0 0 rgba(103, 232, 249, 0);
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 20px 58px rgba(251, 113, 133, 0.24), 0 0 34px rgba(103, 232, 249, 0.22);
+  }
+}
+
+@keyframes create-room-shimmer {
+  0% {
+    transform: translateX(-180%) skewX(-18deg);
+  }
+  45%,
+  100% {
+    transform: translateX(260%) skewX(-18deg);
+  }
+}
+
+@keyframes create-room-hint-pan {
+  0%,
+  100% {
+    transform: translateX(0);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translateX(7px);
+    opacity: 1;
+  }
+}
+
+.create-room-cta {
+  background: linear-gradient(120deg, #2dd4bf, #67e8f9, #fda4af, #fbbf24, #2dd4bf);
+  background-size: 320% 320%;
+  animation: create-room-gradient 5s ease-in-out infinite;
+}
+
+.create-room-cta::after {
+  position: absolute;
+  inset: -35% auto -35% -25%;
+  width: 28%;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  animation: create-room-shimmer 3.8s ease-in-out infinite;
+}
+
+.create-room-hint-arrow {
+  animation: create-room-hint-pan 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .create-room-cta,
+  .create-room-cta::after,
+  .create-room-hint-arrow {
+    animation: none;
+  }
+}
+
 @keyframes mobile-toast-enter {
   0% {
     opacity: 0;

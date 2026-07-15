@@ -86,9 +86,17 @@ async function createRoom(request: Request, env: Env) {
 
   for (let attempt = 0; attempt < CREATE_ROOM_ATTEMPTS; attempt += 1) {
     const roomId = createRoomId();
+    const fallbackDisplayName = `K歌房 ${roomId}`;
+    const requestBody = await request.clone().json().catch(() => null);
+    const displayName = normalizeRoomDisplayName(
+      requestBody && typeof requestBody === "object" && "displayName" in requestBody
+        ? requestBody.displayName
+        : undefined,
+      fallbackDisplayName,
+    );
 
     try {
-      const snapshot = await createRoomInD1(env.DB, roomId);
+      const snapshot = await createRoomInD1(env.DB, roomId, displayName);
       const origin = new URL(request.url).origin;
 
       if (!snapshot) {
@@ -118,6 +126,20 @@ async function createRoom(request: Request, env: Env) {
   }
 
   return apiError(500, "ROOM_CREATE_FAILED", "Failed to create room.");
+}
+
+function normalizeRoomDisplayName(value: unknown, fallback: string) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+
+  const normalized = value.trim().replace(/\s+/g, " ");
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  return Array.from(normalized).slice(0, 40).join("");
 }
 
 async function getRoomSnapshot(request: Request, env: Env, roomId: string) {

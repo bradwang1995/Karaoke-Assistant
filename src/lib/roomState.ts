@@ -24,12 +24,12 @@ export function createRoomId() {
     .slice(0, 8);
 }
 
-export function readRoomSnapshot(roomId: string): RoomSnapshot {
+export function readRoomSnapshot(roomId: string, displayName?: string): RoomSnapshot {
   const key = roomStorageKey(roomId);
   const raw = window.localStorage.getItem(key);
 
   if (!raw) {
-    const snapshot = createInitialSnapshot(roomId);
+    const snapshot = createInitialSnapshot(roomId, undefined, displayName);
     window.localStorage.setItem(key, JSON.stringify(snapshot));
     return snapshot;
   }
@@ -37,7 +37,7 @@ export function readRoomSnapshot(roomId: string): RoomSnapshot {
   try {
     return JSON.parse(raw) as RoomSnapshot;
   } catch {
-    const snapshot = createInitialSnapshot(roomId);
+    const snapshot = createInitialSnapshot(roomId, undefined, displayName);
     window.localStorage.setItem(key, JSON.stringify(snapshot));
     return snapshot;
   }

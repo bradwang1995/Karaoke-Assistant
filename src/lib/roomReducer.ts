@@ -3,11 +3,12 @@ import type { QueueItem, QueueItemInput, RoomSnapshot } from "../types/room";
 export function createInitialSnapshot(
   roomId: string,
   now = new Date().toISOString(),
+  displayName = `K歌房 ${roomId}`,
 ): RoomSnapshot {
   return {
     room: {
       id: roomId,
-      displayName: `K歌房 ${roomId}`,
+      displayName,
       createdAt: now,
       updatedAt: now,
       isActive: true,

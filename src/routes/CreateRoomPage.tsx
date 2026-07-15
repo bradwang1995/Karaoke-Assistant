@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { StatusMessage } from "../components/StatusMessage";
 import { ApiClientError, createRoomViaApi } from "../lib/apiClient";
+import { createDeviceRoomDisplayName } from "../lib/roomName";
 import { createRoomId, hydrateRoomSnapshot, readRoomSnapshot } from "../lib/roomState";
 
 export default function CreateRoomPage() {
@@ -24,7 +25,8 @@ export default function CreateRoomPage() {
     setNotice(null);
 
     try {
-      const response = await createRoomViaApi();
+      const roomDisplayName = createDeviceRoomDisplayName();
+      const response = await createRoomViaApi(roomDisplayName);
 
       if (response.snapshot) {
         hydrateRoomSnapshot(response.snapshot);
@@ -33,7 +35,7 @@ export default function CreateRoomPage() {
       navigate(response.displayUrl);
     } catch (error) {
       const roomId = createRoomId();
-      readRoomSnapshot(roomId);
+      readRoomSnapshot(roomId, createDeviceRoomDisplayName());
 
       if (error instanceof ApiClientError && error.code === "NON_JSON_RESPONSE") {
         setNotice("当前是本地 Vite 模式，已使用本地房间继续。");
@@ -80,27 +82,34 @@ export default function CreateRoomPage() {
               <span className="mt-1 block text-teal-300">让朋友扫码开唱。</span>
             </h2>
             <p className="mt-6 max-w-xl text-base leading-7 text-slate-300 sm:text-lg sm:leading-8">
-              大屏负责播放，手机负责点歌。创建后，房间二维码会自动出现在大屏右上角。
+              <span className="block">大屏负责播放，手机负责点歌。</span>
+              <span className="block">创建后，房间二维码会自动出现在大屏右上角。</span>
             </p>
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-9 flex items-center">
               <button
                 type="button"
                 onClick={createRoom}
                 disabled={isCreating}
-                className="group inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-400 px-6 py-3 text-base font-bold text-slate-950 shadow-[0_14px_36px_rgba(45,212,191,0.2)] transition hover:bg-teal-300 focus:outline-none focus:ring-4 focus:ring-teal-300/30 disabled:cursor-wait disabled:bg-teal-400/60 sm:w-auto"
+                className="create-room-cta group relative isolate inline-flex min-h-16 min-w-[10.5rem] shrink-0 items-center justify-center gap-3 overflow-hidden rounded-2xl px-5 py-4 text-lg font-extrabold text-slate-950 transition focus:outline-none focus:ring-4 focus:ring-teal-200/40 disabled:cursor-wait disabled:opacity-60 sm:min-h-[4.5rem] sm:min-w-[15rem] sm:px-9 sm:text-xl"
               >
                 {isCreating ? (
-                  <LoaderCircle size={19} className="animate-spin" />
+                  <LoaderCircle size={23} className="relative z-10 animate-spin" />
                 ) : (
                   <ArrowRight
-                    size={19}
-                    className="transition-transform group-hover:translate-x-0.5"
+                    size={24}
+                    className="relative z-10 transition-transform group-hover:translate-x-1"
                   />
                 )}
-                {isCreating ? "正在创建房间" : "创建房间"}
+                <span className="relative z-10">
+                  {isCreating ? "正在创建房间" : "创建房间"}
+                </span>
               </button>
-              <p className="text-center text-xs text-slate-400 sm:text-left">
-                创建后自动打开大屏页
+              <p className="ml-4 flex max-w-[7rem] items-center gap-2 text-xs leading-5 text-slate-300 sm:ml-10 sm:max-w-none sm:text-sm">
+                <span>创建后自动打开大屏页</span>
+                <ArrowRight
+                  size={17}
+                  className="create-room-hint-arrow hidden shrink-0 text-teal-300 sm:block"
+                />
               </p>
             </div>
             {notice ? (

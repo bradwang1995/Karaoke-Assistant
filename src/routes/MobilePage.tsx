@@ -21,6 +21,7 @@ import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
 import { ApiClientError, searchVideosViaApi } from "../lib/apiClient";
 import { searchMockVideos } from "../lib/mockSearch";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
+import { visibleRoomDisplayName } from "../lib/roomName";
 import {
   addSongToRoom,
   playerEnded,
@@ -50,6 +51,7 @@ export default function MobilePage() {
   const snapshot = useRoomSnapshot(roomId);
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
+  const roomDisplayName = visibleRoomDisplayName(snapshot.room.displayName, roomId);
   const queueTargetRef = useRef<HTMLDivElement | null>(null);
   const storedActiveTab = useMobileUiStore((state) => state.activeTab);
   const setStoredActiveTab = useMobileUiStore((state) => state.setActiveTab);
@@ -84,18 +86,22 @@ export default function MobilePage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-950">
-      <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col bg-white shadow-sm [--mobile-header-height:10.25rem]">
-        <header className="sticky top-0 z-[60] h-[var(--mobile-header-height)] shrink-0 overflow-hidden border-b border-slate-200 bg-white px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
+    <main className="h-[100dvh] overflow-hidden bg-slate-950 text-slate-950">
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden border-x border-white/10 bg-slate-100 shadow-2xl shadow-black/40">
+        <header className="relative z-[60] shrink-0 overflow-hidden border-b border-white/10 bg-slate-950 px-4 py-3 text-white">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(20,184,166,0.2),transparent_42%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.13),transparent_38%)]" />
+          <div className="relative flex items-center justify-between gap-3">
             <div>
-              <h1 className="text-lg font-semibold tracking-normal">K歌助手</h1>
-              <p className="text-xs text-slate-500">房间 {roomId}</p>
+              <h1 className="text-xl font-semibold tracking-normal">K歌助手</h1>
+              <p className="mt-0.5 text-sm text-slate-300">{roomDisplayName}</p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <div ref={queueTargetRef} className="rounded-lg bg-teal-50 px-3 py-2 text-right">
-                <p className="text-[11px] text-teal-700">即将播放</p>
-                <p className="text-sm font-semibold text-teal-950">{queuedItems.length} 首</p>
+              <div
+                ref={queueTargetRef}
+                className="rounded-xl border border-teal-200/20 bg-teal-300/10 px-3 py-2 text-right"
+              >
+                <p className="text-xs text-teal-200">即将播放</p>
+                <p className="text-base font-semibold text-white">{queuedItems.length} 首</p>
               </div>
               <ConnectionBadge
                 status={roomSocket.status}
@@ -104,7 +110,7 @@ export default function MobilePage() {
             </div>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 rounded-lg bg-slate-100 p-1">
+          <div className="relative mt-3 grid grid-cols-2 rounded-xl bg-white/10 p-1">
             <TabButton
               active={activeTab === "search"}
               icon={<Music2 size={17} />}
@@ -163,8 +169,10 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
-        active ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-800"
+      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-base font-semibold transition ${
+        active
+          ? "bg-teal-300 text-slate-950 shadow-lg shadow-black/20"
+          : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
       {icon}
@@ -217,6 +225,7 @@ function SearchTab({
   const [scrollY, setScrollY] = useState(initialSearchState?.scrollY ?? 0);
   const resultCardRefs = useRef(new Map<string, HTMLElement>());
   const resultsGridRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const toastTimeoutRef = useRef<number | null>(null);
   const addTrailTimeoutRef = useRef<number | null>(null);
   const previewDebounceTimeoutRef = useRef<number | null>(null);
@@ -380,7 +389,7 @@ function SearchTab({
           loadMoreResults();
         }
       },
-      { rootMargin: "240px 0px" },
+      { root: scrollContainerRef.current, rootMargin: "240px 0px" },
     );
 
     observer.observe(node);
@@ -389,18 +398,28 @@ function SearchTab({
   }, [canLoadMore, isLoadingMore, loadMoreResults]);
 
   useEffect(() => {
-    if (!initialSearchState?.scrollY || restoredScrollRef.current || !searchResponse) {
+    if (
+      !initialSearchState?.scrollY ||
+      restoredScrollRef.current ||
+      activeResults.length === 0
+    ) {
       return;
     }
 
     restoredScrollRef.current = true;
     window.requestAnimationFrame(() => {
-      window.scrollTo({ top: initialSearchState.scrollY });
+      scrollContainerRef.current?.scrollTo({ top: initialSearchState.scrollY });
     });
-  }, [initialSearchState, searchResponse]);
+  }, [activeResults.length, initialSearchState]);
 
   useEffect(() => {
     let frameId: number | null = null;
+
+    const scrollContainer = scrollContainerRef.current;
+
+    if (!scrollContainer) {
+      return;
+    }
 
     const handleScroll = () => {
       if (frameId !== null) {
@@ -409,18 +428,18 @@ function SearchTab({
 
       frameId = window.requestAnimationFrame(() => {
         frameId = null;
-        setScrollY(window.scrollY);
+        setScrollY(scrollContainer.scrollTop);
       });
     };
 
-    window.addEventListener("scroll", handleScroll, { passive: true });
+    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
       if (frameId !== null) {
         window.cancelAnimationFrame(frameId);
       }
 
-      window.removeEventListener("scroll", handleScroll);
+      scrollContainer.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
@@ -628,11 +647,11 @@ function SearchTab({
       : `${visibleResults.length}/${activeResults.length} 首`;
 
   return (
-    <section className="relative isolate z-0 flex-1 px-4 pb-24">
+    <section className="relative isolate z-0 flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-100">
       <MobileToast toast={toast} />
       <AddToQueueTrail trail={addTrail} />
 
-      <div className="sticky top-[var(--mobile-header-height)] z-50 isolate -mx-4 overflow-hidden border-b border-slate-200 bg-white px-4 pb-2 pt-3 shadow-sm">
+      <div className="z-50 isolate shrink-0 overflow-hidden border-b border-white/10 bg-slate-900 px-4 pb-2.5 pt-3 shadow-lg shadow-slate-950/15">
         <form onSubmit={submitSearch}>
           <div className="grid grid-cols-[4.65rem_minmax(0,1fr)_4.25rem_2.5rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_4.75rem_2.75rem] sm:gap-2">
             <label className="sr-only" htmlFor="search-type">
@@ -649,7 +668,7 @@ function SearchTab({
                   runSearch(query, nextSearchType, includeOriginalVocal);
                 }
               }}
-              className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-800 outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+              className="h-11 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             >
               <option value="song">歌名</option>
               <option value="artist">歌手</option>
@@ -675,7 +694,7 @@ function SearchTab({
               }}
               placeholder={searchType === "artist" ? "歌手名" : "歌名"}
               enterKeyHint="search"
-              className="h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-base outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-4 focus:ring-teal-100"
+              className="h-11 min-w-0 rounded-lg border border-white/15 bg-slate-800 px-3 text-base text-white outline-none transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             />
             <PillToggle
               label="原唱"
@@ -693,57 +712,61 @@ function SearchTab({
               aria-label="搜索"
               title="搜索"
               disabled={!query.trim() || searchMutation.isPending}
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-11"
+              className="inline-flex h-11 w-10 shrink-0 items-center justify-center rounded-lg bg-teal-300 text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 sm:w-11"
             >
               <Search size={18} />
             </button>
           </div>
         </form>
-        <div className="mt-1.5 flex h-5 items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold leading-5 text-slate-700">{resultHeading}</h2>
-          <span className="shrink-0 rounded-md bg-slate-100 px-1.5 text-xs leading-5 text-slate-600">
+        <div className="mt-2 flex h-6 items-center justify-between gap-3">
+          <h2 className="text-base font-semibold leading-6 text-slate-100">{resultHeading}</h2>
+          <span className="shrink-0 rounded-md bg-white/10 px-2 text-sm leading-6 text-slate-300">
             {resultCountLabel}
           </span>
         </div>
       </div>
 
-      {searchMutation.isError ? (
-        <StatusMessage tone="error" title="搜索失败" className="mt-4">
-          {searchErrorMessage(searchMutation.error)}
-        </StatusMessage>
-      ) : null}
+      <div
+        ref={scrollContainerRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 scrollbar-soft"
+      >
+        {searchMutation.isError ? (
+          <StatusMessage tone="error" title="搜索失败" className="mt-4">
+            {searchErrorMessage(searchMutation.error)}
+          </StatusMessage>
+        ) : null}
 
-      {recommendationsQuery.isError && showingRecommendations ? (
-        <StatusMessage tone="warning" title="推荐加载失败" className="mt-4">
-          {searchErrorMessage(recommendationsQuery.error)}
-        </StatusMessage>
-      ) : null}
+        {recommendationsQuery.isError && showingRecommendations ? (
+          <StatusMessage tone="warning" title="推荐加载失败" className="mt-4">
+            {searchErrorMessage(recommendationsQuery.error)}
+          </StatusMessage>
+        ) : null}
 
-      {isLoadingResults ? (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {Array.from({ length: SEARCH_RESULT_PAGE_SIZE }, (_, item) => (
-            <div key={item} className="aspect-video animate-pulse rounded-lg bg-slate-100" />
-          ))}
-        </div>
-      ) : null}
+        {isLoadingResults ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {Array.from({ length: SEARCH_RESULT_PAGE_SIZE }, (_, item) => (
+              <div key={item} className="aspect-video animate-pulse rounded-lg bg-slate-200" />
+            ))}
+          </div>
+        ) : null}
 
-      {!isLoadingResults && searchResponse && activeResults.length === 0 ? (
-        <StatusMessage tone="info" className="mt-5">
-          没有找到合适的视频。
-        </StatusMessage>
-      ) : null}
+        {!isLoadingResults && searchResponse && activeResults.length === 0 ? (
+          <StatusMessage tone="info" className="mt-5">
+            没有找到合适的视频。
+          </StatusMessage>
+        ) : null}
 
-      {!isLoadingResults && showingRecommendations && activeResults.length === 0 ? (
-        <StatusMessage tone="info" className="mt-5">
-          暂无推荐内容。
-        </StatusMessage>
-      ) : null}
+        {!isLoadingResults && showingRecommendations && activeResults.length === 0 ? (
+          <StatusMessage tone="info" className="mt-5">
+            暂无推荐内容。
+          </StatusMessage>
+        ) : null}
 
-      {!isLoadingResults && activeResults.length > 0 ? (
-        <>
+        {!isLoadingResults && activeResults.length > 0 ? (
+          <>
           <div
             ref={resultsGridRef}
-            className="relative z-0 mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+            className="relative z-0 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
           >
             {visibleResults.map((result, index) => (
               <CandidateVideoCard
@@ -765,30 +788,32 @@ function SearchTab({
               <button
                 type="button"
                 onClick={loadMoreResults}
-                className="w-full rounded-lg border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 加载更多
               </button>
             ) : (
-              <p className="py-3 text-center text-xs text-slate-500">已经显示全部缓存结果</p>
+              <p className="py-3 text-center text-sm text-slate-500">已经显示全部缓存结果</p>
             )}
           </div>
-          <div className="sticky bottom-0 z-20 -mx-4 mt-4 border-t border-slate-200 bg-white px-4 py-3">
-            <button
-              type="button"
-              onClick={addSelectedSong}
-              disabled={!selected}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-teal-500 px-4 py-3 text-base font-semibold text-slate-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
-            >
-              <Check size={20} />
-              点歌
-            </button>
-            <p className="mt-2 text-center text-[11px] leading-4 text-slate-500">
-              搜索使用 YouTube Data API，视频仅通过 YouTube 嵌入播放器播放。
-            </p>
-          </div>
-        </>
-      ) : null}
+          </>
+        ) : null}
+      </div>
+
+      <footer className="z-20 shrink-0 border-t border-white/10 bg-slate-950 px-4 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.14)]">
+        <button
+          type="button"
+          onClick={addSelectedSong}
+          disabled={!selected}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 py-3 text-lg font-bold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+        >
+          <Check size={21} />
+          点歌
+        </button>
+        <p className="mt-2 text-center text-xs leading-4 text-slate-400">
+          搜索使用 YouTube Data API，视频仅通过 YouTube 嵌入播放器播放。
+        </p>
+      </footer>
 
       <ConfirmDialog
         open={duplicateCandidate !== null}
@@ -832,16 +857,16 @@ function PillToggle({
       type="button"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
-      className={`inline-flex h-10 items-center justify-center gap-1 rounded-full border px-1.5 text-[11px] font-semibold transition focus:outline-none focus:ring-4 focus:ring-teal-100 ${
+      className={`inline-flex h-11 items-center justify-center gap-1 rounded-full border px-1.5 text-xs font-semibold transition focus:outline-none focus:ring-4 focus:ring-teal-300/15 ${
         checked
-          ? "border-teal-400 bg-teal-500 text-teal-950"
-          : "border-slate-300 bg-slate-100 text-slate-600"
+          ? "border-teal-300 bg-teal-300 text-slate-950"
+          : "border-white/15 bg-slate-800 text-slate-300"
       }`}
     >
       <span className="whitespace-nowrap">{label}</span>
       <span
         className={`relative h-5 w-8 rounded-full transition ${
-          checked ? "bg-teal-700/30" : "bg-slate-300"
+          checked ? "bg-teal-900/30" : "bg-slate-600"
         }`}
       >
         <span
@@ -947,12 +972,12 @@ function CandidateVideoCard({
       {duplicate || selected ? (
         <div className="pointer-events-none absolute right-1.5 top-1.5 z-[1] flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1">
           {duplicate ? (
-            <span className="max-w-full truncate rounded-md bg-amber-100 px-1.5 py-1 text-[10px] font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200">
+            <span className="max-w-full truncate rounded-md bg-amber-100 px-1.5 py-1 text-[11px] font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200">
               已在歌单
             </span>
           ) : null}
           {selected ? (
-            <span className="max-w-full truncate rounded-md bg-teal-100 px-1.5 py-1 text-[10px] font-semibold text-teal-800 shadow-sm ring-1 ring-teal-200">
+            <span className="max-w-full truncate rounded-md bg-teal-100 px-1.5 py-1 text-[11px] font-semibold text-teal-800 shadow-sm ring-1 ring-teal-200">
               已选中
             </span>
           ) : null}
@@ -1015,7 +1040,7 @@ function CandidatePreview({
         </div>
       ) : null}
       {loadStatus === "error" ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 px-2 text-center text-[11px] font-semibold text-white">
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 px-2 text-center text-xs font-semibold text-white">
           预览加载较慢，点一下重试
         </div>
       ) : null}
@@ -1110,7 +1135,7 @@ function QueueTab({
   };
 
   return (
-    <section className="flex-1 overflow-y-auto px-4 py-4 scrollbar-soft">
+    <section className="min-h-0 flex-1 overflow-y-auto bg-slate-100 px-4 py-4 scrollbar-soft">
       {actionError ? (
         <StatusMessage tone="warning" title="操作未完成" className="mb-4">
           {actionError}
@@ -1118,7 +1143,7 @@ function QueueTab({
       ) : null}
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="text-xs font-semibold text-teal-700">正在播放</p>
+        <p className="text-sm font-semibold text-teal-700">正在播放</p>
         {currentItem ? (
           <>
             <div className="mt-2 flex items-center gap-3">
@@ -1156,13 +1181,13 @@ function QueueTab({
             </div>
           </>
         ) : (
-          <p className="mt-2 text-sm text-slate-500">当前没有视频播放</p>
+          <p className="mt-2 text-base text-slate-500">当前没有视频播放</p>
         )}
       </div>
 
       <div className="mt-5 flex items-center justify-between">
-        <h2 className="text-base font-semibold tracking-normal">即将播放</h2>
-        <span className="text-xs text-slate-500">
+        <h2 className="text-lg font-semibold tracking-normal">即将播放</h2>
+        <span className="text-sm text-slate-500">
           {queuedItems.length} 首
         </span>
       </div>
@@ -1170,7 +1195,7 @@ function QueueTab({
       {queuedItems.length === 0 ? (
         <div className="mt-3 rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center">
           <ListMusic className="mx-auto text-slate-400" size={30} />
-          <p className="mt-2 text-sm text-slate-500">歌单还是空的，去点第一首吧。</p>
+          <p className="mt-2 text-base text-slate-500">歌单还是空的，去点第一首吧。</p>
         </div>
       ) : (
         <div className="mt-3 grid gap-3">
@@ -1262,7 +1287,7 @@ function ConnectionBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold ${
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ${
         connected
           ? "bg-emerald-50 text-emerald-700"
           : canUseLocalFallback

@@ -4,6 +4,7 @@ import type { PlaybackStateRow, QueueItemRow, RoomRow } from "./types";
 export async function createRoomInD1(
   db: D1Database,
   roomId: string,
+  displayName = `K歌房 ${roomId}`,
   now = new Date().toISOString(),
 ) {
   await db
@@ -13,7 +14,7 @@ export async function createRoomInD1(
       VALUES (?, ?, ?, ?, 1)
       `,
     )
-    .bind(roomId, `K歌房 ${roomId}`, now, now)
+    .bind(roomId, displayName, now, now)
     .run();
 
   await db

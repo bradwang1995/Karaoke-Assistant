@@ -51,7 +51,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
 创建房间：
 
-1. Frontend `POST /api/rooms`。
+1. Frontend 根据浏览器可公开的平台信息生成友好房间名，并用 `POST /api/rooms` 提交；浏览器不会读取真实电脑名或 Chrome Profile 名。
 2. Main Worker 生成 8 位小写字母/数字 room id。
 3. D1 写入 `rooms` 和初始 `playback_states`。
 4. API 返回 display/mobile URLs 和 initial snapshot。
@@ -175,7 +175,7 @@ npm run build
 
 | Method | Path | 说明 |
 | --- | --- | --- |
-| `POST` | `/api/rooms` | 创建房间。 |
+| `POST` | `/api/rooms` | 创建房间；JSON 可带 `displayName`，服务端规范化并限制为 40 个 Unicode 字符。 |
 | `GET` | `/api/rooms/:roomId/snapshot` | 当前 snapshot。 |
 | `GET` | `/api/rooms/:roomId/ws` | WebSocket upgrade。 |
 | `POST` | `/api/rooms/:roomId/search` | 搜索或默认推荐。 |
@@ -508,7 +508,7 @@ Display 专项：
 - `实时已连接`、今日剩余额度和本地 reset 相对小时都在 footer 最左侧，不显示“正在播放”；歌名与 progress 在中间且不重叠。
 - 已播放 progress 与 thumb 同为 teal，未播放部分为灰色；右侧重播、暂停/继续、下一首和队列统计有明确的 button/panel 层级。
 - `/create` 在 390×844 与 1280×720 都应无横向 overflow；主标题使用受控两行，CTA 在手机首屏可见，三步说明保持简短。
-- Mobile 顶部 header 与 search sticky 共用同一高度变量；搜索区到结果只保留紧凑间距，结果卡片的“已选中/已在歌单”标签不得穿透搜索栏。
+- Mobile 使用固定高度外壳；header、搜索栏/结果标题和 footer 不参与页面滚动，只有结果容器独立滚动并保存 `scrollTop`，卡片标签不得穿透搜索栏。
 
 ### 10.2 API/search smoke
 

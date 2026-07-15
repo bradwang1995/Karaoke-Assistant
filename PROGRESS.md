@@ -16,7 +16,7 @@ Last updated: 2026-07-15
 | Mobile preview | MVP complete | 2–4 列、单 iframe、固定 30 秒起点、600ms debounce、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 14 files / 53 tests | Route/DO integration 和 Playwright E2E 待补。 |
+| Automated tests | 15 files / 56 tests | Route/DO integration 和 Playwright E2E 待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | 只保留 root `README.md` + `PROGRESS.md`。 |
 
@@ -96,7 +96,7 @@ Last updated: 2026-07-15
 ### Phase 5 — Mobile search and preview
 
 - `[x]` Default recommendations。
-- `[x]` Sticky type/query/toggle/search controls。
+- `[x]` 固定 header/search/footer 外壳；结果容器独立滚动并保存 `scrollTop`。
 - `[x]` 24-hour per-room search state。
 - `[x]` Queue tab URL persistence。
 - `[x]` Portrait 2-column、wide/landscape 3–4-column compact previews。
@@ -240,6 +240,19 @@ Last updated: 2026-07-15
 | PIT4-08 | P1 | `/create` 改为与 display 一致的 slate/teal/rose 暗色界面；受控两行标题、首屏 CTA 和简短三步说明消除尴尬换行与空散布局。 |
 | PIT4-09 | P1 | 新增 player progress session 与 YouTube preview URL 测试，更新 README/PROGRESS 并完成 responsive browser smoke。 |
 
+### 2026-07-15 post-internal pass 5
+
+| ID | P | Completed |
+| --- | --- | --- |
+| PIT5-01 | P1 | Create 说明文案在“创建后”前固定换行，消除中文孤字/难看 wrap。 |
+| PIT5-02 | P1 | Create CTA 扩至桌面 240×72px，并加入无需 hover 的 teal/cyan/rose/amber 循环渐变、扫光和 reduced-motion fallback。 |
+| PIT5-03 | P1 | CTA 右侧说明拉开间距并加入持续向右引导；不新增竞争主操作。 |
+| PIT5-04 | P0 | Mobile 改为 `100dvh` 固定外壳；header、搜索/结果标题、footer 脱离 scroll，只有结果区 `overflow-y-auto`。 |
+| PIT5-05 | P0 | 删除搜索内容 `pb-24` 和内部 sticky footer；footer 使用固定 `shrink-0` 高度，结果到底不再产生额外底部留白。 |
+| PIT5-06 | P1 | Mobile 外壳、header、搜索栏和 footer 统一到 display 的 slate/teal 暗色主题，正文保留浅色缩略图画布并放大小字号。 |
+| PIT5-07 | P1 | 新房间使用浏览器可公开的平台信息生成“这台 Windows/Mac…的 K 歌房”，通过 create API 写入 D1；legacy id 标签显示为“朋友的 K 歌房”。 |
+| PIT5-08 | P1 | 新增房间名 normalization/platform/legacy tests，更新文档并完成桌面/窄屏浏览器布局验证。 |
+
 ## 4. Verification record
 
 ### Automated history
@@ -257,6 +270,8 @@ Last updated: 2026-07-15
 | 2026-07-14 pass 4 | Typecheck、14 files / 53 tests、production build、Wrangler 4.105 Main Worker dry-run、`git diff --check` passed。 |
 | 2026-07-14 pass 4 UI | 390×844：create CTA 首屏可见、无横向 overflow、preview URL `start=30` 且单 iframe；1280×720：dark 140px QR、无画质 selector、三键 panel、下一首切换后 progress value `0`。 |
 | 2026-07-15 repository rename | New/old GitHub remotes resolve to HEAD `d64f60f`；local origin 更新至 `bradwang1995/Karaoke-Assistant`；production root 返回 HTTP 200；no deploy。 |
+| 2026-07-15 pass 5 | Typecheck、15 files / 56 tests、production build、`git diff --check` passed；no deploy。 |
+| 2026-07-15 pass 5 UI | Create 1280×720：CTA 240×72、持续 gradient、说明强制两行；Mobile 390×800：结果 `scrollTop 0→87`、`window.scrollY=0`，header/search/footer 坐标滚动前后完全一致。 |
 
 ### Fourth-round design QA（2026-07-15）
 

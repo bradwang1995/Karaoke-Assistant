@@ -14,12 +14,14 @@ export class ApiClientError extends Error {
   }
 }
 
-export async function createRoomViaApi() {
+export async function createRoomViaApi(displayName?: string) {
   const response = await fetch("/api/rooms", {
     method: "POST",
     headers: {
       accept: "application/json",
+      "content-type": "application/json",
     },
+    body: JSON.stringify({ displayName }),
   });
 
   return parseJsonResponse<CreateRoomResponse>(response);
