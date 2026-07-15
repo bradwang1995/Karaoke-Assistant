@@ -270,7 +270,7 @@ Last updated: 2026-07-15
 | 2026-07-14 pass 4 | Typecheck、14 files / 53 tests、production build、Wrangler 4.105 Main Worker dry-run、`git diff --check` passed。 |
 | 2026-07-14 pass 4 UI | 390×844：create CTA 首屏可见、无横向 overflow、preview URL `start=30` 且单 iframe；1280×720：dark 140px QR、无画质 selector、三键 panel、下一首切换后 progress value `0`。 |
 | 2026-07-15 repository rename | New/old GitHub remotes resolve to HEAD `d64f60f`；local origin 更新至 `bradwang1995/Karaoke-Assistant`；production root 返回 HTTP 200；no deploy。 |
-| 2026-07-15 pass 5 | Typecheck、15 files / 56 tests、production build、`git diff --check` passed；no deploy。 |
+| 2026-07-15 pass 5 | Typecheck、15 files / 56 tests、production build、双 Worker dry-run、`git diff --check` passed。 |
 | 2026-07-15 pass 5 UI | Create 1280×720：CTA 240×72、持续 gradient、说明强制两行；Mobile 390×800：结果 `scrollTop 0→87`、`window.scrollY=0`，header/search/footer 坐标滚动前后完全一致。 |
 
 ### Fourth-round design QA（2026-07-15）
@@ -309,10 +309,13 @@ Current coverage：
 | 2026-07-03 pass 2 | Main `b3a43603-2208-4a4e-816c-72212d8de3d2`；Room unchanged。 |
 | 2026-07-13 pass 3 | Main `e7fc338f-11ff-42b9-9523-df64de2a06c6`；Room `92c36603-e923-4665-b334-d10cadd28f78`。 |
 | 2026-07-14 pass 4 | Main `ce2a851c-9f79-4fd3-ac70-337219ccbc13`；Room unchanged。 |
+| 2026-07-15 pass 5 | Main `bd5c8ece-23f3-4abe-97d4-fad3891a0fc1`；Room `9ec6503c-07cb-4a7c-8ff0-4236ab934e19`。 |
 
 Last local pass-4 smoke room `3r512238`：create CTA、mock search、单 iframe preview `start=30`、两首点歌、restart 保持当前 item、next 推进第二首且 progress value 为 `0`。Create 已确认 390×844 无横向 overflow、1280×720 无页面滚动；Display 已确认 dark 140px QR、无画质 selector、三键 panel。
 
 Production pass-4 smoke room `362x7342`：fresh D1 room 创建成功、WebSocket `实时已连接`、quota 50/50、QR Canvas 140px、画质 selector count 0、无 console error。
+
+Production pass-5 smoke room `113f4j5h`：production root HTTP 200；create API 与 snapshot room id 一致，D1 display name 为“这台 Windows 电脑的 K 歌房”；线上 CSS 包含 `create-room-gradient`；quota endpoint 正常返回剩余 49。
 
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 
