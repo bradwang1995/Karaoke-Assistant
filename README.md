@@ -7,7 +7,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 仓库只维护两份长期文档：
 
 - `README.md`：产品、架构、search technical design、手动配置、部署和测试。
-- `progress.md`：实现状态、历史修复、验证记录和待办。
+- `PROGRESS.md`：实现状态、历史修复、验证记录和待办。
 
 ## 1. 产品与使用流程
 
