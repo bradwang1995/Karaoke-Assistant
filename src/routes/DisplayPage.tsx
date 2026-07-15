@@ -1,4 +1,4 @@
-import { MonitorPlay, SkipForward, Wifi, WifiOff } from "lucide-react";
+import { MonitorPlay, Play, SkipForward, Wifi, WifiOff } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { QRCodeCanvas } from "qrcode.react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +16,8 @@ import { playerEnded, playerStarted, useRoomSnapshot } from "../lib/roomState";
 import type { QueueItem } from "../types/room";
 import type { YouTubeQuotaStatus } from "../types/youtube";
 
+type QualityMode = "auto" | "manual";
+
 export default function DisplayPage() {
   const { roomId = "" } = useParams();
   const roomSocket = useRoomSocket({ roomId, role: "display" });
@@ -30,6 +32,8 @@ export default function DisplayPage() {
   });
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
+  const [qualityMode, setQualityMode] = useState<QualityMode>("auto");
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
   const handledLoadingPlaybackKeyRef = useRef<string | null>(null);
@@ -94,6 +98,8 @@ export default function DisplayPage() {
       setPlayerProgress({ currentTime: 0, duration: 0 });
       setSeekSeconds(0);
       setIsSeeking(false);
+      setQualityMode("auto");
+      setAutoplayBlocked(false);
       return;
     }
 
@@ -107,6 +113,7 @@ export default function DisplayPage() {
       snapshot.playback.updatedAt,
     );
     setPlayerIssue(null);
+    setAutoplayBlocked(false);
     setPlayRequestId((requestId) => requestId + 1);
   }, [currentItem?.id, snapshot.playback.updatedAt]);
 
@@ -129,6 +136,7 @@ export default function DisplayPage() {
   const handlePlaybackStarted = useCallback(() => {
     if (!currentItem) return;
     setPlayerIssue(null);
+    setAutoplayBlocked(false);
     sendPlayerStarted(currentItem);
   }, [currentItem, sendPlayerStarted]);
 
@@ -142,7 +150,8 @@ export default function DisplayPage() {
   }, []);
 
   const handleAutoplayBlocked = useCallback(() => {
-    setPlayerIssue("浏览器阻止了自动播放，请点击播放器画面尝试播放。");
+    setAutoplayBlocked(true);
+    setPlayerIssue("浏览器阻止了自动播放，请使用下方播放按钮。");
   }, []);
 
   const handleProgress = useCallback(
@@ -218,6 +227,8 @@ export default function DisplayPage() {
               videoId={currentItem.videoId}
               autoPlay
               playRequestId={playRequestId}
+              showNativeControls={qualityMode === "manual"}
+              startAtSeconds={playerProgress.currentTime}
               onPlaybackStarted={handlePlaybackStarted}
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
@@ -253,6 +264,9 @@ export default function DisplayPage() {
                 isLoading={quotaQuery.isPending}
                 isError={quotaQuery.isError}
               />
+              {currentItem ? (
+                <QualityModeSelect value={qualityMode} onChange={setQualityMode} />
+              ) : null}
             </div>
             <div className="min-w-0 text-center">
               <h2 className="truncate text-xl font-semibold tracking-normal sm:text-2xl">
@@ -272,6 +286,16 @@ export default function DisplayPage() {
               ) : null}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {currentItem && autoplayBlocked ? (
+                <button
+                  type="button"
+                  onClick={() => playerHandleRef.current?.play()}
+                  className="inline-flex items-center gap-2 rounded-lg bg-teal-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-teal-300 focus:outline-none focus:ring-4 focus:ring-teal-300/30"
+                >
+                  <Play size={17} />
+                  播放
+                </button>
+              ) : null}
               {currentItem ? (
                 <button
                   type="button"
@@ -291,6 +315,33 @@ export default function DisplayPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function QualityModeSelect({
+  value,
+  onChange,
+}: {
+  value: QualityMode;
+  onChange: (value: QualityMode) => void;
+}) {
+  return (
+    <label className="mt-2 block max-w-[12rem]">
+      <span className="sr-only">画质模式</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as QualityMode)}
+        title="自动模式由 YouTube 自适应画质；手动模式显示 YouTube 原生画质菜单。"
+        className="h-8 w-full rounded-md border border-white/15 bg-white/10 px-2 text-xs font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-2 focus:ring-teal-300/30"
+      >
+        <option value="auto" className="text-slate-950">
+          画质：自动（推荐）
+        </option>
+        <option value="manual" className="text-slate-950">
+          画质：手动设置
+        </option>
+      </select>
+    </label>
   );
 }
 

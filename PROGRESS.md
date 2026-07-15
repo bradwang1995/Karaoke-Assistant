@@ -145,7 +145,7 @@ Last updated: 2026-07-13
 | Mobile tab | `?tab=queue` survives refresh。 |
 | Recommendations | KV defaults；empty query uses no search call。 |
 | Autoplay | Params、retry、play intent、Player-ready guard。 |
-| Quality | 早期 selector 方案；第三轮按 YouTube 官方弃用说明移除。 |
+| Quality | 默认 YouTube adaptive；手动选项只打开原生 controls，不调用已废弃的强制 quality API。 |
 | Display layout | Controls outside iframe；mobile link new tab；QR offset。 |
 | Quota | One call / up to 50 results per cold fill。 |
 | Preview | Interacting with iframe first selects result。 |
@@ -204,10 +204,10 @@ Last updated: 2026-07-13
 | --- | --- | --- |
 | PIT3-01 | P0 | QR 改为纯黑/纯白、高纠错级别、增大尺寸和白色发光边界。 |
 | PIT3-02 | P1 | `正在播放`、连接、今日剩余额度、本地 reset 日期/时间/时区固定在 footer 最左。 |
-| PIT3-03 | P0 | 移除 YouTube 已废弃且实际 no-op 的 quality selector/API/retry/storage。 |
+| PIT3-03 | P0 | 移除 YouTube 已废弃且实际 no-op 的固定 quality API/retry/storage；后续手动模式只使用原生 controls。 |
 | PIT3-04 | P0 | Restart 重置 player flags/progress，重新 load 0 秒并再次同步 started。 |
 | PIT3-05 | P1 | 歌名移到 footer 中间，progress/时间置于其下，消除 overlap。 |
-| PIT3-06 | P1 | Display iframe 禁止 hover pointer，保留 app click-to-play，尽量减少 title/share/end chrome。 |
+| PIT3-06 | P1 | Display 默认禁止 iframe hover pointer，移除 app click/status/end overlay；autoplay blocked 改用 footer 按钮。 |
 | PIT3-07 | P1 | Recommendation pool 从 40 扩为 200，旧 pool 不足时合并 family fallback。 |
 | PIT3-08 | P1 | Mobile preview 改为 portrait 2 列、宽屏 3–4 列的小卡片并移除 app title/channel chrome。 |
 | PIT3-09 | P0 | Preview 600ms debounce、单 iframe、spinner、10s timeout/retry hint。 |
@@ -222,7 +222,7 @@ Last updated: 2026-07-13
 | --- | --- | --- |
 | PIT3-14 | P0 | QR 从 DOM SVG 改为 Canvas 黑白输出，并加 `only light` / forced-color protection，避免客户端强制深色导致不可扫描。 |
 | PIT3-15 | P1 | Display 移除“正在播放”；quota reset 简化为只显示剩余小时，不再显示 GMT、日期或 IANA 时区。 |
-| PIT3-16 | P1 | Mobile header/search sticky 共用 10.25rem 高度变量并分离层级；收紧结果计数 padding，阻止卡片标签滚动穿透搜索栏。 |
+| PIT3-16 | P1 | Mobile sticky 建立独立层叠上下文并收紧结果间距，阻止卡片标签穿透；Display 默认最精简播放器，增加 adaptive auto（推荐）/native manual 两种画质模式，并在 ended/error 后隐藏 iframe。 |
 
 ## 4. Verification record
 
@@ -236,8 +236,8 @@ Last updated: 2026-07-13
 | 2026-07-13 docs | Typecheck、12 files / 47 tests、production build passed；no deploy。 |
 | 2026-07-13 pass 3 | Typecheck、11 files / 44 tests、production build、`git diff --check` passed。 |
 | 2026-07-13 pass 3 UI | 390×844：2 columns、16px input、single debounced iframe、original auto-search；1280×720：QR/footer/title-progress layout passed。 |
-| 2026-07-14 pass 3 follow-up | Typecheck、12 files / 47 tests、production build、`git diff --check` passed。 |
-| 2026-07-14 follow-up UI | 1280×720：168px Canvas QR 为纯白底/纯黑码且无“正在播放”；390×844：header/search sticky 均停在 164px、上下 padding 保持 12px，卡片标签滚入搜索区时由 sticky 层正确遮挡。 |
+| 2026-07-14 pass 3 follow-up | Typecheck、12 files / 47 tests、production build、Wrangler Main Worker dry-run、`git diff --check` passed。 |
+| 2026-07-14 follow-up UI | 1280×720：Display 默认 `controls=0/fs=0`，手动为 `controls=1/fs=1`，error iframe 隐藏且画质 selector 不挤压 footer；390×844：sticky 停在 164px、结果间距收紧，卡片标签滚入搜索区时由 sticky 层正确遮挡。 |
 
 Current coverage：
 
@@ -261,9 +261,9 @@ Current coverage：
 | 2026-07-03 pass 2 | Main `b3a43603-2208-4a4e-816c-72212d8de3d2`；Room unchanged。 |
 | 2026-07-13 pass 3 | Main `e7fc338f-11ff-42b9-9523-df64de2a06c6`；Room `92c36603-e923-4665-b334-d10cadd28f78`。 |
 
-Last smoke room `6m6w6z37`：active、idle、empty queue；普通/原唱各 50 条且 top order 不同；recommendations 200；quota 46/50；display 显示 `America/Toronto` 本地 reset。Production mobile 已确认实时连接、2 columns、16px input；display 已确认 168px QR 和无失效 quality selector。
+Last smoke room `6m6w6z37`：active、idle、empty queue；普通/原唱各 50 条且 top order 不同；recommendations 200；quota 46/50；display 显示 `America/Toronto` 本地 reset。Production mobile 已确认实时连接、2 columns、16px input；本地 display 已确认 168px QR、adaptive auto 默认与 native manual 画质模式。
 
-Known limitation：本轮已在本地浏览器完成 responsive smoke，但 YouTube embed 在自动化环境返回 error 150；仍不替代真实设备 autoplay/playsinline/网络画质 QA。
+Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/native quality menu QA。
 
 ## 5. Remaining work
 

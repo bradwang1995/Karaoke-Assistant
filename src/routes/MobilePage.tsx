@@ -86,7 +86,7 @@ export default function MobilePage() {
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
       <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col bg-white shadow-sm [--mobile-header-height:10.25rem]">
-        <header className="sticky top-0 z-40 h-[var(--mobile-header-height)] shrink-0 overflow-hidden border-b border-slate-200 bg-white px-4 py-3">
+        <header className="sticky top-0 z-[60] h-[var(--mobile-header-height)] shrink-0 overflow-hidden border-b border-slate-200 bg-white px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-lg font-semibold tracking-normal">K歌助手</h1>
@@ -628,11 +628,11 @@ function SearchTab({
       : `${visibleResults.length}/${activeResults.length} 首`;
 
   return (
-    <section className="relative flex-1 px-4 pb-24">
+    <section className="relative isolate z-0 flex-1 px-4 pb-24">
       <MobileToast toast={toast} />
       <AddToQueueTrail trail={addTrail} />
 
-      <div className="sticky top-[var(--mobile-header-height)] z-30 isolate -mx-4 border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="sticky top-[var(--mobile-header-height)] z-50 isolate -mx-4 overflow-hidden border-b border-slate-200 bg-white px-4 pb-2 pt-3 shadow-sm">
         <form onSubmit={submitSearch}>
           <div className="grid grid-cols-[4.65rem_minmax(0,1fr)_4.25rem_2.5rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_4.75rem_2.75rem] sm:gap-2">
             <label className="sr-only" htmlFor="search-type">
@@ -699,7 +699,7 @@ function SearchTab({
             </button>
           </div>
         </form>
-        <div className="mt-2 flex h-5 items-center justify-between gap-3">
+        <div className="mt-1.5 flex h-5 items-center justify-between gap-3">
           <h2 className="text-sm font-semibold leading-5 text-slate-700">{resultHeading}</h2>
           <span className="shrink-0 rounded-md bg-slate-100 px-1.5 text-xs leading-5 text-slate-600">
             {resultCountLabel}
@@ -741,7 +741,10 @@ function SearchTab({
 
       {!isLoadingResults && activeResults.length > 0 ? (
         <>
-          <div ref={resultsGridRef} className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <div
+            ref={resultsGridRef}
+            className="relative z-0 mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+          >
             {visibleResults.map((result, index) => (
               <CandidateVideoCard
                 key={`${result.videoId}-${index}`}
@@ -942,7 +945,7 @@ function CandidateVideoCard({
         pending={previewPending}
       />
       {duplicate || selected ? (
-        <div className="pointer-events-none absolute right-1.5 top-1.5 z-10 flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1">
+        <div className="pointer-events-none absolute right-1.5 top-1.5 z-[1] flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1">
           {duplicate ? (
             <span className="max-w-full truncate rounded-md bg-amber-100 px-1.5 py-1 text-[10px] font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200">
               已在歌单

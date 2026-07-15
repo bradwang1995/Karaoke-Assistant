@@ -22,6 +22,8 @@ interface FullscreenPlayerProps {
   videoId: string;
   autoPlay: boolean;
   playRequestId: number;
+  showNativeControls: boolean;
+  startAtSeconds?: number;
   onPlaybackStarted: () => void;
   onPlaybackEnded: () => void;
   onPlaybackError: (errorCode: number) => void;
@@ -46,6 +48,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       videoId,
       autoPlay,
       playRequestId,
+      showNativeControls,
+      startAtSeconds = 0,
       onPlaybackStarted,
       onPlaybackEnded,
       onPlaybackError,
@@ -71,7 +75,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onProgress,
   });
   const [status, setStatus] = useState<PlayerStatus>("loading");
-  const [errorCode, setErrorCode] = useState<number | null>(null);
 
   const clearPlayRetryTimeouts = () => {
     for (const timeoutId of playRetryTimeoutsRef.current) {
@@ -190,14 +193,14 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     const shell = shellRef.current;
     let cancelled = false;
 
-    startedRef.current = false;
-    endedRef.current = false;
     pendingRestartRef.current = false;
     pendingPlayRef.current = autoPlay || playRequestId > 0;
     lastPlayRequestRef.current = playRequestId;
-    callbacksRef.current.onProgress?.({ currentTime: 0, duration: 0 });
+    const safeStartAtSeconds = Number.isFinite(startAtSeconds)
+      ? Math.max(Math.floor(startAtSeconds), 0)
+      : 0;
+    callbacksRef.current.onProgress?.({ currentTime: safeStartAtSeconds, duration: 0 });
     setStatus("loading");
-    setErrorCode(null);
 
     if (!shell) {
       setStatus("error");
@@ -221,14 +224,15 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
           videoId,
           playerVars: {
             autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
-            controls: 0,
+            controls: showNativeControls ? 1 : 0,
             cc_load_policy: 0,
-            disablefs: 1,
+            disablekb: showNativeControls ? 0 : 1,
             enablejsapi: 1,
+            fs: showNativeControls ? 1 : 0,
             iv_load_policy: 3,
-            modestbranding: 1,
             playsinline: 1,
             rel: 0,
+            start: safeStartAtSeconds,
             origin: window.location.origin,
           },
           events: {
@@ -323,7 +327,6 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     function handleError(event: YouTubePlayerErrorEvent) {
       clearPlayRetryTimeouts();
       clearProgressInterval();
-      setErrorCode(event.data);
       setStatus("error");
       callbacksRef.current.onPlaybackError(event.data);
     }
@@ -335,7 +338,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       setStatus("blocked");
       callbacksRef.current.onAutoplayBlocked();
     }
-  }, [autoPlay, videoId]);
+  }, [autoPlay, showNativeControls, videoId]);
 
   useEffect(() => {
     if (playRequestId <= lastPlayRequestRef.current) {
@@ -349,31 +352,13 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     }
   }, [playRequestId]);
 
-  const statusText = getStatusText(status, errorCode);
-
   return (
-    <>
-      <div
-        ref={shellRef}
-        className="absolute inset-0 h-full w-full bg-black [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full"
-      />
-      <button
-        type="button"
-        aria-label="播放当前歌曲"
-        onClick={() => {
-          if (playerRef.current) {
-            requestPlay(playerRef.current);
-          }
-        }}
-        className="absolute inset-0 z-[5] cursor-default bg-transparent focus:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-teal-300/60"
-      />
-      {status === "ended" ? <div className="pointer-events-none absolute inset-0 z-[6] bg-black" /> : null}
-      {statusText ? (
-        <div className="pointer-events-none absolute left-4 top-16 z-10 rounded-lg bg-black/60 px-3 py-2 text-sm font-medium text-white backdrop-blur">
-          {statusText}
-        </div>
-      ) : null}
-    </>
+    <div
+      ref={shellRef}
+      className={`absolute inset-0 h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full ${
+        showNativeControls ? "[&_iframe]:pointer-events-auto" : "[&_iframe]:pointer-events-none"
+      } ${status === "ended" || status === "error" ? "invisible" : ""}`}
+    />
   );
   },
 );
@@ -385,19 +370,4 @@ function allowIframeAutoplay(player: YouTubePlayer, shell: HTMLElement) {
     "allow",
     "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
   );
-}
-
-function getStatusText(status: PlayerStatus, errorCode: number | null) {
-  switch (status) {
-    case "loading":
-      return "播放器加载中";
-    case "buffering":
-      return "缓冲中";
-    case "blocked":
-      return "浏览器阻止了自动播放";
-    case "error":
-      return errorCode ? `播放失败 (${errorCode})` : "播放失败";
-    default:
-      return "";
-  }
 }
