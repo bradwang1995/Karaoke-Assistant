@@ -57,6 +57,28 @@ export async function getYouTubeSearchQuotaStatus(
   return buildQuotaStatus(state, dailyLimit, now);
 }
 
+export async function getYouTubeSearchQuotaStatusForEnv(
+  env: { DB?: D1Database; SEARCH_CACHE?: JsonKvNamespace },
+  dailyLimit: number,
+  now = new Date(),
+) {
+  if (env.DB) {
+    try {
+      const state = await readD1QuotaState(env.DB, dailyLimit, now);
+      return buildQuotaStatus(state, dailyLimit, now);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "youtube-quota-d1-read-failed",
+          error: error instanceof Error ? error.message : "Unknown D1 error",
+        }),
+      );
+    }
+  }
+
+  return getYouTubeSearchQuotaStatus(env.SEARCH_CACHE, dailyLimit, now);
+}
+
 function buildQuotaStatus(
   state: YouTubeSearchQuotaState,
   dailyLimit: number,
@@ -99,6 +121,122 @@ export async function recordYouTubeSearchCalls(
   });
 
   return buildQuotaStatus(nextState, dailyLimit, now);
+}
+
+export async function recordYouTubeSearchCallsForEnv(
+  env: { DB?: D1Database; SEARCH_CACHE?: JsonKvNamespace },
+  count: number,
+  dailyLimit: number,
+  now = new Date(),
+) {
+  if (count <= 0) {
+    return getYouTubeSearchQuotaStatusForEnv(env, dailyLimit, now);
+  }
+
+  if (env.DB) {
+    try {
+      return await recordD1QuotaState(env.DB, count, dailyLimit, now);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "youtube-quota-d1-write-failed",
+          error: error instanceof Error ? error.message : "Unknown D1 error",
+        }),
+      );
+    }
+  }
+
+  return (
+    (await recordYouTubeSearchCalls(env.SEARCH_CACHE, count, dailyLimit, now)) ??
+    getYouTubeSearchQuotaStatus(env.SEARCH_CACHE, dailyLimit, now)
+  );
+}
+
+async function readD1QuotaState(
+  db: D1Database,
+  dailyLimit: number,
+  now: Date,
+): Promise<YouTubeSearchQuotaState> {
+  const date = formatPacificDate(now);
+  const row = await db
+    .prepare(
+      `SELECT quota_date, used_search_calls, daily_limit, updated_at
+       FROM youtube_quota_daily
+       WHERE quota_date = ?1
+       LIMIT 1`,
+    )
+    .bind(date)
+    .first<{
+      quota_date: string;
+      used_search_calls: number;
+      daily_limit: number;
+      updated_at: string;
+    }>();
+
+  if (!row) {
+    return {
+      date,
+      used: 0,
+      limit: dailyLimit,
+      updatedAt: now.toISOString(),
+    };
+  }
+
+  return {
+    date: row.quota_date,
+    used: Math.max(Math.floor(row.used_search_calls), 0),
+    limit: row.daily_limit,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function recordD1QuotaState(
+  db: D1Database,
+  count: number,
+  dailyLimit: number,
+  now: Date,
+) {
+  const date = formatPacificDate(now);
+  const updatedAt = now.toISOString();
+  const session = db.withSession("first-primary");
+
+  await session
+    .prepare(
+      `INSERT INTO youtube_quota_daily (
+         quota_date, used_search_calls, daily_limit, updated_at
+       ) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT(quota_date)
+       DO UPDATE SET
+         used_search_calls = MIN(
+           youtube_quota_daily.used_search_calls + excluded.used_search_calls,
+           excluded.daily_limit
+         ),
+         daily_limit = excluded.daily_limit,
+         updated_at = excluded.updated_at`,
+    )
+    .bind(date, Math.max(Math.floor(count), 0), dailyLimit, updatedAt)
+    .run();
+
+  const state = await session
+    .prepare(
+      `SELECT used_search_calls, updated_at
+       FROM youtube_quota_daily
+       WHERE quota_date = ?1
+       LIMIT 1`,
+    )
+    .bind(date)
+    .first<{ used_search_calls: number; updated_at: string }>();
+
+  return buildQuotaStatus(
+    {
+      date,
+      used: state?.used_search_calls ?? 0,
+      limit: dailyLimit,
+      updatedAt: state?.updated_at ?? updatedAt,
+    },
+    dailyLimit,
+    now,
+  );
 }
 
 async function readQuotaState(

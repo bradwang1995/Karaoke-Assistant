@@ -88,7 +88,143 @@ describe("search service cache reuse", () => {
       "karaoke",
     ]);
   });
+
+  it("persists a cold search in D1 and reuses it without the expiring KV accelerator", async () => {
+    const db = new MemorySearchRepositoryD1();
+    const first = await searchVideos({
+      query: "青花瓷",
+      artist: "周杰伦",
+      searchType: "song",
+      limit: 8,
+      env: { DB: db.database },
+    });
+    const second = await searchVideos({
+      query: "  青花瓷 KTV  ",
+      artist: "周杰伦",
+      searchType: "song",
+      limit: 3,
+      env: { DB: db.database },
+    });
+
+    expect(first.cached).toBe(false);
+    expect(first.cacheMeta?.repositoryEntryId).toBeTruthy();
+    expect(second.cached).toBe(true);
+    expect(second.results).toHaveLength(3);
+    expect(second.cacheMeta).toMatchObject({
+      responseSource: "repository",
+      repositoryEntryId: first.cacheMeta?.repositoryEntryId,
+    });
+    expect(db.accessUpdates).toBe(1);
+    expect(db.entryCount).toBe(1);
+  });
 });
+
+class MemorySearchRepositoryD1 {
+  private entries = new Map<
+    string,
+    { id: string; responseJson: string; accessCount: number }
+  >();
+
+  database = {
+    prepare: (sql: string): D1PreparedStatement =>
+      new MemorySearchRepositoryStatement(this, sql),
+  } as Partial<D1Database> as D1Database;
+
+  get entryCount() {
+    return this.entries.size;
+  }
+
+  get accessUpdates() {
+    return [...this.entries.values()].reduce((total, entry) => total + entry.accessCount, 0);
+  }
+
+  find(bindings: unknown[]) {
+    return this.entries.get(repositoryKey(bindings[0], bindings[1], bindings[2], bindings[3]));
+  }
+
+  insert(bindings: unknown[]) {
+    const key = repositoryKey(bindings[3], bindings[5], bindings[6], bindings[7]);
+    const current = this.entries.get(key);
+    this.entries.set(key, {
+      id: current?.id ?? String(bindings[0]),
+      responseJson: String(bindings[8]),
+      accessCount: current?.accessCount ?? 0,
+    });
+  }
+
+  touch(id: unknown) {
+    for (const [key, entry] of this.entries) {
+      if (entry.id === id) {
+        this.entries.set(key, { ...entry, accessCount: entry.accessCount + 1 });
+      }
+    }
+  }
+}
+
+class MemorySearchRepositoryStatement {
+  private bindings: unknown[] = [];
+
+  constructor(
+    private db: MemorySearchRepositoryD1,
+    private sql: string,
+  ) {}
+
+  bind(...bindings: unknown[]) {
+    this.bindings = bindings;
+    return this as Partial<D1PreparedStatement> as D1PreparedStatement;
+  }
+
+  async first<T = Record<string, unknown>>(_colName?: string): Promise<T | null> {
+    const entry = this.db.find(this.bindings);
+    if (!entry) return null;
+
+    if (this.sql.includes("response_json")) {
+      return { id: entry.id, response_json: entry.responseJson } as T;
+    }
+
+    return { id: entry.id } as T;
+  }
+
+  async run<T = Record<string, unknown>>(): Promise<D1Result<T>> {
+    if (this.sql.includes("INSERT INTO search_repository_entries")) {
+      this.db.insert(this.bindings);
+    } else if (this.sql.includes("UPDATE search_repository_entries")) {
+      this.db.touch(this.bindings[1]);
+    }
+
+    return d1Result<T>([], 1);
+  }
+
+  async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
+    return d1Result<T>([], 0);
+  }
+
+  raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
+  raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
+  async raw<T = unknown[]>(options?: { columnNames?: boolean }): Promise<T[] | [string[], ...T[]]> {
+    return options?.columnNames ? ([[]] as [string[], ...T[]]) : [];
+  }
+}
+
+function repositoryKey(query: unknown, artist: unknown, type: unknown, vocal: unknown) {
+  return [query, artist, type, vocal].map(String).join("|");
+}
+
+function d1Result<T>(results: T[], changes: number): D1Result<T> {
+  return {
+    success: true,
+    meta: {
+      duration: 0,
+      size_after: 0,
+      rows_read: 0,
+      rows_written: changes,
+      last_row_id: 0,
+      changed_db: changes > 0,
+      changes,
+    },
+    results,
+  };
+}
 
 function buildResponse(
   query: string,

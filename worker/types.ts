@@ -8,6 +8,11 @@ export interface Env {
   SEARCH_CACHE_TTL_DAYS?: string;
   SEARCH_CACHE_MAX_ENTRY_BYTES?: string;
   SEARCH_RATE_LIMIT_PER_MINUTE?: string;
+  ADMIN_PASSWORD?: string;
+  ADMIN_SESSION_SECRET?: string;
+  ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE?: string;
+  SEARCH_REPOSITORY_CAPACITY_BYTES?: string;
+  SEARCH_REPOSITORY_WARNING_THRESHOLD_PERCENT?: string;
 }
 
 export interface RoomRow {

@@ -1,5 +1,13 @@
 import type { CreateRoomResponse } from "../src/types/api";
+import type { AdminResponseSource } from "../src/types/admin";
 import { cleanupCompletedItems } from "../src/lib/roomReducer";
+import {
+  clearAdminSession,
+  createAdminSession,
+  isSameOriginMutation,
+  readAdminSession,
+  requireAdmin,
+} from "./adminAuth";
 import {
   createRoomInD1,
   deleteInactiveQueueItemsFromD1,
@@ -10,10 +18,21 @@ import { apiError, jsonResponse } from "./json";
 import { checkRateLimit } from "./rateLimit";
 import { createRoomId, isValidRoomId } from "./roomIds";
 import { getSearchRecommendations, getYouTubeDailySearchLimit, searchVideos } from "./searchService";
+import {
+  deleteAdminRepositoryEntries,
+  getAdminOverview,
+  isValidDeleteIds,
+  listAdminRepositoryEntries,
+  listAdminSearchEvents,
+  normalizeAdminRange,
+  readConfiguredCapacityBytes,
+  readConfiguredWarningThresholdPercentage,
+  recordSearchEvent,
+} from "./searchRepository";
 import type { Env } from "./types";
 import type { SearchType } from "../src/types/youtube";
 import type { SearchResponse, YouTubeQuotaStatus } from "../src/types/youtube";
-import { getYouTubeSearchQuotaStatus } from "./youtubeQuota";
+import { getYouTubeSearchQuotaStatusForEnv } from "./youtubeQuota";
 
 const CREATE_ROOM_ATTEMPTS = 3;
 const DEFAULT_SEARCH_RATE_LIMIT_PER_MINUTE = 20;
@@ -27,6 +46,29 @@ export async function handleApiRequest(request: Request, env: Env) {
 
   if (!route) {
     return apiError(404, "NOT_FOUND", "API route not found.");
+  }
+
+  if (route.name === "adminSession") {
+    return handleAdminSession(request, env);
+  }
+
+  if (
+    route.name === "adminOverview" ||
+    route.name === "adminSearches" ||
+    route.name === "adminRepository"
+  ) {
+    try {
+      return await handleProtectedAdminRoute(request, env, route.name, url);
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "admin-request-failed",
+          route: route.name,
+          error: error instanceof Error ? error.message : "Unknown admin request error",
+        }),
+      );
+      return adminApiError(500, "ADMIN_REQUEST_FAILED", "管理数据请求失败，请稍后重试。");
+    }
   }
 
   if (route.name === "createRoom") {
@@ -264,6 +306,17 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
       cacheFill,
       env,
     });
+    await safelyRecordSearchEvent(env, {
+      roomId,
+      query,
+      normalizedQuery: response.normalizedQuery,
+      artist: artist || undefined,
+      searchType,
+      includeOriginalVocal,
+      source: responseSourceFromSearchResponse(response, env),
+      resultCount: response.results.length,
+      success: true,
+    });
     const quotaStatus = quotaStatusFromSearchResponse(response);
 
     if (quotaStatus) {
@@ -272,6 +325,18 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
 
     return jsonResponse(response);
   } catch (error) {
+    await safelyRecordSearchEvent(env, {
+      roomId,
+      query,
+      normalizedQuery: query.toLocaleLowerCase(),
+      artist: artist || undefined,
+      searchType,
+      includeOriginalVocal,
+      source: "error",
+      resultCount: 0,
+      success: false,
+      errorCode: "SEARCH_FAILED",
+    });
     return apiError(
       502,
       "SEARCH_FAILED",
@@ -379,7 +444,166 @@ async function cleanupRoom(request: Request, env: Env, roomId: string) {
 
 async function getYoutubeQuota(env: Env) {
   const dailyLimit = getYouTubeDailySearchLimit(env);
-  return jsonResponse(await getYouTubeSearchQuotaStatus(env.SEARCH_CACHE, dailyLimit));
+  return jsonResponse(await getYouTubeSearchQuotaStatusForEnv(env, dailyLimit));
+}
+
+async function handleAdminSession(request: Request, env: Env) {
+  if (request.method === "GET") {
+    return readAdminSession(request, env);
+  }
+
+  if (request.method === "POST") {
+    if (!isSameOriginMutation(request)) {
+      return adminApiError(403, "ADMIN_ORIGIN_REJECTED", "登录请求来源无效。");
+    }
+
+    return createAdminSession(request, env);
+  }
+
+  if (request.method === "DELETE") {
+    if (!isSameOriginMutation(request)) {
+      return adminApiError(403, "ADMIN_ORIGIN_REJECTED", "退出请求来源无效。");
+    }
+
+    return clearAdminSession();
+  }
+
+  return adminApiError(405, "METHOD_NOT_ALLOWED", "Use GET, POST, or DELETE for admin sessions.");
+}
+
+async function handleProtectedAdminRoute(
+  request: Request,
+  env: Env,
+  routeName: "adminOverview" | "adminSearches" | "adminRepository",
+  url: URL,
+) {
+  if (!(await requireAdmin(request, env))) {
+    return adminApiError(401, "ADMIN_UNAUTHORIZED", "需要管理员登录。");
+  }
+
+  if (!env.DB) {
+    return adminApiError(503, "D1_NOT_CONFIGURED", "D1 binding DB is not configured.");
+  }
+
+  if (routeName === "adminOverview") {
+    if (request.method !== "GET") {
+      return adminApiError(405, "METHOD_NOT_ALLOWED", "Use GET to read the admin overview.");
+    }
+
+    const quota = await getYouTubeSearchQuotaStatusForEnv(env, getYouTubeDailySearchLimit(env));
+    return adminJsonResponse(
+      await getAdminOverview(
+        env.DB,
+        normalizeAdminRange(url.searchParams.get("range")),
+        quota,
+        readConfiguredCapacityBytes(env.SEARCH_REPOSITORY_CAPACITY_BYTES),
+        readConfiguredWarningThresholdPercentage(
+          env.SEARCH_REPOSITORY_WARNING_THRESHOLD_PERCENT,
+        ),
+      ),
+    );
+  }
+
+  if (routeName === "adminSearches") {
+    if (request.method !== "GET") {
+      return adminApiError(405, "METHOD_NOT_ALLOWED", "Use GET to read admin search records.");
+    }
+
+    return adminJsonResponse(
+      await listAdminSearchEvents(env.DB, {
+        range: normalizeAdminRange(url.searchParams.get("range")),
+        page: readPositiveQueryNumber(url.searchParams.get("page")),
+        pageSize: readPositiveQueryNumber(url.searchParams.get("pageSize")),
+        query: readQueryText(url.searchParams.get("query")),
+        source: normalizeAdminResponseSource(url.searchParams.get("source")),
+      }),
+    );
+  }
+
+  if (request.method === "GET") {
+    const searchType = url.searchParams.get("searchType");
+    const sort = url.searchParams.get("sort");
+    return adminJsonResponse(
+      await listAdminRepositoryEntries(env.DB, {
+        page: readPositiveQueryNumber(url.searchParams.get("page")),
+        pageSize: readPositiveQueryNumber(url.searchParams.get("pageSize")),
+        query: readQueryText(url.searchParams.get("query")),
+        searchType: searchType === "song" || searchType === "artist" ? searchType : undefined,
+        sort:
+          sort === "reuse" || sort === "results" || sort === "size" ? sort : "recent",
+        direction: url.searchParams.get("direction") === "asc" ? "asc" : "desc",
+      }),
+    );
+  }
+
+  if (request.method === "DELETE") {
+    if (!isSameOriginMutation(request)) {
+      return adminApiError(403, "ADMIN_ORIGIN_REJECTED", "删除请求来源无效。");
+    }
+
+    const body = await request.json().catch(() => null);
+    const ids =
+      typeof body === "object" && body !== null && "ids" in body
+        ? (body as { ids?: unknown }).ids
+        : null;
+
+    if (!isValidDeleteIds(ids)) {
+      return adminApiError(400, "INVALID_DELETE_IDS", "请选择 1 至 50 条有效资料记录。");
+    }
+
+    return adminJsonResponse(await deleteAdminRepositoryEntries(env.DB, ids, env.SEARCH_CACHE));
+  }
+
+  return adminApiError(405, "METHOD_NOT_ALLOWED", "Use GET or DELETE for admin repository data.");
+}
+
+function adminJsonResponse(body: unknown) {
+  return jsonResponse(body, { headers: { "cache-control": "no-store" } });
+}
+
+function adminApiError(status: number, code: string, message: string) {
+  return apiError(status, code, message, {
+    headers: { "cache-control": "no-store" },
+  });
+}
+
+async function safelyRecordSearchEvent(
+  env: Env,
+  input: Parameters<typeof recordSearchEvent>[1],
+) {
+  try {
+    await recordSearchEvent(env.DB, input);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "search-event-write-failed",
+        error: error instanceof Error ? error.message : "Unknown D1 error",
+      }),
+    );
+  }
+}
+
+function responseSourceFromSearchResponse(response: SearchResponse, env: Env): AdminResponseSource {
+  return (
+    response.cacheMeta?.responseSource ??
+    (response.cached ? "repository" : env.YOUTUBE_API_KEY ? "external" : "mock")
+  );
+}
+
+function normalizeAdminResponseSource(value: string | null): AdminResponseSource | undefined {
+  return value === "repository" || value === "external" || value === "mock" || value === "error"
+    ? value
+    : undefined;
+}
+
+function readPositiveQueryNumber(value: string | null) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : undefined;
+}
+
+function readQueryText(value: string | null) {
+  const query = value?.trim();
+  return query ? query.slice(0, 100) : undefined;
 }
 
 function matchApiRoute(pathname: string) {
@@ -427,6 +651,22 @@ function matchApiRoute(pathname: string) {
 
   if (parts.length === 3 && parts[0] === "api" && parts[1] === "youtube" && parts[2] === "quota") {
     return { name: "youtubeQuota" as const };
+  }
+
+  if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "session") {
+    return { name: "adminSession" as const };
+  }
+
+  if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "overview") {
+    return { name: "adminOverview" as const };
+  }
+
+  if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "searches") {
+    return { name: "adminSearches" as const };
+  }
+
+  if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "repository") {
+    return { name: "adminRepository" as const };
   }
 
   return null;

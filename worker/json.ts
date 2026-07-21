@@ -10,7 +10,7 @@ export function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
-export function apiError(status: number, code: string, message: string) {
+export function apiError(status: number, code: string, message: string, init: ResponseInit = {}) {
   return jsonResponse(
     {
       error: {
@@ -18,7 +18,6 @@ export function apiError(status: number, code: string, message: string) {
         message,
       },
     } satisfies ApiErrorResponse,
-    { status },
+    { ...init, status },
   );
 }
-

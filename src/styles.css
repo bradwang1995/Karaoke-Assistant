@@ -40,6 +40,100 @@ iframe {
   border: 0;
 }
 
+.admin-surface {
+  background:
+    radial-gradient(circle at 78% 10%, rgba(45, 212, 191, 0.06), transparent 28rem),
+    radial-gradient(circle at 82% 82%, rgba(139, 92, 246, 0.06), transparent 30rem),
+    #050816;
+}
+
+.admin-select {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 0.625rem 2rem 0.625rem 0.75rem;
+  color: #cbd5e1;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.admin-select:focus {
+  border-color: rgba(94, 234, 212, 0.45);
+}
+
+.admin-primary-button,
+.admin-page-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: 160ms ease;
+}
+
+.admin-primary-button {
+  background: #5eead4;
+  padding: 0.625rem 1rem;
+  color: #020617;
+}
+
+.admin-primary-button:hover {
+  background: #99f6e4;
+}
+
+.admin-page-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+}
+
+.admin-page-button:hover:not(:disabled) {
+  border-color: rgba(94, 234, 212, 0.35);
+  color: #5eead4;
+}
+
+.admin-page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.8125rem;
+}
+
+.admin-table th {
+  background: rgba(2, 6, 23, 0.35);
+  padding: 0.8rem 1rem;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.admin-table td {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.9rem 1rem;
+  color: #94a3b8;
+}
+
+.admin-table tbody tr {
+  transition: background-color 140ms ease;
+}
+
+.admin-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.admin-table input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #5eead4;
+}
+
 .qr-code-surface {
   color-scheme: only light;
   forced-color-adjust: none;

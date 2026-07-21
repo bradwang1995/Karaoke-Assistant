@@ -35,6 +35,8 @@ export interface SearchResponse {
       updatedAt?: string;
     };
     prunedResultCount?: number;
+    responseSource?: "repository" | "external" | "mock";
+    repositoryEntryId?: string;
   };
 }
 
@@ -46,4 +48,6 @@ export interface YouTubeQuotaStatus {
   resetAt: string;
   resetTimeZone: "America/Los_Angeles";
   updatedAt: string;
+  source?: "local_estimate";
+  unit?: "search_calls";
 }

@@ -13,9 +13,13 @@ import {
 import { searchMockVideos } from "./mockSearchProvider";
 import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
+import { readSearchRepository, writeSearchRepository } from "./searchRepository";
 import type { Env } from "./types";
 import { searchYouTubeVideos } from "./youtubeSearch";
-import { getYouTubeSearchQuotaStatus, recordYouTubeSearchCalls } from "./youtubeQuota";
+import {
+  getYouTubeSearchQuotaStatusForEnv,
+  recordYouTubeSearchCallsForEnv,
+} from "./youtubeQuota";
 
 const DEFAULT_YOUTUBE_DAILY_SEARCH_LIMIT = 100;
 const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 1;
@@ -44,6 +48,12 @@ export async function searchVideos({
   env,
 }: SearchVideosOptions): Promise<SearchResponse> {
   const family = buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal });
+  const repositoryHit = await safeReadSearchRepository(env.DB, family);
+
+  if (repositoryHit) {
+    return limitSearchResponse(repositoryHit.response, limit);
+  }
+
   const cachedEntries = await readCachedSearchEntries({
     query,
     artist,
@@ -67,8 +77,7 @@ export async function searchVideos({
       await touchSearchCache(env.SEARCH_CACHE, cached.familyHash, cached.entry);
     }
 
-    return limitSearchResponse(
-      {
+    const response = {
         query,
         normalizedQuery: family.normalizedQuery,
         searchType,
@@ -93,8 +102,21 @@ export async function searchVideos({
             cachedEntries,
             (cached) => cached.entry.stats.prunedResultCount,
           ),
+          responseSource: "repository" as const,
         },
-      },
+      } satisfies SearchResponse;
+
+    const persisted = await safeWriteSearchRepository(env.DB, family, response);
+    return limitSearchResponse(
+      persisted
+        ? {
+            ...response,
+            cacheMeta: {
+              ...response.cacheMeta,
+              repositoryEntryId: persisted.id,
+            },
+          }
+        : response,
       limit,
     );
   }
@@ -115,27 +137,75 @@ export async function searchVideos({
         includeOriginalVocal,
       };
 
-  const cachedEntry = await writeSearchCache(env.SEARCH_CACHE, family, response, {
+  const responseSource = env.YOUTUBE_API_KEY ? "external" : "mock";
+  const responseWithSource: SearchResponse = {
+    ...response,
+    cacheMeta: {
+      ...response.cacheMeta,
+      sourceQueryCount: response.cacheMeta?.sourceQueryCount ?? 0,
+      cachedResultCount: response.results.length,
+      servedFromExpandedCache: false,
+      responseSource,
+    },
+  };
+  const cachedEntry = await writeSearchCache(env.SEARCH_CACHE, family, responseWithSource, {
     ttlSeconds: cacheTtlSeconds,
     maxEntryBytes: getSearchCacheMaxEntryBytes(env),
   });
+  const persisted = await safeWriteSearchRepository(env.DB, family, responseWithSource);
 
   return limitSearchResponse(
     {
-      ...response,
+      ...responseWithSource,
       cacheMeta: {
-        ...response.cacheMeta,
-        sourceQueryCount: response.cacheMeta?.sourceQueryCount ?? 0,
-        cachedResultCount: cachedEntry?.results.length ?? response.results.length,
+        ...responseWithSource.cacheMeta,
+        sourceQueryCount: responseWithSource.cacheMeta?.sourceQueryCount ?? 0,
+        cachedResultCount: cachedEntry?.results.length ?? responseWithSource.results.length,
         servedFromExpandedCache: false,
-        videosListCalls: response.cacheMeta?.videosListCalls,
-        sourceQueries: response.cacheMeta?.sourceQueries,
+        videosListCalls: responseWithSource.cacheMeta?.videosListCalls,
+        sourceQueries: responseWithSource.cacheMeta?.sourceQueries,
         prunedResultCount: cachedEntry?.stats.prunedResultCount ?? 0,
-        quota: response.cacheMeta?.quota,
+        quota: responseWithSource.cacheMeta?.quota,
+        responseSource,
+        repositoryEntryId: persisted?.id,
       },
     },
     limit,
   );
+}
+
+async function safeReadSearchRepository(db: D1Database | undefined, family: ReturnType<typeof buildSearchQueryFamily>) {
+  try {
+    return await readSearchRepository(db, family);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "search-repository-read-failed",
+        familyHash: family.hash,
+        error: error instanceof Error ? error.message : "Unknown D1 error",
+      }),
+    );
+    return null;
+  }
+}
+
+async function safeWriteSearchRepository(
+  db: D1Database | undefined,
+  family: ReturnType<typeof buildSearchQueryFamily>,
+  response: SearchResponse,
+) {
+  try {
+    return await writeSearchRepository(db, family, response);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "search-repository-write-failed",
+        familyHash: family.hash,
+        error: error instanceof Error ? error.message : "Unknown D1 error",
+      }),
+    );
+    return null;
+  }
 }
 
 async function readCachedSearchEntries({
@@ -249,7 +319,7 @@ async function searchLiveVideos({
   env: SearchServiceEnv;
 }) {
   const dailyLimit = getYouTubeDailySearchLimit(env);
-  const quotaBefore = await getYouTubeSearchQuotaStatus(env.SEARCH_CACHE, dailyLimit);
+  const quotaBefore = await getYouTubeSearchQuotaStatusForEnv(env, dailyLimit);
   const remainingBefore = quotaBefore.remaining;
   const perFillBudget = cacheFill ? getYouTubeSearchCallsPerFill(env) : 1;
   const maxSearchCalls = Math.min(perFillBudget, remainingBefore);
@@ -295,11 +365,7 @@ async function searchLiveVideos({
   });
   const usedSearchCalls = response.cacheMeta?.sourceQueryCount ?? 0;
   const quotaAfter =
-    (await recordYouTubeSearchCalls(
-      env.SEARCH_CACHE,
-      usedSearchCalls,
-      dailyLimit,
-    )) ?? quotaBefore;
+    (await recordYouTubeSearchCallsForEnv(env, usedSearchCalls, dailyLimit)) ?? quotaBefore;
   const remainingAfter = quotaAfter.remaining;
 
   return {
