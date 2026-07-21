@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -270,6 +270,7 @@ Last updated: 2026-07-20
 | PIT6-04 | P0 | Cold song search 第一条 source query 改为精确歌名；标题 miss 和 channel-only hit 不再进入歌名结果，旧 cache 若只剩无关项会回到 live fill 并覆盖当前 family。 |
 | PIT6-05 | P0 | Quota write 直接返回刚记录的 100-based status，不再立即回读最终一致 KV；Main Worker 经 room Durable Object 发布 `YOUTUBE_QUOTA_UPDATED`，Display React Query cache 立即更新，60 秒 poll 只作兜底。 |
 | PIT6-06 | P1 | 新增 cache intent isolation、同曲跨 intent reuse、song relevance、focused source query、quota write-through 和 WebSocket quota regressions；README/PROGRESS 同步。按用户要求 commit/push 但不立即 deploy。 |
+| PIT6-07 | P0 | 用户后续明确授权发布；按 Room → Main 顺序使用 Wrangler 4.105 和 `--keep-vars` 上线，生产 HTTP、真实搜索/cache、100/day quota 与 WebSocket 即时 quota push 已复核。 |
 
 ## 4. Verification record
 
@@ -292,6 +293,7 @@ Last updated: 2026-07-20
 | 2026-07-15 pass 5 UI | Create 1280×720：CTA 240×72、持续 gradient、说明强制两行；Mobile 390×800：结果 `scrollTop 0→87`、`window.scrollY=0`，header/search/footer 坐标滚动前后完全一致。 |
 | 2026-07-15 pass 5 follow-up | Typecheck、15 files / 58 tests、production build、Wrangler 4.105 Room/Main 双 dry-run、`git diff --check` passed；新增 recommendation promotion/cache-hit/queued-song 和 neutral room-name regressions。Local Vite root HTTP 200；自动浏览器 transport 在连接时关闭，因此本记录不虚报新的截图/交互视觉通过。 |
 | 2026-07-20 pass 6 | Search/cache/quota/WebSocket focused 7 files / 32 tests、typecheck、full 17 files / 64 tests、production build 和 `git diff --check` passed。Wrangler 4.105 已确认；Room/Main dry-run 因安全审查认为可能认证并发送 bundle metadata 而未执行。按用户明确要求没有 production deploy，也没有虚报 runtime/browser smoke。 |
+| 2026-07-21 pass 6 release | Typecheck、full 17 files / 64 tests、production build、`git diff --check` passed；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，版本列表与 production smoke 复核通过。 |
 
 ### Fourth-round design QA（2026-07-15）
 
@@ -331,6 +333,7 @@ Current coverage：
 | 2026-07-14 pass 4 | Main `ce2a851c-9f79-4fd3-ac70-337219ccbc13`；Room unchanged。 |
 | 2026-07-15 pass 5 | Main `bd5c8ece-23f3-4abe-97d4-fad3891a0fc1`；Room `9ec6503c-07cb-4a7c-8ff0-4236ab934e19`。 |
 | 2026-07-15 pass 5 follow-up | Main active deployment `c942af48-74f2-44c7-bf2d-17f35ae734ef`；Room active deployment `362b4d10-476e-47da-bb10-cf3c10716ca9`。 |
+| 2026-07-21 pass 6 release | Main `aa2aa657-62a2-4b8d-93ec-d7ca508dab25`；Room `dc38a381-b95c-4cc7-914a-91f8fc952ec0`。 |
 
 Last local pass-4 smoke room `3r512238`：create CTA、mock search、单 iframe preview `start=30`、两首点歌、restart 保持当前 item、next 推进第二首且 progress value 为 `0`。Create 已确认 390×844 无横向 overflow、1280×720 无页面滚动；Display 已确认 dark 140px QR、无画质 selector、三键 panel。
 
@@ -339,6 +342,8 @@ Production pass-4 smoke room `362x7342`：fresh D1 room 创建成功、WebSocket
 Production pass-5 smoke room `113f4j5h`：production root HTTP 200；create API 与 snapshot room id 一致，D1 display name 为“这台 Windows 电脑的 K 歌房”；线上 CSS 包含 `create-room-gradient`；quota endpoint 正常返回剩余 49。
 
 Production pass-5 follow-up smoke room `3n2j6g1j`：root、display、mobile 均 HTTP 200；create response 与 D1 snapshot display name 均为中性“K歌房”；HTML `theme-color=#020617`，线上 CSS 包含 `app-no-select` 和 dark scrollbar；空查询返回 10 条 cached recommendations，quota 48/50。WebSocket `ADD_QUEUE_ITEM` 后 snapshot current video 为 `OKjmFVeIG8s`；远端 KV 首位先确认同一 video，公开 recommendation API 在最终一致性传播后也返回同一首，证明 queued-song promotion 已上线。
+
+Production pass-6 smoke room `4a1d0n6a`：root、display、mobile 均 HTTP 200，create response 与 snapshot room id 一致。UTF-8 `年少有为` 歌名搜索在 KTV/原唱 intent 各返回 5 条相关结果并共享 5 个 video id，两次均命中同一 cache 且 quota 保持 98/100；`童话 光良` live fill 返回 25 条后，KTV/原唱重复搜索均 `cached=true`、共享 25 个 id，quota 保持 96/100。WebSocket 收到 `ROOM_SNAPSHOT`、`PONG` 和 cold fill 后的 `YOUTUBE_QUOTA_UPDATED`；quota endpoint 确认 daily limit 100。
 
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 
