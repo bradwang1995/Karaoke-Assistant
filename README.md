@@ -110,6 +110,7 @@ worker/router.ts            HTTP API
 worker/roomDurableObject.ts realtime room lifecycle
 worker/search*.ts           query family、service、ranking
 worker/searchRepository.ts  D1 持久搜索资料库、admin 聚合与删除审计
+worker/cloudflareStorage.ts Cloudflare D1/KV 权威存储指标、缓存与过期回退
 worker/adminAuth.ts         单管理员 session、cookie、rate limit、origin guard
 worker/kvCache.ts           cache/index/recommendations
 worker/youtube*.ts          live search、quota
@@ -127,7 +128,7 @@ worker/youtube*.ts          live search、quota
 | Durable Object | `RoomDurableObject` / `0b4ed7f219e94e1fb685b7f554808aba` |
 | D1 | `ktv-assistant-db` / `a2fe987b-5191-4ac3-9d01-f923d19c731a` |
 | KV | `SEARCH_CACHE` / `aedd751919314f9e81f1917e59a859bd` |
-| Secret | `YOUTUBE_API_KEY`，已配置在两个 Worker |
+| Secret | `YOUTUBE_API_KEY` 配置在两个 Worker；管理员与 Cloudflare 指标 secrets 只配置在 Main Worker |
 
 Main Worker bindings：
 
@@ -151,7 +152,15 @@ Runtime variables：
 | `SEARCH_CACHE_MAX_ENTRY_BYTES` | `524288` | Family payload 上限约 512 KiB。 |
 | `SEARCH_RATE_LIMIT_PER_MINUTE` | `20` | Room + identity search rate limit。 |
 | `ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE` | `5` | 单一 IP 每分钟管理员登录尝试上限。 |
-| `SEARCH_REPOSITORY_CAPACITY_BYTES` | 未设置 | 可选；已知数据库容量，未设置时 UI 必须显示“未知”。 |
+| `CLOUDFLARE_ACCOUNT_ID` | production account ID | Cloudflare 管理 API / Analytics 服务端查询范围；不会返回浏览器。 |
+| `CLOUDFLARE_D1_DATABASE_ID` | production D1 ID | D1 `file_size` 查询目标；不会返回浏览器。 |
+| `CLOUDFLARE_D1_DATABASE_NAME` | `ktv-assistant-db` | 管理页面资源标签。 |
+| `CLOUDFLARE_KV_NAMESPACE_ID` | production KV ID | KV Analytics 查询目标；不会返回浏览器。 |
+| `CLOUDFLARE_KV_NAMESPACE_NAME` | `SEARCH_CACHE` | 管理页面资源标签。 |
+| `CLOUDFLARE_STORAGE_METRICS_TTL_SECONDS` | `300` | 服务端最近成功值复用时间，避免每次 render 调用 Cloudflare。 |
+| `D1_CAPACITY_LIMIT_BYTES` | 未设置 | 可选运维配置；只有明确知道该环境的真实 D1 上限时才设置。 |
+| `KV_CAPACITY_LIMIT_BYTES` | 未设置 | 可选运维配置；没有可靠上限时不显示 KV 百分比。 |
+| `SEARCH_REPOSITORY_CAPACITY_BYTES` | 未设置 | 旧配置兼容别名；仅在未设置 `D1_CAPACITY_LIMIT_BYTES` 时作为 D1 运维容量使用。 |
 | `SEARCH_REPOSITORY_WARNING_THRESHOLD_PERCENT` | 未设置 | 可选；已知容量下的预警百分比，必须在 `0–100` 之间。 |
 | `SEARCH_REPOSITORY_CLEANUP_TARGET_PERCENT` | 未设置 | 可选；必须低于预警线，定义每批清理希望达到的容量百分比。 |
 | `SEARCH_REPOSITORY_CLEANUP_BATCH_SIZE` | `25` | 每次手动存储清理最多删除的资料条数；服务端硬上限为 50。 |
@@ -193,6 +202,7 @@ npm run build
 | `GET` | `/api/youtube/quota` | 应用估算的 search quota。 |
 | `GET / POST / DELETE` | `/api/admin/session` | 检查 session、登录和退出；响应不缓存。 |
 | `GET` | `/api/admin/overview` | 受保护的 quota、资料库、趋势、歌曲/歌手聚合与容量状态。 |
+| `GET` | `/api/admin/storage` | 受保护的标准化 D1/KV 指标；`?refresh=1` 要求服务端重新验证 Cloudflare。 |
 | `GET` | `/api/admin/searches` | 受保护的搜索事件筛选和分页。 |
 | `GET / DELETE` | `/api/admin/repository` | 受保护的资料库检查和最多 50 条的选择删除。 |
 | `GET / POST` | `/api/admin/repository/cleanup` | 受保护的存储清理预览与明确确认后的有限批次执行。 |
@@ -403,7 +413,7 @@ Family entry 保存：
 - 单管理员密码登录；服务端验证 `ADMIN_PASSWORD`，使用 `ADMIN_SESSION_SECRET` 签发 12 小时、`Secure`、`HttpOnly`、`SameSite=Strict` cookie。
 - 所有 admin read/mutation API 独立校验 session；前端路由隐藏与否不参与授权判断。
 - 登录端点按 IP 限流；admin mutation 额外校验 same-origin；错误响应与 admin 数据均使用 `Cache-Control: no-store`。
-- 总览展示本地耐久 quota ledger 的使用量、剩余量、Pacific reset 倒计时、D1 实际体积、持久查询/结果/复用计数、趋势、热门歌曲/歌手和原唱分类状态。
+- 总览展示本地耐久 quota ledger、Cloudflare D1 API 实际体积、Cloudflare Analytics KV bytes/key count、应用记录估算、持久查询/结果/复用计数、趋势、热门歌曲/歌手和原唱分类状态。
 - 搜索记录支持 `24 小时 / 7 天 / 30 天`、关键词、来源、分页；历史从 migration 上线后的新事件开始，不伪造 backfill。
 - 资料库支持关键词、查询类型、排序、分页、结果标题预览、最多 50 条选择删除和确认对话框。
 - 删除同时移除对应 D1 entry 与 KV 加速 key，并写 `admin_audit_events`；不提供 raw `TRUNCATE`。
@@ -423,6 +433,8 @@ Family entry 保存：
 
 `migrations/0003_repository_cleanup_lock.sql` 新增单一短期 lease 表，阻止两个管理员清理任务同时执行；过期 lease 可由后续任务安全接管。
 
+`migrations/0004_cloudflare_storage_metrics.sql` 新增 D1/KV 最近成功指标状态与 30 秒刷新 lease。缓存只保存标准化 bytes、key count、来源、时间和安全错误码，不保存 Cloudflare token 或原始 provider response。
+
 用户搜索顺序：
 
 1. 使用现有 deterministic query family 规范化策略查 D1 exact match。
@@ -436,10 +448,13 @@ Family entry 保存：
 
 ### 7.3 容量与 quota 语义
 
-- `databaseBytes` 使用 D1 statement metadata 的 `size_after`，代表整个 D1 database，而不是只计算资料记录。
-- `estimatedRepositoryBytes` 是 application payload estimate，只用于资料内部分析，不冒充 provider capacity。
-- 百分比只有在明确配置 `SEARCH_REPOSITORY_CAPACITY_BYTES` 时计算；没有可靠上限时显示“容量未知”。
-- 清理策略要求同时配置 capacity、warning threshold 和更低的 cleanup target；缺一项、目标不低于预警线或容量未越线时，服务端都返回明确的 skipped preview，不删除资料。
+- D1 使用官方 `GET /accounts/{account_id}/d1/database/{database_id}` 的 `file_size`，页面标记为“Cloudflare D1 API”；不再把 SQL statement `meta.size_after` 当成管理页面权威值。
+- KV 使用 Cloudflare GraphQL Analytics 的 `kvStorageAdaptiveGroups`，页面展示最新 `byteCount` 与 `keyCount` 并标记为“Cloudflare Analytics”。该数据按天聚合，保留 provider 测量日与最近成功时间。
+- `estimatedRepositoryBytes` / “应用记录估算”只合计 `search_repository_entries.approx_bytes`，用于理解搜索结果 payload；它不是 D1 数据库体积，也不与 KV 真实 bytes 混算。
+- D1、KV 完全分开显示。任一 provider 失败不会清零另一项；如果有最近成功值则继续显示并标记“过期”，从未成功则显示“暂时无法获取”。
+- Cloudflare 当前提供 plan-dependent 文档上限，但已核实的 D1/KV 指标接口没有返回本账户可直接使用的机器可读容量上限。系统不根据 plan 名称硬编码 500 MB、5 GB、10 GB 或 1 TB；只有显式运维配置容量时才计算百分比，且标记为“运维配置”、`authoritative=false`。
+- 管理页面自动读取最多每 5 分钟向 Cloudflare 重新验证一次；手动“刷新数据”会要求服务端重新验证。D1 lease 避免多个管理员页面同时重复调用 provider。
+- 清理策略要求 D1 权威实际体积可用且新鲜，并同时配置 capacity、warning threshold 和更低的 cleanup target；缺一项、指标过期、目标不低于预警线或容量未越线时，服务端都返回明确的 skipped preview，不删除资料。
 - 首版坚持 manual-first：预览和确认后才执行有限批次；自动清理仍未启用。
 - YouTube 页面值标记为 `local_estimate / search_calls`。当前 project guardrail 为 100 calls/day、一次 `search.list` 计一次；Google Cloud Console 仍是最终权威。
 
@@ -450,8 +465,11 @@ Family entry 保存：
 ```dotenv
 ADMIN_PASSWORD="仅用于本机的密码"
 ADMIN_SESSION_SECRET="足够长且随机的本机 session secret"
-# 只有知道当前计划的真实容量时才添加以下示例变量：
-# SEARCH_REPOSITORY_CAPACITY_BYTES="..."
+# 仅用于服务端读取 Cloudflare D1/KV 指标；至少需要 D1 Read + Account Analytics Read：
+# CLOUDFLARE_API_TOKEN="..."
+# 只有明确知道当前环境的真实容量时才添加以下示例变量：
+# D1_CAPACITY_LIMIT_BYTES="..."
+# KV_CAPACITY_LIMIT_BYTES="..."
 # SEARCH_REPOSITORY_WARNING_THRESHOLD_PERCENT="80"
 # SEARCH_REPOSITORY_CLEANUP_TARGET_PERCENT="70"
 # SEARCH_REPOSITORY_CLEANUP_BATCH_SIZE="25"
@@ -547,7 +565,25 @@ npx wrangler secret put ADMIN_SESSION_SECRET --config wrangler.toml
 
 Room Worker 不直接提供 admin 页面，因此无需复制 admin secrets。
 
-### 9.6 首次部署
+### 9.6 Cloudflare 只读指标 token
+
+在 Cloudflare Dashboard 为目标 account 创建自定义 API token：
+
+- Account permission：`D1 Read`。
+- Account permission：`Account Analytics Read`。
+- Account resources：只包含本项目所在 account。
+- 不使用 Global API Key，不添加 D1/KV/Workers 写权限。
+
+随后仅写入 Main Worker encrypted secret：
+
+```bash
+npx wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.toml
+npx wrangler secret list --config wrangler.toml
+```
+
+Worker 只在受保护的管理员请求中服务端调用 Cloudflare；token、account ID、database ID、namespace ID 和原始 provider response 均不会发送浏览器。D1 读取使用 Client API；KV bytes/key count 使用与 Dashboard 相同的 GraphQL Analytics dataset。
+
+### 9.7 首次部署
 
 ```bash
 npx wrangler deploy --config wrangler.room.toml --dry-run
@@ -649,7 +685,16 @@ Invoke-RestMethod `
 - 非空 results 最多 50，UI 每次展开 10 条。
 - Empty query 最多返回 200 条去重 recommendations，UI 按 10 条无限滚动，且不增加 search estimate。
 
-### 11.3 WebSocket smoke
+### 11.3 Admin 存储指标
+
+1. 登录 production `/admin`，点击“刷新数据”。
+2. 运行 `npx wrangler d1 info ktv-assistant-db --config wrangler.toml`，对照页面 `ktv-assistant-db` 的 bytes；允许格式单位与请求时间造成少量显示差异。
+3. 在 Cloudflare Dashboard 打开 `SEARCH_CACHE` 的 Metrics，对照最新 storage bytes 与 key count；KV Analytics 是日聚合，页面会显示 provider 测量日。
+4. 确认 D1 来源为“Cloudflare D1 API”、KV 来源为“Cloudflare Analytics”、搜索 payload 为“应用记录估算”。
+5. 未配置 `D1_CAPACITY_LIMIT_BYTES` / `KV_CAPACITY_LIMIT_BYTES` 时，页面不得显示百分比或推断 plan。
+6. 未认证访问 `/api/admin/storage` 必须返回 `401` 和 `Cache-Control: no-store`。
+
+### 11.4 WebSocket smoke
 
 ```js
 const roomId = "<roomId>";
@@ -669,7 +714,7 @@ ws.onmessage = (event) => console.log(JSON.parse(event.data));
 
 期望 `ROOM_SNAPSHOT`、`PONG`；第二个 client 连接时 connected count 变化。再发送两次 `ADD_QUEUE_ITEM`：第一首 playing、第二首 queued；`PLAYER_ENDED` 推进；`RESTART_CURRENT_ITEM` 保持当前 item 并回到 loading。
 
-### 11.4 Cleanup、rate limit、devices
+### 11.5 Cleanup、rate limit、devices
 
 Debug page 应能 refresh snapshot、复制链接、删除 completed/removed items。关闭所有 display/mobile/debug 页面至少 5 分钟后，snapshot 应显示 inactive、empty queue、idle playback。
 
@@ -731,5 +776,9 @@ Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返�
 - YouTube quota：<https://developers.google.com/youtube/v3/determine_quota_cost>
 - YouTube IFrame Player API：<https://developers.google.com/youtube/iframe_api_reference>
 - Cloudflare D1 commands：<https://developers.cloudflare.com/d1/wrangler-commands/>
+- Cloudflare D1 database details API：<https://developers.cloudflare.com/api/resources/d1/subresources/database/methods/get/>
+- Cloudflare D1 limits：<https://developers.cloudflare.com/d1/platform/limits/>
 - Cloudflare KV commands：<https://developers.cloudflare.com/kv/reference/kv-commands/>
+- Cloudflare KV metrics / `kvStorageAdaptiveGroups`：<https://developers.cloudflare.com/kv/observability/metrics-analytics/>
+- Cloudflare GraphQL Analytics token：<https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/>
 - Durable Objects：<https://developers.cloudflare.com/durable-objects/get-started/>

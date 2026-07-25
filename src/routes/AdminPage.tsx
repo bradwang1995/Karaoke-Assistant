@@ -38,6 +38,7 @@ import {
   fetchAdminRepository,
   fetchAdminSearches,
   fetchAdminSession,
+  fetchAdminStorage,
   loginAdmin,
   logoutAdmin,
   runAdminCleanup,
@@ -49,6 +50,8 @@ import type {
   AdminRange,
   AdminRepositoryItem,
   AdminResponseSource,
+  AdminStorageResourceMetric,
+  AdminStorageUsageSource,
 } from "../types/admin";
 import type { SearchType } from "../types/youtube";
 
@@ -165,6 +168,21 @@ function AdminShell() {
       await queryClient.invalidateQueries({ queryKey: adminSessionQueryKey });
     },
   });
+  const refreshMutation = useMutation({
+    mutationFn: () => fetchAdminStorage(true),
+    onSettled: async () => {
+      await queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = String(query.queryKey[0]);
+          return (
+            key === "admin-overview" ||
+            key === "admin-searches" ||
+            key.startsWith("admin-repository")
+          );
+        },
+      });
+    },
+  });
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -180,18 +198,6 @@ function AdminShell() {
     window.addEventListener("ktv-admin-unauthorized", handleUnauthorized);
     return () => window.removeEventListener("ktv-admin-unauthorized", handleUnauthorized);
   }, [queryClient]);
-
-  const refresh = () =>
-    queryClient.invalidateQueries({
-      predicate: (query) => {
-        const key = String(query.queryKey[0]);
-        return (
-          key === "admin-overview" ||
-          key === "admin-searches" ||
-          key.startsWith("admin-repository")
-        );
-      },
-    });
 
   return (
     <div className="admin-surface min-h-screen text-slate-100 lg:grid lg:grid-cols-[224px_minmax(0,1fr)]">
@@ -256,10 +262,11 @@ function AdminShell() {
           </div>
           <button
             type="button"
-            onClick={refresh}
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending}
             className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-teal-300/30 hover:text-white"
           >
-            <RefreshCw className={`h-4 w-4 ${fetchingCount ? "animate-spin" : ""}`} aria-hidden="true" />
+            <RefreshCw className={`h-4 w-4 ${fetchingCount || refreshMutation.isPending ? "animate-spin" : ""}`} aria-hidden="true" />
             刷新数据
           </button>
         </header>
@@ -416,6 +423,9 @@ function QuotaCard({ data }: { data: AdminOverview }) {
 }
 
 function RepositorySummary({ data }: { data: AdminOverview }) {
+  const d1 = data.storage.d1;
+  const kv = data.storage.kv;
+
   return (
     <Panel>
       <div className="flex items-start justify-between gap-4">
@@ -432,20 +442,54 @@ function RepositorySummary({ data }: { data: AdminOverview }) {
         <Metric label="结果" value={formatNumber(data.repository.totalResults)} />
         <Metric label="复用" value={formatNumber(data.repository.repositoryHits)} />
         <Metric
-          label="容量状态"
+          label="D1 容量"
           value={
-            data.repository.capacityPercentage === null
+            d1.capacityPercentage === null
               ? "未知"
-              : `${Math.round(data.repository.capacityPercentage)}%`
+              : `${Math.round(d1.capacityPercentage)}%`
           }
         />
       </div>
-      <p className="mt-5 border-t border-white/10 pt-3 text-xs text-slate-500">
-        {data.repository.databaseBytes === null
-          ? "当前运行时未返回数据库实际体积。"
-          : `数据库约 ${formatBytes(data.repository.databaseBytes)} · 歌曲 ${formatNumber(data.repository.uniqueSongs)} · 歌手 ${formatNumber(data.repository.uniqueArtists)}`}
+      <div className="mt-5 space-y-3 border-t border-white/10 pt-4">
+        <StorageResourceRow metric={d1} />
+        <StorageResourceRow metric={kv} />
+      </div>
+      <p className="mt-4 border-t border-white/[0.07] pt-3 text-xs leading-5 text-slate-500">
+        应用记录估算：
+        {data.storage.repositoryEstimate.usedBytes === null
+          ? "暂时无法获取"
+          : formatBytes(data.storage.repositoryEstimate.usedBytes)}
+        （仅搜索结果 payload，不是数据库体积） · 歌曲 {formatNumber(data.repository.uniqueSongs)} · 歌手 {formatNumber(data.repository.uniqueArtists)}
       </p>
     </Panel>
+  );
+}
+
+function StorageResourceRow({ metric }: { metric: AdminStorageResourceMetric }) {
+  const value =
+    metric.usedBytes === null
+      ? "暂时无法获取"
+      : metric.capacityBytes === null
+        ? `${formatBytes(metric.usedBytes)} · 容量上限未配置`
+        : `${formatBytes(metric.usedBytes)} / ${formatBytes(metric.capacityBytes)} · ${formatPercentage(metric.capacityPercentage)}`;
+  const details = [
+    storageUsageSourceLabel(metric.usageSource),
+    metric.resource === "kv" && metric.keyCount !== null
+      ? `${formatNumber(metric.keyCount)} 个键`
+      : null,
+    metric.measuredAt ? `测量于 ${formatDateTime(metric.measuredAt)}` : null,
+    metric.stale ? "过期数据" : null,
+  ].filter(Boolean);
+
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-2 text-xs">
+      <div>
+        <p className="font-medium text-slate-300">{metric.name}</p>
+        <p className="mt-1 text-slate-500">{details.join(" · ") || "暂时无法获取"}</p>
+        {metric.error ? <p className="mt-1 text-amber-300/90">{metric.error.message}</p> : null}
+      </div>
+      <p className="tabular-nums text-slate-300">{value}</p>
+    </div>
   );
 }
 
@@ -498,31 +542,66 @@ function TopDimensionList({
 }
 
 function SystemNotices({ data }: { data: AdminOverview }) {
-  const storageNotice = data.repository.storagePressure
-    ? {
-        icon: AlertTriangle,
-        color: "text-rose-300 bg-rose-300/10",
-        title: "资料库达到容量预警线",
-        body: `当前 ${Math.round(data.repository.capacityPercentage ?? 0)}%，预警线 ${data.repository.warningThresholdPercentage}%。`,
-      }
-    : data.repository.capacityPercentage !== null
+  const d1 = data.storage.d1;
+  const kv = data.storage.kv;
+  const storageNotice =
+    d1.health === "critical" || d1.health === "warning"
       ? {
-          icon: CheckCircle2,
-          color: "text-teal-300 bg-teal-300/10",
-          title: "资料库容量正常",
-          body:
-            data.repository.warningThresholdPercentage === null
-              ? "已知容量，但尚未配置清理预警线。"
-              : `当前 ${Math.round(data.repository.capacityPercentage)}%，低于 ${data.repository.warningThresholdPercentage}% 预警线。`,
-        }
-      : {
+        icon: AlertTriangle,
+        color:
+          d1.health === "critical"
+            ? "text-rose-300 bg-rose-300/10"
+            : "text-amber-300 bg-amber-300/10",
+        title: d1.health === "critical" ? "D1 存储达到关键线" : "D1 存储达到预警线",
+        body: `Cloudflare D1 API 当前报告 ${formatPercentage(d1.capacityPercentage)}。`,
+      }
+      : d1.health === "stale"
+        ? {
+            icon: AlertTriangle,
+            color: "text-amber-300 bg-amber-300/10",
+            title: "D1 指标已过期",
+            body: `继续显示 ${d1.lastSuccessfulAt ? formatDateTime(d1.lastSuccessfulAt) : "最近一次"} 的成功数据。`,
+          }
+        : d1.health === "unavailable"
+          ? {
+              icon: AlertTriangle,
+              color: "text-amber-300 bg-amber-300/10",
+              title: "D1 指标暂时无法获取",
+              body: d1.error?.message ?? "请检查 Cloudflare 只读指标配置。",
+            }
+          : {
+              icon: CheckCircle2,
+              color: "text-teal-300 bg-teal-300/10",
+              title: "D1 存储指标正常",
+              body:
+                d1.capacityPercentage === null
+                  ? `当前使用 ${formatBytes(d1.usedBytes ?? 0)}；容量上限未配置。`
+                  : `当前 ${formatPercentage(d1.capacityPercentage)}，尚未触发存储预警。`,
+            };
+  const kvNotice =
+    kv.health === "unavailable"
+      ? {
           icon: AlertTriangle,
           color: "text-amber-300 bg-amber-300/10",
-          title: "资料库容量未知",
-          body: "已显示数据库实际体积；容量上限需按 Cloudflare 计划单独配置。",
-        };
+          title: "KV 指标暂时无法获取",
+          body: kv.error?.message ?? "Cloudflare Analytics 尚未返回存储快照。",
+        }
+      : kv.health === "stale"
+        ? {
+            icon: AlertTriangle,
+            color: "text-amber-300 bg-amber-300/10",
+            title: "KV 指标已过期",
+            body: `继续显示最近成功值 ${formatBytes(kv.usedBytes ?? 0)}。`,
+          }
+        : {
+            icon: CheckCircle2,
+            color: "text-sky-300 bg-sky-300/10",
+            title: "KV 加速层指标可用",
+            body: `Cloudflare Analytics 报告 ${formatBytes(kv.usedBytes ?? 0)}、${formatNumber(kv.keyCount ?? 0)} 个键。`,
+          };
   const notices = [
     storageNotice,
+    kvNotice,
     data.quota.exhausted
       ? {
           icon: AlertTriangle,
@@ -536,12 +615,6 @@ function SystemNotices({ data }: { data: AdminOverview }) {
           title: "外部搜索配额充足",
           body: `今日仍可使用 ${formatNumber(data.quota.remaining)} 次搜索调用。`,
         },
-    {
-      icon: HardDrive,
-      color: "text-sky-300 bg-sky-300/10",
-      title: "持久资料库已启用",
-      body: `已保存 ${formatNumber(data.repository.totalQueries)} 个精确查询。`,
-    },
   ];
 
   return (
@@ -890,6 +963,13 @@ function StorageCleanupPanel({
       {preview ? (
         <div className="mt-4 rounded-xl border border-white/8 bg-slate-950/35 p-4">
           <p className="text-xs leading-5 text-slate-400">{preview.policy}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            当前体积来源：{storageUsageSourceLabel(preview.usageSource)}
+            {preview.measuredAt ? ` · ${formatDateTime(preview.measuredAt)}` : ""}
+            {preview.stale ? " · 已过期" : ""}
+            {" · "}
+            容量来源：{preview.capacitySource === "operator-config" ? "运维配置" : "暂时无法获取"}
+          </p>
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Metric label="当前容量" value={preview.capacityPercentage === null ? "未知" : `${preview.capacityPercentage.toFixed(1)}%`} />
             <Metric label="预警线" value={preview.thresholdPercentage === null ? "未配置" : `${preview.thresholdPercentage}%`} />
@@ -943,7 +1023,9 @@ function StorageCleanupPanel({
 
 function cleanupUnavailableMessage(preview: AdminCleanupPreview) {
   return {
-    capacity_unknown: "数据库总容量或实时体积未知，系统不会显示虚假百分比，也不会执行清理。",
+    capacity_unknown: "数据库总容量未知，系统不会显示虚假百分比，也不会执行清理。",
+    measurement_unavailable: "Cloudflare D1 API 暂时无法提供实际体积，系统不会执行清理。",
+    measurement_stale: "Cloudflare D1 实际体积已经过期；刷新成功前不会执行清理。",
     policy_incomplete: "请先在 Worker 配置容量、预警线和清理目标。",
     policy_invalid: "清理目标必须低于预警线，请修正部署配置。",
     below_threshold: "当前容量低于预警线，无需清理。",
@@ -1100,6 +1182,18 @@ function formatBytes(bytes: number) {
   const units = ["B", "KB", "MB", "GB"];
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatPercentage(value: number | null) {
+  return value === null ? "未知" : `${value.toFixed(value < 10 ? 1 : 0)}%`;
+}
+
+function storageUsageSourceLabel(source: AdminStorageUsageSource) {
+  return {
+    "cloudflare-d1-api": "Cloudflare D1 API",
+    "cloudflare-analytics": "Cloudflare Analytics",
+    unavailable: "暂时无法获取",
+  }[source];
 }
 
 function errorMessage(error: unknown) {

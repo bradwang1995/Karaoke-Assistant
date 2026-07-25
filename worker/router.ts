@@ -14,6 +14,7 @@ import {
   getRoomSnapshotFromD1,
   saveRoomSnapshotToD1,
 } from "./d1Repository";
+import { getAdminStorageStatus } from "./cloudflareStorage";
 import { apiError, jsonResponse } from "./json";
 import { checkRateLimit } from "./rateLimit";
 import { createRoomId, isValidRoomId } from "./roomIds";
@@ -28,7 +29,6 @@ import {
   previewAdminRepositoryCleanup,
   readConfiguredCleanupBatchSize,
   readConfiguredCleanupTargetPercentage,
-  readConfiguredCapacityBytes,
   readConfiguredWarningThresholdPercentage,
   recordSearchEvent,
   RepositoryCleanupBusyError,
@@ -59,6 +59,7 @@ export async function handleApiRequest(request: Request, env: Env) {
 
   if (
     route.name === "adminOverview" ||
+    route.name === "adminStorage" ||
     route.name === "adminSearches" ||
     route.name === "adminRepository" ||
     route.name === "adminRepositoryCleanup"
@@ -482,6 +483,7 @@ async function handleProtectedAdminRoute(
   env: Env,
   routeName:
     | "adminOverview"
+    | "adminStorage"
     | "adminSearches"
     | "adminRepository"
     | "adminRepositoryCleanup",
@@ -500,17 +502,29 @@ async function handleProtectedAdminRoute(
       return adminApiError(405, "METHOD_NOT_ALLOWED", "Use GET to read the admin overview.");
     }
 
-    const quota = await getYouTubeSearchQuotaStatusForEnv(env, getYouTubeDailySearchLimit(env));
+    const [quota, storage] = await Promise.all([
+      getYouTubeSearchQuotaStatusForEnv(env, getYouTubeDailySearchLimit(env)),
+      getAdminStorageStatus(env.DB, env, {
+        forceRefresh: url.searchParams.get("refreshStorage") === "1",
+      }),
+    ]);
+    const overview = await getAdminOverview(
+      env.DB,
+      normalizeAdminRange(url.searchParams.get("range")),
+      quota,
+    );
+    return adminJsonResponse({ ...overview, storage });
+  }
+
+  if (routeName === "adminStorage") {
+    if (request.method !== "GET") {
+      return adminApiError(405, "METHOD_NOT_ALLOWED", "Use GET to read storage metrics.");
+    }
+
     return adminJsonResponse(
-      await getAdminOverview(
-        env.DB,
-        normalizeAdminRange(url.searchParams.get("range")),
-        quota,
-        readConfiguredCapacityBytes(env.SEARCH_REPOSITORY_CAPACITY_BYTES),
-        readConfiguredWarningThresholdPercentage(
-          env.SEARCH_REPOSITORY_WARNING_THRESHOLD_PERCENT,
-        ),
-      ),
+      await getAdminStorageStatus(env.DB, env, {
+        forceRefresh: url.searchParams.get("refresh") === "1",
+      }),
     );
   }
 
@@ -531,7 +545,11 @@ async function handleProtectedAdminRoute(
   }
 
   if (routeName === "adminRepositoryCleanup") {
-    const cleanupConfig = repositoryCleanupConfig(env);
+    const cleanupConfig = await repositoryCleanupConfig(
+      env.DB,
+      env,
+      request.method === "POST" || url.searchParams.get("refreshStorage") === "1",
+    );
 
     if (request.method === "GET") {
       return adminJsonResponse(await previewAdminRepositoryCleanup(env.DB, cleanupConfig));
@@ -555,7 +573,18 @@ async function handleProtectedAdminRoute(
 
       try {
         return adminJsonResponse(
-          await runAdminRepositoryCleanup(env.DB, cleanupConfig, env.SEARCH_CACHE),
+          await runAdminRepositoryCleanup(
+            env.DB,
+            cleanupConfig,
+            env.SEARCH_CACHE,
+            async () =>
+              (
+                await getAdminStorageStatus(env.DB!, env, {
+                  forceRefresh: true,
+                  repositoryEstimateBytes: null,
+                })
+              ).d1,
+          ),
         );
       } catch (error) {
         if (error instanceof RepositoryCleanupBusyError) {
@@ -609,9 +638,24 @@ function adminJsonResponse(body: unknown) {
   return jsonResponse(body, { headers: { "cache-control": "no-store" } });
 }
 
-function repositoryCleanupConfig(env: Env) {
+async function repositoryCleanupConfig(
+  db: D1Database,
+  env: Env,
+  forceRefresh: boolean,
+) {
+  const storage = await getAdminStorageStatus(db, env, {
+    forceRefresh,
+    repositoryEstimateBytes: null,
+  });
+
   return {
-    capacityBytes: readConfiguredCapacityBytes(env.SEARCH_REPOSITORY_CAPACITY_BYTES),
+    capacityBytes: storage.d1.capacityBytes,
+    databaseBytes: storage.d1.usedBytes,
+    usageSource: storage.d1.usageSource,
+    usageAuthoritative: storage.d1.usageAuthoritative,
+    capacitySource: storage.d1.capacitySource,
+    measuredAt: storage.d1.measuredAt,
+    stale: storage.d1.stale,
     thresholdPercentage: readConfiguredWarningThresholdPercentage(
       env.SEARCH_REPOSITORY_WARNING_THRESHOLD_PERCENT,
     ),
@@ -720,6 +764,10 @@ function matchApiRoute(pathname: string) {
 
   if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "overview") {
     return { name: "adminOverview" as const };
+  }
+
+  if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "storage") {
+    return { name: "adminStorage" as const };
   }
 
   if (parts.length === 3 && parts[0] === "api" && parts[1] === "admin" && parts[2] === "searches") {

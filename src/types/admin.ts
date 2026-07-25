@@ -2,6 +2,52 @@ import type { SearchType, VideoSearchResult, YouTubeQuotaStatus } from "./youtub
 
 export type AdminRange = "24h" | "7d" | "30d";
 export type AdminResponseSource = "repository" | "external" | "mock" | "error";
+export type AdminStorageUsageSource =
+  | "cloudflare-d1-api"
+  | "cloudflare-analytics"
+  | "unavailable";
+export type AdminStorageCapacitySource = "operator-config" | "unavailable";
+export type AdminStorageHealth =
+  | "healthy"
+  | "warning"
+  | "critical"
+  | "stale"
+  | "unavailable";
+
+export interface AdminStorageError {
+  code: string;
+  message: string;
+}
+
+export interface AdminStorageResourceMetric {
+  resource: "d1" | "kv";
+  name: string;
+  usedBytes: number | null;
+  keyCount: number | null;
+  capacityBytes: number | null;
+  capacityPercentage: number | null;
+  usageSource: AdminStorageUsageSource;
+  capacitySource: AdminStorageCapacitySource;
+  usageAuthoritative: boolean;
+  capacityAuthoritative: boolean;
+  measuredAt: string | null;
+  lastSuccessfulAt: string | null;
+  stale: boolean;
+  health: AdminStorageHealth;
+  error: AdminStorageError | null;
+}
+
+export interface AdminStorageStatus {
+  updatedAt: string;
+  stale: boolean;
+  repositoryEstimate: {
+    usedBytes: number | null;
+    source: "application-estimate";
+    authoritative: false;
+  };
+  d1: AdminStorageResourceMetric & { resource: "d1" };
+  kv: AdminStorageResourceMetric & { resource: "kv" };
+}
 
 export interface AdminSessionStatus {
   authenticated: true;
@@ -37,17 +83,12 @@ export interface AdminOverview {
     totalResults: number;
     repositoryHits: number;
     estimatedRepositoryBytes: number;
-    databaseBytes: number | null;
-    capacityBytes: number | null;
-    capacityPercentage: number | null;
-    capacitySource: "configured" | "unknown";
-    warningThresholdPercentage: number | null;
-    storagePressure: boolean | null;
     songQueries: number;
     artistQueries: number;
     uniqueSongs: number;
     uniqueArtists: number;
   };
+  storage: AdminStorageStatus;
   searches: {
     total: number;
     repositoryHits: number;
@@ -123,6 +164,8 @@ export interface AdminDeleteRepositoryResult {
 
 export type AdminCleanupUnavailableReason =
   | "capacity_unknown"
+  | "measurement_unavailable"
+  | "measurement_stale"
   | "policy_incomplete"
   | "policy_invalid"
   | "below_threshold"
@@ -154,6 +197,11 @@ export interface AdminCleanupPreview {
   capacityBytes: number | null;
   databaseBytes: number | null;
   capacityPercentage: number | null;
+  usageSource: AdminStorageUsageSource;
+  usageAuthoritative: boolean;
+  capacitySource: AdminStorageCapacitySource;
+  measuredAt: string | null;
+  stale: boolean;
   thresholdPercentage: number | null;
   targetPercentage: number | null;
   batchSize: number;

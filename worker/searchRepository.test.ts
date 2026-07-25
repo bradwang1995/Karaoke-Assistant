@@ -40,13 +40,11 @@ describe("admin repository input normalization", () => {
 
 describe("repository cleanup preview", () => {
   it("refuses to invent capacity or cleanup candidates when capacity is unknown", async () => {
-    const db = cleanupPreviewDb({ databaseBytes: 900, estimatedRepositoryBytes: 400 });
-    const preview = await previewAdminRepositoryCleanup(db, {
-      capacityBytes: null,
-      thresholdPercentage: 80,
-      targetPercentage: 70,
-      batchSize: 25,
-    });
+    const db = cleanupPreviewDb({ estimatedRepositoryBytes: 400 });
+    const preview = await previewAdminRepositoryCleanup(
+      db,
+      cleanupConfig(900, null),
+    );
 
     expect(preview).toMatchObject({
       configured: false,
@@ -58,13 +56,11 @@ describe("repository cleanup preview", () => {
   });
 
   it("does not select candidates below the configured threshold", async () => {
-    const db = cleanupPreviewDb({ databaseBytes: 700, estimatedRepositoryBytes: 400 });
-    const preview = await previewAdminRepositoryCleanup(db, {
-      capacityBytes: 1_000,
-      thresholdPercentage: 80,
-      targetPercentage: 70,
-      batchSize: 25,
-    });
+    const db = cleanupPreviewDb({ estimatedRepositoryBytes: 400 });
+    const preview = await previewAdminRepositoryCleanup(
+      db,
+      cleanupConfig(700, 1_000),
+    );
 
     expect(preview).toMatchObject({
       configured: true,
@@ -74,9 +70,23 @@ describe("repository cleanup preview", () => {
     });
   });
 
+  it("refuses cleanup when the latest authoritative D1 measurement is stale", async () => {
+    const db = cleanupPreviewDb({ estimatedRepositoryBytes: 400 });
+    const config = cleanupConfig(900, 1_000);
+    config.stale = true;
+    const preview = await previewAdminRepositoryCleanup(db, config);
+
+    expect(preview).toMatchObject({
+      configured: false,
+      actionNeeded: false,
+      unavailableReason: "measurement_stale",
+      stale: true,
+      candidates: [],
+    });
+  });
+
   it("selects a bounded low-reuse batch until the estimated target is covered", async () => {
     const db = cleanupPreviewDb({
-      databaseBytes: 900,
       estimatedRepositoryBytes: 500,
       candidates: [
         cleanupCandidate("old-unused", 0, 120),
@@ -84,12 +94,10 @@ describe("repository cleanup preview", () => {
         cleanupCandidate("popular", 40, 280),
       ],
     });
-    const preview = await previewAdminRepositoryCleanup(db, {
-      capacityBytes: 1_000,
-      thresholdPercentage: 80,
-      targetPercentage: 70,
-      batchSize: 3,
-    });
+    const preview = await previewAdminRepositoryCleanup(
+      db,
+      cleanupConfig(900, 1_000, 3),
+    );
 
     expect(preview.actionNeeded).toBe(true);
     expect(preview.candidates.map((candidate) => candidate.id)).toEqual([
@@ -102,11 +110,9 @@ describe("repository cleanup preview", () => {
 });
 
 function cleanupPreviewDb({
-  databaseBytes,
   estimatedRepositoryBytes,
   candidates = [],
 }: {
-  databaseBytes: number;
   estimatedRepositoryBytes: number;
   candidates?: Record<string, unknown>[];
 }) {
@@ -126,7 +132,7 @@ function cleanupPreviewDb({
                 },
               ],
               success: true,
-              meta: { size_after: databaseBytes },
+              meta: {},
             };
           }
 
@@ -154,5 +160,24 @@ function cleanupCandidate(id: string, accessCount: number, approxBytes: number) 
     approx_bytes: approxBytes,
     created_at: "2026-01-01T00:00:00.000Z",
     last_accessed_at: "2026-01-02T00:00:00.000Z",
+  };
+}
+
+function cleanupConfig(
+  databaseBytes: number | null,
+  capacityBytes: number | null,
+  batchSize = 25,
+) {
+  return {
+    capacityBytes,
+    databaseBytes,
+    usageSource: "cloudflare-d1-api" as const,
+    usageAuthoritative: databaseBytes !== null,
+    capacitySource: capacityBytes === null ? "unavailable" as const : "operator-config" as const,
+    measuredAt: databaseBytes === null ? null : "2026-01-03T00:00:00.000Z",
+    stale: false,
+    thresholdPercentage: 80,
+    targetPercentage: 70,
+    batchSize,
   };
 }

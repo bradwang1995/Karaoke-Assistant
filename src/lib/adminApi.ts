@@ -8,6 +8,7 @@ import type {
   AdminResponseSource,
   AdminSearchEventPage,
   AdminSessionStatus,
+  AdminStorageStatus,
 } from "../types/admin";
 import type { SearchType } from "../types/youtube";
 import { ApiClientError } from "./apiClient";
@@ -32,6 +33,12 @@ export async function logoutAdmin() {
 
 export async function fetchAdminOverview(range: AdminRange) {
   return adminRequest<AdminOverview>(`/api/admin/overview?range=${range}`);
+}
+
+export async function fetchAdminStorage(forceRefresh = false) {
+  return adminRequest<AdminStorageStatus>(
+    `/api/admin/storage${forceRefresh ? "?refresh=1" : ""}`,
+  );
 }
 
 export async function fetchAdminSearches(options: {

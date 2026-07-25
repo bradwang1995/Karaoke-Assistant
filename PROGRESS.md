@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-22
+Last updated: 2026-07-25
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -14,13 +14,14 @@ Last updated: 2026-07-22
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
 | YouTube search | MVP complete | Live API、family cache、ranking、推荐、rate limit、quota 已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
+| Cloudflare storage metrics | Release pending | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已在本地完成；生产只读 token、部署与 Dashboard 对照待完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
 | Mobile preview | MVP complete | 2–4 列、单 iframe、固定 30 秒起点、600ms debounce、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 20 files / 82 tests | Admin auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
+| Automated tests | 21 files / 88 tests | Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
-| Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.md` 记录本轮强制视觉验收。 |
+| Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
 状态：`[x]` complete；`[~]` usable but needs further validation；`[ ]` pending。
 
@@ -64,6 +65,10 @@ Last updated: 2026-07-22
 - `[x]` Create、snapshot、WebSocket、cleanup API routes。
 - `[x]` DO restart 后从 D1 恢复。
 - `[x]` Real D1/KV/DO bindings production verification。
+- `[x]` Admin D1 存储改用 Cloudflare Client API `file_size`，不再使用 SQL `meta.size_after` 作为权威值。
+- `[x]` Admin KV 存储改用 GraphQL `kvStorageAdaptiveGroups` 的 `byteCount/keyCount`，与 D1 独立展示。
+- `[x]` 指标最近成功值持久缓存、5 分钟调用控制、30 秒并发 lease、partial success 和 stale fallback。
+- `[ ]` Main Worker `CLOUDFLARE_API_TOKEN`（D1 Read + Account Analytics Read）尚未在 secret 列表中确认，production release 暂未执行。
 
 ### Phase 3 — Realtime queue
 
@@ -307,6 +312,20 @@ Last updated: 2026-07-22
 | ADM-07 | P0 | 本地 D1 migration、资料写入/精确复用、受保护路由、登录、交互删除、桌面同屏对照和移动端 responsive 均已验证；最终 production evidence 待下方本轮记录补齐。 |
 | ADM-08 | P0 | 补齐 storage-pressure cleanup：必须先预览，策略与候选可见；执行前二次确认，服务端持有 60 秒 lease，按配置 batch 删除并记录 before/after、affected count、target outcome 和 failure。自动执行仍关闭。 |
 | ADM-09 | P0 | Quota 从“成功后记账”强化为“请求前原子预留”；失败后的可能消耗不丢失，并发最终额度只允许一个 D1 reservation。无耐久 ledger 时不发送无法追踪的 live search。 |
+| ADM-10 | P0 | 完成存储路径 discovery：D1 保存房间、队列、播放状态、持久搜索 response、搜索事件、quota、audit 与 admin 指标缓存；KV 保存 `yt-search:v3` family、`yt-search-index:v2`、recommendations 和 D1 异常时 quota fallback；DO 只保存房间 activity 并通过 D1 恢复业务 snapshot。 |
+| ADM-11 | P0 | 新增服务端 Cloudflare 指标 client：D1 调用 database details API 的 `file_size`；KV 调用 GraphQL `kvStorageAdaptiveGroups` 的 `byteCount/keyCount`。响应只返回标准化值、来源、新鲜度和安全错误，不返回 token、account/resource ID 或原始 provider body。 |
+| ADM-12 | P0 | D1/KV 使用量与容量完全分离；未找到返回当前 account 真实 D1/KV capacity limit 的支持接口，因此不按 plan 名称硬编码上限。可选 `D1_CAPACITY_LIMIT_BYTES` / `KV_CAPACITY_LIMIT_BYTES` 明确标记为“运维配置”。 |
+| ADM-13 | P0 | `migrations/0004_cloudflare_storage_metrics.sql` 保存最近成功指标和 refresh lease；provider 部分失败保留另一资源，失败后继续显示最近成功值并标记过期，从未成功显示“暂时无法获取”。 |
+| ADM-14 | P1 | 保留用户选定的现有暗色界面与三项导航，仅在持久资料库卡片、系统提醒和清理预览中补充 D1/KV 实际值、key count、来源、测量时间和 app estimate 区分；全局刷新会强制服务端重新验证 Cloudflare。 |
+
+### Admin storage discovery（2026-07-25）
+
+- 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
+- 2026-07-25 只读 `wrangler d1 info ktv-assistant-db` 报告 production `database_size = 197 kB`、10 tables；这是真实 Cloudflare 当前值，最终 production 页面仍需在新 token/deploy 后再次同刻对照。
+- D1 是真实持久资料源：`rooms`、`queue_items`、`playback_states`、`playback_events`、`search_repository_entries`、`search_events`、`youtube_quota_daily`、`admin_audit_events`、cleanup/metric leases 与最近成功 metric state。
+- KV `SEARCH_CACHE` 是可丢失加速层：`yt-search:v3` family payload、`yt-search-index:v2` aliases、`yt-search-recommendations:v1`，以及 D1 quota ledger 异常时的 quota fallback。它不是持久资料库真相来源。
+- `RoomDurableObject` 的 Durable Object storage 只保存 `room-activity` lifecycle state；房间业务 snapshot 读写 D1，queued recommendation 会写 KV。
+- Main/Room 使用同一 production D1/KV IDs；仓库没有 `env.preview` / `env.production` 分叉，也没有此前 Cloudflare storage metrics client。Main Worker 是唯一公开 admin API 和唯一需要 Cloudflare read-only token 的 Worker。
 
 ## 4. Verification record
 
@@ -333,16 +352,27 @@ Last updated: 2026-07-22
 | 2026-07-21 admin baseline local | Typecheck、full 20 files / 73 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。内置浏览器完成 1440×1024 reference/implementation 同屏对照与 390×844 responsive smoke；页面无横向 overflow，三页导航与表格容器正常，console 无 error/warning。 |
 | 2026-07-21 admin storage protection | Typecheck、full 20 files / 82 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 应用 migration 0003；内置浏览器实际完成越线 preview → 二次确认 → 删除 1 条 → partial outcome → 空资料库刷新，D1 audit 为 `cleanup_repository/success/partial/affected_count=1`。1440×1024 与 390×844 均无横向页面溢出或 console error/warning。 |
 | 2026-07-22 admin production release | Full 20 files / 82 tests、typecheck、production build、`git diff --check` passed。Production D1 migrations 无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，deployment status 复核两个新版本均为 100%。Production root/admin HTTP 200，未认证 overview 为 401 + `no-store`；UTF-8 冷查询返回 10 条，重复查询命中 repository 且 quota 不增加；内置浏览器完成登录页、create CTA → display、连接状态和 console smoke。 |
+| 2026-07-25 real storage metrics local | Full 21 files / 88 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run passed。Local D1 已应用 migration 0004；内置浏览器完成登录、刷新、总览、搜索记录、资料库和清理预览，D1/KV 配置缺失分别安全降级且不提供清理执行。`1440×1000` 与 `390×844` 视觉通过，移动端无横向 overflow，console 无 error/warning；production token/deploy/Dashboard 对照尚待完成。 |
 
 ### Admin console design QA（2026-07-21）
 
-Final result：passed；没有遗留可执行的 P0、P1 或 P2 design finding。详细中文记录见根目录 `DESIGN-QA.md`。
+Final result：passed；没有遗留可执行的 P0、P1 或 P2 design finding。详细中文记录见根目录 `DESIGN-QA.MD`。
 
 - Reference：用户选定的第三版深色 dashboard，并按要求进一步精简。
 - Desktop：`1440×1024` 同屏比较；深色 tokens、侧栏、状态、双指标卡、趋势图和底部信息层级与参考方向一致。
 - Mobile：`390×844`；页面 `scrollWidth=clientWidth=390`，搜索记录和资料库表格只在自身容器横向滚动。
 - Interaction：总览、搜索记录、资料库导航与真实资料状态均通过；本轮之前已验证登录、筛选、选择、删除确认和删除。
 - Console：最终桌面与移动验收均无 application error 或 warning。
+
+### Real storage metrics design QA（2026-07-25）
+
+Final result：local passed；没有遗留可执行的 P0、P1 或 P2 design finding。生产数值对照仍依赖 Main Worker 的只读 Cloudflare token。
+
+- Desktop：`1440×1000`；原有暗色布局和三项导航保持不变，D1、KV 与应用记录估算分层清晰。
+- Mobile：`390×844`；`documentScrollWidth === documentClientWidth`，指标卡、筛选和清理预览无页面级横向溢出。
+- Failure state：没有 token 时 D1/KV 分别显示安全不可用状态，不生成假体积、容量或百分比；清理执行入口保持关闭。
+- Interaction：登录、手动刷新、三页导航和清理预览均通过；刷新后按钮恢复可用。
+- Console：无 application error 或 warning。详细记录和本地截图路径见 `DESIGN-QA.MD`。
 
 ### Fourth-round design QA（2026-07-15）
 
@@ -410,6 +440,14 @@ Known limitation：本轮已在本地浏览器完成 responsive smoke，但测�
 - `[x]` 验证 production 未认证保护、登录页、create → display、中文搜索与 repository 复用，并记录真实版本 ID。
 - `[~]` 管理员本人使用独立持有的密码完成登录后真实总览/资料库终验；Codex 不读取或请求该密码。
 
+### P0 — Real Cloudflare storage metrics release
+
+- `[x]` 完成官方 D1 `file_size`、KV Analytics bytes/key count、缓存/lease/stale fallback 和清理保护实现。
+- `[x]` 完成本地 migration 0004、21 files / 88 tests、typecheck、production build、双 Worker dry-run 和响应式浏览器 QA。
+- `[ ]` 为 Main Worker 配置 `CLOUDFLARE_API_TOKEN`，只授予 D1 Read 与 Account Analytics Read。
+- `[ ]` 应用 production migration 0004，按 Room → Main `--keep-vars` 发布并记录两个真实版本 ID。
+- `[ ]` 生产未认证 smoke 后，由管理员登录页面并把 D1/KV 数值与同刻 Cloudflare Dashboard 对照。
+
 ### P0 — Real-device acceptance
 
 - `[ ]` Mobile Safari：QR、sticky UI、preview、playsinline、queue。
@@ -452,7 +490,7 @@ Known limitation：本轮已在本地浏览器完成 responsive smoke，但测�
 
 - README explains how the system works and how to operate it。
 - Progress records what is complete, verified, and pending。
-- 常规产品文档仍只维护 README/PROGRESS；`DESIGN-QA.md` 仅作为本轮 Product Design 强制验收记录。
+- 常规产品文档仍只维护 README/PROGRESS；`DESIGN-QA.MD` 仅作为本轮 Product Design 强制验收记录。
 - 不再为小修改创建新的 Markdown logs。
 - 新修复更新现有 phase/table，不追加互相矛盾的 update notes。
 - Production version 只在真实 deploy 后更新。

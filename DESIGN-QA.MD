@@ -1,6 +1,6 @@
 # 管理控制台视觉验收
 
-验收日期：2026-07-21
+最近验收日期：2026-07-25
 最终结果：通过
 
 ## 对照基线
@@ -10,6 +10,7 @@
 - 桌面对照：参考图与 `1440 × 1024` 当前实现已放在同一比较画面中检查；本地证据位于 `test-results/admin-design-qa/admin-reference-comparison.png`。
 - 移动验收：`390 × 844`；本地证据位于 `test-results/admin-design-qa/admin-mobile-390x844.png`。
 - 存储清理增量验收：桌面预览证据 `test-results/admin-design-qa/admin-cleanup-preview-1440x1024.png`，移动证据 `test-results/admin-design-qa/admin-cleanup-mobile-390x844.png`。
+- 真实存储指标增量验收：桌面 `1440 × 1000` 证据 `test-results/admin-design-qa/admin-storage-desktop-1440x1000.jpg`，移动首屏 `390 × 844` 证据 `test-results/admin-design-qa/admin-storage-mobile-390x844.jpg`；这些本地证据位于已忽略的 `test-results/`，不进入发布包。
 
 ## 结果
 
@@ -22,6 +23,16 @@
 - 状态：通过。登录、加载、空结果、错误提示、资料行、禁用按钮和删除确认均有明确反馈。
 - 可读性：通过。中文标题、指标和辅助说明具有清晰层级；图表提供文本标题与可访问标签。
 - 浏览器控制台：通过。本轮最终桌面和移动验收未发现 error 或 warning。
+
+## 2026-07-25 真实 Cloudflare 指标增量验收
+
+- 视觉延续：通过。保留用户已确认的深色第三版界面，只扩展“持久资料库”和“系统提醒”的数据层级，没有增加新的一级导航或不必要图表。
+- 来源区分：通过。D1、KV 和应用记录估算分别展示；界面明确标注 `Cloudflare D1 API`、`Cloudflare Analytics` 与“应用记录估算（不是数据库体积）”。
+- 不可用状态：通过。在本地没有 `CLOUDFLARE_API_TOKEN` 时，D1 与 KV 分别显示“暂时无法获取”和安全错误文案，不显示伪造体积、容量或百分比。
+- 清理保护：通过。清理预览明确显示体积与容量来源；D1 实际测量不可用时不提供执行清理操作。
+- 刷新与导航：通过。手动刷新、总览、搜索记录、资料库和清理预览均可操作，刷新完成后按钮恢复可用。
+- 响应式：通过。桌面卡片稳定对齐；`390 × 844` 下页面宽度与 viewport 一致，`documentScrollWidth === documentClientWidth`，无横向溢出。
+- 浏览器控制台：通过。增量验收没有发现 error 或 warning。
 
 ## Finding 清单
 

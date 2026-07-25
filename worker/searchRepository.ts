@@ -11,6 +11,9 @@ import type {
   AdminResponseSource,
   AdminSearchEventItem,
   AdminSearchEventPage,
+  AdminStorageCapacitySource,
+  AdminStorageResourceMetric,
+  AdminStorageUsageSource,
 } from "../src/types/admin";
 import type { SearchResponse, SearchType, YouTubeQuotaStatus } from "../src/types/youtube";
 import { searchCacheFamilyKey, searchCacheIndexKey } from "./kvCache";
@@ -208,9 +211,7 @@ export async function getAdminOverview(
   db: D1Database,
   range: AdminRange,
   quota: YouTubeQuotaStatus,
-  capacityBytes: number | null,
-  warningThresholdPercentage: number | null,
-): Promise<AdminOverview> {
+): Promise<Omit<AdminOverview, "storage">> {
   const startAt = rangeStart(range).toISOString();
   const bucketExpression =
     range === "24h"
@@ -296,11 +297,6 @@ export async function getAdminOverview(
   const searchTotals = searchTotalsResult.results[0] ?? {};
   const collection = collectionResult.results[0] ?? {};
   const originalPerformer = originalPerformerResult.results[0] ?? {};
-  const databaseBytes = finiteNumber(repositoryResult.meta.size_after);
-  const capacityPercentage =
-    capacityBytes && databaseBytes !== null
-      ? Math.min((databaseBytes / capacityBytes) * 100, 100)
-      : null;
 
   return {
     range,
@@ -314,15 +310,6 @@ export async function getAdminOverview(
       totalResults: rowNumber(repository, "total_results"),
       repositoryHits: rowNumber(repository, "repository_hits"),
       estimatedRepositoryBytes: rowNumber(repository, "estimated_bytes"),
-      databaseBytes,
-      capacityBytes,
-      capacityPercentage,
-      capacitySource: capacityBytes ? "configured" : "unknown",
-      warningThresholdPercentage,
-      storagePressure:
-        capacityPercentage === null || warningThresholdPercentage === null
-          ? null
-          : capacityPercentage >= warningThresholdPercentage,
       songQueries: rowNumber(repository, "song_queries"),
       artistQueries: rowNumber(repository, "artist_queries"),
       uniqueSongs: rowNumber(repository, "unique_songs"),
@@ -490,10 +477,20 @@ export async function listAdminRepositoryEntries(
 
 interface RepositoryCleanupConfig {
   capacityBytes: number | null;
+  databaseBytes: number | null;
+  usageSource: AdminStorageUsageSource;
+  usageAuthoritative: boolean;
+  capacitySource: AdminStorageCapacitySource;
+  measuredAt: string | null;
+  stale: boolean;
   thresholdPercentage: number | null;
   targetPercentage: number | null;
   batchSize?: number | null;
 }
+
+type RefreshD1StorageMetric = () => Promise<
+  Pick<AdminStorageResourceMetric, "usedBytes" | "usageAuthoritative" | "stale">
+>;
 
 export class RepositoryCleanupBusyError extends Error {
   readonly code = "REPOSITORY_CLEANUP_BUSY";
@@ -515,8 +512,13 @@ export async function previewAdminRepositoryCleanup(
   const batchSize = normalizeCleanupBatchSize(config.batchSize);
   const base = {
     capacityBytes: config.capacityBytes,
-    databaseBytes: storage.databaseBytes,
-    capacityPercentage: calculatePercentage(storage.databaseBytes, config.capacityBytes),
+    databaseBytes: config.databaseBytes,
+    capacityPercentage: calculatePercentage(config.databaseBytes, config.capacityBytes),
+    usageSource: config.usageSource,
+    usageAuthoritative: config.usageAuthoritative,
+    capacitySource: config.capacitySource,
+    measuredAt: config.measuredAt,
+    stale: config.stale,
     thresholdPercentage: config.thresholdPercentage,
     targetPercentage: config.targetPercentage,
     batchSize,
@@ -525,7 +527,15 @@ export async function previewAdminRepositoryCleanup(
     updatedAt: now,
   };
 
-  if (config.capacityBytes === null || storage.databaseBytes === null) {
+  if (config.databaseBytes === null || !config.usageAuthoritative) {
+    return unavailableCleanupPreview(base, "measurement_unavailable");
+  }
+
+  if (config.stale) {
+    return unavailableCleanupPreview(base, "measurement_stale");
+  }
+
+  if (config.capacityBytes === null) {
     return unavailableCleanupPreview(base, "capacity_unknown");
   }
 
@@ -556,7 +566,7 @@ export async function previewAdminRepositoryCleanup(
     .bind(batchSize)
     .all<Record<string, unknown>>();
   const bytesNeeded = Math.max(
-    storage.databaseBytes - config.capacityBytes * (config.targetPercentage / 100),
+    config.databaseBytes - config.capacityBytes * (config.targetPercentage / 100),
     0,
   );
   const candidates: AdminCleanupCandidate[] = [];
@@ -591,6 +601,7 @@ export async function runAdminRepositoryCleanup(
   db: D1Database,
   config: RepositoryCleanupConfig,
   cache?: KVNamespace,
+  refreshD1StorageMetric?: RefreshD1StorageMetric,
 ): Promise<AdminCleanupResult> {
   const leaseId = crypto.randomUUID();
   const runId = crypto.randomUUID();
@@ -652,11 +663,18 @@ export async function runAdminRepositoryCleanup(
       (total, candidate) => total + candidate.approxBytes,
       0,
     );
-    const after = await readRepositoryStorageAfterCleanup(
+    const afterRepository = await readRepositoryStorageAfterCleanup(
       db,
       Math.max(preview.estimatedRepositoryBytes - estimatedBytesRemoved, 0),
     );
-    const percentageAfter = calculatePercentage(after.databaseBytes, preview.capacityBytes);
+    const refreshedStorage = refreshD1StorageMetric
+      ? await refreshD1StorageMetric().catch(() => null)
+      : null;
+    const databaseBytesAfter =
+      refreshedStorage?.usageAuthoritative && !refreshedStorage.stale
+        ? refreshedStorage.usedBytes
+        : null;
+    const percentageAfter = calculatePercentage(databaseBytesAfter, preview.capacityBytes);
     const targetReached =
       percentageAfter === null || preview.targetPercentage === null
         ? null
@@ -669,7 +687,7 @@ export async function runAdminRepositoryCleanup(
       deletedIds: ids,
       estimatedBytesRemoved,
       databaseBytesBefore: preview.databaseBytes,
-      databaseBytesAfter: after.databaseBytes,
+      databaseBytesAfter,
       capacityPercentageBefore: preview.capacityPercentage,
       capacityPercentageAfter: percentageAfter,
       targetPercentage: preview.targetPercentage,
@@ -685,8 +703,8 @@ export async function runAdminRepositoryCleanup(
       result: outcome,
       preview,
       after: {
-        databaseBytes: after.databaseBytes,
-        estimatedRepositoryBytes: after.estimatedRepositoryBytes,
+        databaseBytes: databaseBytesAfter,
+        estimatedRepositoryBytes: afterRepository.estimatedRepositoryBytes,
         capacityPercentage: percentageAfter,
       },
       estimatedBytesRemoved,
@@ -802,7 +820,6 @@ async function readRepositoryStorage(db: D1Database) {
   return {
     totalQueries: rowNumber(row, "total_queries"),
     estimatedRepositoryBytes: rowNumber(row, "estimated_repository_bytes"),
-    databaseBytes: finiteNumber(result.meta.size_after),
   };
 }
 
@@ -822,7 +839,6 @@ async function readRepositoryStorageAfterCleanup(
     return {
       totalQueries: 0,
       estimatedRepositoryBytes,
-      databaseBytes: null,
     };
   }
 }
@@ -862,6 +878,11 @@ function unavailableCleanupPreview(
     | "capacityBytes"
     | "databaseBytes"
     | "capacityPercentage"
+    | "usageSource"
+    | "usageAuthoritative"
+    | "capacitySource"
+    | "measuredAt"
+    | "stale"
     | "thresholdPercentage"
     | "targetPercentage"
     | "batchSize"
@@ -908,6 +929,8 @@ function skippedCleanupResult(
 ): AdminCleanupResult {
   const messages: Record<NonNullable<AdminCleanupPreview["unavailableReason"]>, string> = {
     capacity_unknown: "数据库容量未知，未执行清理。",
+    measurement_unavailable: "Cloudflare D1 实际体积暂时无法获取，未执行清理。",
+    measurement_stale: "Cloudflare D1 实际体积已经过期，未执行清理。",
     policy_incomplete: "清理策略配置不完整，未执行清理。",
     policy_invalid: "清理目标必须低于预警线，未执行清理。",
     below_threshold: "当前存储尚未达到预警线，无需清理。",
@@ -943,7 +966,7 @@ function cleanupPolicyDescription(
 function calculatePercentage(value: number | null, capacity: number | null) {
   return value === null || capacity === null
     ? null
-    : Math.min((value / capacity) * 100, 100);
+    : (value / capacity) * 100;
 }
 
 function normalizeCleanupBatchSize(value: number | null | undefined) {
