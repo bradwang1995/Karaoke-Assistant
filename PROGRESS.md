@@ -68,6 +68,7 @@ Last updated: 2026-07-25
 - `[x]` Admin D1 存储改用 Cloudflare Client API `file_size`，不再使用 SQL `meta.size_after` 作为权威值。
 - `[x]` Admin KV 存储改用 GraphQL `kvStorageAdaptiveGroups` 的 `byteCount/keyCount`，与 D1 独立展示。
 - `[x]` 指标最近成功值持久缓存、5 分钟调用控制、30 秒并发 lease、partial success 和 stale fallback。
+- `[x]` Production D1 已应用 `0004_cloudflare_storage_metrics.sql`；复核无待应用 migration，两个新表均存在。
 - `[ ]` Main Worker `CLOUDFLARE_API_TOKEN`（D1 Read + Account Analytics Read）尚未在 secret 列表中确认，production release 暂未执行。
 
 ### Phase 3 — Realtime queue
@@ -352,7 +353,7 @@ Last updated: 2026-07-25
 | 2026-07-21 admin baseline local | Typecheck、full 20 files / 73 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。内置浏览器完成 1440×1024 reference/implementation 同屏对照与 390×844 responsive smoke；页面无横向 overflow，三页导航与表格容器正常，console 无 error/warning。 |
 | 2026-07-21 admin storage protection | Typecheck、full 20 files / 82 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 应用 migration 0003；内置浏览器实际完成越线 preview → 二次确认 → 删除 1 条 → partial outcome → 空资料库刷新，D1 audit 为 `cleanup_repository/success/partial/affected_count=1`。1440×1024 与 390×844 均无横向页面溢出或 console error/warning。 |
 | 2026-07-22 admin production release | Full 20 files / 82 tests、typecheck、production build、`git diff --check` passed。Production D1 migrations 无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，deployment status 复核两个新版本均为 100%。Production root/admin HTTP 200，未认证 overview 为 401 + `no-store`；UTF-8 冷查询返回 10 条，重复查询命中 repository 且 quota 不增加；内置浏览器完成登录页、create CTA → display、连接状态和 console smoke。 |
-| 2026-07-25 real storage metrics local | Full 21 files / 88 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run passed。Local D1 已应用 migration 0004；内置浏览器完成登录、刷新、总览、搜索记录、资料库和清理预览，D1/KV 配置缺失分别安全降级且不提供清理执行。`1440×1000` 与 `390×844` 视觉通过，移动端无横向 overflow，console 无 error/warning；production token/deploy/Dashboard 对照尚待完成。 |
+| 2026-07-25 real storage metrics release prep | Full 21 files / 88 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run passed。Local 与 production D1 均已应用 migration 0004；production 复核无待应用 migration，两个指标表真实存在。内置浏览器完成登录、刷新、总览、搜索记录、资料库和清理预览，D1/KV 配置缺失分别安全降级且不提供清理执行。`1440×1000` 与 `390×844` 视觉通过，移动端无横向 overflow，console 无 error/warning；production token/deploy/Dashboard 对照尚待完成。 |
 
 ### Admin console design QA（2026-07-21）
 
@@ -444,8 +445,9 @@ Known limitation：本轮已在本地浏览器完成 responsive smoke，但测�
 
 - `[x]` 完成官方 D1 `file_size`、KV Analytics bytes/key count、缓存/lease/stale fallback 和清理保护实现。
 - `[x]` 完成本地 migration 0004、21 files / 88 tests、typecheck、production build、双 Worker dry-run 和响应式浏览器 QA。
+- `[x]` 应用 production migration 0004，并确认无待应用 migration、两个新表均存在。
 - `[ ]` 为 Main Worker 配置 `CLOUDFLARE_API_TOKEN`，只授予 D1 Read 与 Account Analytics Read。
-- `[ ]` 应用 production migration 0004，按 Room → Main `--keep-vars` 发布并记录两个真实版本 ID。
+- `[ ]` 按 Room → Main `--keep-vars` 发布并记录两个真实版本 ID。
 - `[ ]` 生产未认证 smoke 后，由管理员登录页面并把 D1/KV 数值与同刻 Cloudflare Dashboard 对照。
 
 ### P0 — Real-device acceptance
