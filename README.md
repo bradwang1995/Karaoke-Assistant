@@ -621,7 +621,9 @@ npx wrangler deploy --config wrangler.room.toml --keep-vars
 npx wrangler deploy --keep-vars
 ```
 
-Room Worker 先部署；`--keep-vars` 防止覆盖 Dashboard variables/secrets。`git push` 不等于 deploy；纯文档更新不 redeploy。
+Room Worker 先部署；`--keep-vars` 防止覆盖 Dashboard variables/secrets。
+
+当前 Main Worker 已连接 Cloudflare Workers Builds：push 到 production branch `main` 会自动构建并部署 Main，但不会替代 Room 的发布。因此 substantial release 仍以“先 Room、再 Main”为最终顺序；如果代码 push 已先触发 Main 自动部署，需要再按该顺序手动发布并复核最终 active versions。纯文档提交应使用 `[CI Skip]` 前缀，避免生成没有运行时变化的重复 Main 版本。
 
 ## 11. Production 测试
 
@@ -781,4 +783,5 @@ Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返�
 - Cloudflare KV commands：<https://developers.cloudflare.com/kv/reference/kv-commands/>
 - Cloudflare KV metrics / `kvStorageAdaptiveGroups`：<https://developers.cloudflare.com/kv/observability/metrics-analytics/>
 - Cloudflare GraphQL Analytics token：<https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/>
+- Cloudflare Workers Builds production branches：<https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/>
 - Durable Objects：<https://developers.cloudflare.com/durable-objects/get-started/>
