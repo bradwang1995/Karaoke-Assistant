@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-25
+Last updated: 2026-07-26
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -14,7 +14,7 @@ Last updated: 2026-07-25
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
 | YouTube search | MVP complete | Live API、family cache、ranking、推荐、rate limit、quota 已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
-| Cloudflare storage metrics | Production deployed / token pending | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产只读 token 与 Dashboard 对照待完成。 |
+| Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
 | Mobile preview | MVP complete | 2–4 列、单 iframe、固定 30 秒起点、600ms debounce、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
@@ -319,11 +319,12 @@ Last updated: 2026-07-25
 | ADM-12 | P0 | D1/KV 使用量与容量完全分离；未找到返回当前 account 真实 D1/KV capacity limit 的支持接口，因此不按 plan 名称硬编码上限。可选 `D1_CAPACITY_LIMIT_BYTES` / `KV_CAPACITY_LIMIT_BYTES` 明确标记为“运维配置”。 |
 | ADM-13 | P0 | `migrations/0004_cloudflare_storage_metrics.sql` 保存最近成功指标和 refresh lease；provider 部分失败保留另一资源，失败后继续显示最近成功值并标记过期，从未成功显示“暂时无法获取”。 |
 | ADM-14 | P1 | 保留用户选定的现有暗色界面与三项导航，仅在持久资料库卡片、系统提醒和清理预览中补充 D1/KV 实际值、key count、来源、测量时间和 app estimate 区分；全局刷新会强制服务端重新验证 Cloudflare。 |
+| ADM-15 | P0 | 完成生产管理员登录与 Dashboard 终验：D1 `278,528 bytes` 对应 Admin `272.0 KB` / Dashboard `279 kB`；KV `1,297,755 bytes`、`413` 个键对应 Admin `1.2 MB / 413` / Dashboard `1.3 MB / 413`。差异仅为单位换算。 |
 
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
-- 2026-07-25 只读 `wrangler d1 info ktv-assistant-db` 报告 production `database_size = 197 kB`、10 tables；这是真实 Cloudflare 当前值，最终 production 页面仍需在新 token/deploy 后再次同刻对照。
+- 2026-07-25 只读 `wrangler d1 info ktv-assistant-db` 报告 production `database_size = 197 kB`、10 tables；应用 migration 0004 与后续指标刷新后，2026-07-26 同刻生产对照为 D1 API `278,528 bytes`、Dashboard `279 kB`、12 tables。
 - D1 是真实持久资料源：`rooms`、`queue_items`、`playback_states`、`playback_events`、`search_repository_entries`、`search_events`、`youtube_quota_daily`、`admin_audit_events`、cleanup/metric leases 与最近成功 metric state。
 - KV `SEARCH_CACHE` 是可丢失加速层：`yt-search:v3` family payload、`yt-search-index:v2` aliases、`yt-search-recommendations:v1`，以及 D1 quota ledger 异常时的 quota fallback。它不是持久资料库真相来源。
 - `RoomDurableObject` 的 Durable Object storage 只保存 `room-activity` lifecycle state；房间业务 snapshot 读写 D1，queued recommendation 会写 KV。
@@ -355,6 +356,7 @@ Last updated: 2026-07-25
 | 2026-07-21 admin storage protection | Typecheck、full 20 files / 82 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 应用 migration 0003；内置浏览器实际完成越线 preview → 二次确认 → 删除 1 条 → partial outcome → 空资料库刷新，D1 audit 为 `cleanup_repository/success/partial/affected_count=1`。1440×1024 与 390×844 均无横向页面溢出或 console error/warning。 |
 | 2026-07-22 admin production release | Full 20 files / 82 tests、typecheck、production build、`git diff --check` passed。Production D1 migrations 无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，deployment status 复核两个新版本均为 100%。Production root/admin HTTP 200，未认证 overview 为 401 + `no-store`；UTF-8 冷查询返回 10 条，重复查询命中 repository 且 quota 不增加；内置浏览器完成登录页、create CTA → display、连接状态和 console smoke。 |
 | 2026-07-25 real storage metrics release | Full 21 files / 88 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run passed。Local 与 production D1 均已应用 migration 0004；production 复核无待应用 migration，两个指标表真实存在。按 Room → Main `--keep-vars` 发布，Room `8ee39e12-4618-4948-81d0-f753158a4046`、Main `ba476a0f-0583-431b-ba68-9d1b43d33c52` 均为 100%。Production root/admin 为 200，未认证 storage 为 401 + `no-store`；线上登录页加载正常且 console 无 error/warning。生产只读 token 和登录后的 Dashboard 数值对照尚待完成。 |
+| 2026-07-26 real storage metrics acceptance | Main Secret 更新生成活动版本 `45fc80db-0a8c-4037-a51c-18b003b618d6`，deployment status 为 100%。管理员登录生产 `/admin` 后强制刷新成功：D1 `278,528 bytes`、KV `1,297,755 bytes / 413 keys`，缓存无错误码；Cloudflare Dashboard 同刻显示 D1 `279 kB / 12 tables`、KV `1.3 MB / 413`。生产页面无横向溢出，console 无 error/warning。最终复跑 full 21 files / 88 tests、typecheck、production build、Room/Main 双 dry-run 和 `git diff --check` 均通过。 |
 
 ### Admin console design QA（2026-07-21）
 
@@ -368,13 +370,14 @@ Final result：passed；没有遗留可执行的 P0、P1 或 P2 design finding�
 
 ### Real storage metrics design QA（2026-07-25）
 
-Final result：local passed；没有遗留可执行的 P0、P1 或 P2 design finding。生产数值对照仍依赖 Main Worker 的只读 Cloudflare token。
+Final result：production passed；没有遗留可执行的 P0、P1 或 P2 design finding。Main Worker 只读 token、生产管理员登录和 Cloudflare Dashboard 数值对照均已完成。
 
 - Desktop：`1440×1000`；原有暗色布局和三项导航保持不变，D1、KV 与应用记录估算分层清晰。
 - Mobile：`390×844`；`documentScrollWidth === documentClientWidth`，指标卡、筛选和清理预览无页面级横向溢出。
 - Failure state：没有 token 时 D1/KV 分别显示安全不可用状态，不生成假体积、容量或百分比；清理执行入口保持关闭。
-- Interaction：登录、手动刷新、三页导航和清理预览均通过；刷新后按钮恢复可用。
-- Console：无 application error 或 warning。详细记录和本地截图路径见 `DESIGN-QA.MD`。
+- Production data：D1 API `278,528 bytes` 与 Dashboard `279 kB` 一致；KV Analytics `1,297,755 bytes / 413 keys` 与 Dashboard `1.3 MB / 413` 一致。Admin 的 `272.0 KB / 1.2 MB` 使用二进制换算。
+- Interaction：生产登录、手动刷新、三页导航和清理预览均通过；刷新后按钮恢复可用。
+- Console：本地与生产均无 application error 或 warning。详细记录和本地截图路径见 `DESIGN-QA.MD`。
 
 ### Fourth-round design QA（2026-07-15）
 
@@ -417,6 +420,7 @@ Current coverage：
 | 2026-07-21 pass 6 release | Main `aa2aa657-62a2-4b8d-93ec-d7ca508dab25`；Room `dc38a381-b95c-4cc7-914a-91f8fc952ec0`。 |
 | 2026-07-22 admin production release | Main `23be9233-b48a-4b1d-b788-236e3851c9f7`（100%）；Room `a3458d1b-f30b-4ba4-b4d6-07eb9f230b54`（100%）。 |
 | 2026-07-25 real storage metrics release | Main `ba476a0f-0583-431b-ba68-9d1b43d33c52`（100%）；Room `8ee39e12-4618-4948-81d0-f753158a4046`（100%）。 |
+| 2026-07-26 storage token acceptance | Main Secret-change version `45fc80db-0a8c-4037-a51c-18b003b618d6`（100%）；Room unchanged。 |
 
 Last local pass-4 smoke room `3r512238`：create CTA、mock search、单 iframe preview `start=30`、两首点歌、restart 保持当前 item、next 推进第二首且 progress value 为 `0`。Create 已确认 390×844 无横向 overflow、1280×720 无页面滚动；Display 已确认 dark 140px QR、无画质 selector、三键 panel。
 
@@ -430,6 +434,8 @@ Production pass-6 smoke room `4a1d0n6a`：root、display、mobile 均 HTTP 200�
 
 Production admin release API smoke room `1q6s3n4v`：root 与 `/admin` 均 HTTP 200；未认证 `/api/admin/overview` 返回 401 与 `Cache-Control: no-store`；room snapshot 为 empty queue / idle。UTF-8 `青花瓷 + 周杰伦` 首次由 external 返回 10 条，第二次 `cached=true`、`responseSource=repository`，quota 保持不变。一次错误编码的 smoke 请求产生的 4 条乱码事件、1 条 repository 记录、对应 family/index KV 与 recommendations 聚合已精确清除，复核垃圾事件与资料行均为 0，空查询仍返回 10 条 recommendations 且无 external call。内置浏览器另从 create CTA 创建 room `3q240558` 并进入 display；登录页与 display 均无横向 overflow 或 console error/warning。由于生产密码未提供给 Codex，未代替管理员提交登录表单。
 
+Production storage metrics acceptance：管理员已自行登录，Codex 未读取密码。强制刷新后 D1 与 KV 系统提醒均为正常；服务端状态表记录 `cloudflare-d1-api` 的 `278,528 bytes` 与 `cloudflare-analytics` 的 `1,297,755 bytes / 413 keys`，`last_error_code` 均为空。Dashboard 同刻显示 D1 `279 kB / 12 tables`、KV `1.3 MB / 413`；生产页面 `scrollWidth=clientWidth=2036`，console 为空。
+
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 
 ## 5. Remaining work
@@ -441,7 +447,7 @@ Known limitation：本轮已在本地浏览器完成 responsive smoke，但测�
 - `[x]` 完整 typecheck、test、production build、双 Worker dry-run 和 `git diff --check`。
 - `[x]` 确认 production admin secrets、应用 D1 migration，按 Room → Main `--keep-vars` 发布。
 - `[x]` 验证 production 未认证保护、登录页、create → display、中文搜索与 repository 复用，并记录真实版本 ID。
-- `[~]` 管理员本人使用独立持有的密码完成登录后真实总览/资料库终验；Codex 不读取或请求该密码。
+- `[x]` 管理员本人使用独立持有的密码完成登录后真实总览/资料库终验；Codex 未读取或请求该密码。
 
 ### P0 — Real Cloudflare storage metrics release
 
@@ -449,8 +455,8 @@ Known limitation：本轮已在本地浏览器完成 responsive smoke，但测�
 - `[x]` 完成本地 migration 0004、21 files / 88 tests、typecheck、production build、双 Worker dry-run 和响应式浏览器 QA。
 - `[x]` 应用 production migration 0004，并确认无待应用 migration、两个新表均存在。
 - `[x]` 按 Room → Main `--keep-vars` 发布并复核两个新版本均为 100% active；production root/admin 与未认证 storage smoke 通过。
-- `[ ]` 为 Main Worker 配置 `CLOUDFLARE_API_TOKEN`，只授予 D1 Read 与 Account Analytics Read。
-- `[ ]` 配置 token 后由管理员登录生产页面，并把 D1/KV 数值与同刻 Cloudflare Dashboard 对照。
+- `[x]` 为 Main Worker 配置 `CLOUDFLARE_API_TOKEN`，只授予 D1 Read 与 Account Analytics Read。
+- `[x]` 配置 token 后由管理员登录生产页面，并把 D1/KV 数值与同刻 Cloudflare Dashboard 对照。
 
 ### P0 — Real-device acceptance
 

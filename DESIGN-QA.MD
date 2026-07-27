@@ -1,6 +1,6 @@
 # 管理控制台视觉验收
 
-最近验收日期：2026-07-25
+最近验收日期：2026-07-26
 最终结果：通过
 
 ## 对照基线
@@ -33,6 +33,15 @@
 - 刷新与导航：通过。手动刷新、总览、搜索记录、资料库和清理预览均可操作，刷新完成后按钮恢复可用。
 - 响应式：通过。桌面卡片稳定对齐；`390 × 844` 下页面宽度与 viewport 一致，`documentScrollWidth === documentClientWidth`，无横向溢出。
 - 浏览器控制台：通过。增量验收没有发现 error 或 warning。
+
+## 2026-07-26 生产真实指标终验
+
+- Secret 与版本：通过。Main Worker 的 `CLOUDFLARE_API_TOKEN` 已配置，Secret 更新生成版本 `45fc80db-0a8c-4037-a51c-18b003b618d6`，当前承载 100% 流量。
+- D1 对照：通过。服务端 API 返回 `278,528 bytes`，Admin 显示 `272.0 KB`，同刻 Cloudflare Dashboard 显示 `279 kB / 12 tables`；差异仅为二进制与十进制单位换算。
+- KV 对照：通过。GraphQL Analytics 返回 `1,297,755 bytes / 413 keys`，Admin 显示 `1.2 MB / 413`，Dashboard 显示 `1.3 MB / 413`。
+- 状态与诚实性：通过。D1/KV 最近成功状态均无错误码；容量上限未配置，因此没有虚构容量百分比。
+- 视觉与布局：通过。生产真实值进入现有卡片后没有破坏层级或对齐；桌面 `scrollWidth=clientWidth=2036`，没有页面级横向溢出。
+- 交互与控制台：通过。管理员登录与强制刷新成功，系统提醒变为 D1/KV 正常；浏览器控制台没有 error 或 warning。
 
 ## Finding 清单
 

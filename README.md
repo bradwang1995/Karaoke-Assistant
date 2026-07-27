@@ -140,7 +140,7 @@ ROOM_OBJECT  -> RoomDurableObject in ktv-assistant-room
 
 Room Worker 使用相同 D1/KV，并通过 `[[migrations]]` 创建 `RoomDurableObject`。`workers_dev = false`，不需要独立 public URL。
 
-GitHub repository 与 Cloudflare Worker 独立命名。仓库已改名为 `Karaoke-Assistant`，但 Main Worker 继续使用 `ktv-assistant`，因此现有 production URL、D1、KV、Durable Object 和 secrets 不需要迁移。项目通过 Wrangler 手动部署，没有 Cloudflare Git integration；更新 Git remote 或 `git push` 不会触发 deploy。
+GitHub repository 与 Cloudflare Worker 独立命名。仓库已改名为 `Karaoke-Assistant`，但 Main Worker 继续使用 `ktv-assistant`，因此现有 production URL、D1、KV、Durable Object 和 secrets 不需要迁移。Main Worker 已连接 Cloudflare Workers Builds，`main` 分支 push 会触发 Main 自动部署；Room Worker 仍必须由 Wrangler 独立发布，完整发布顺序见第 10 节。
 
 Runtime variables：
 
@@ -485,6 +485,15 @@ npx wrangler dev --local --config wrangler.toml
 
 打开 `http://127.0.0.1:8787/admin`。生产环境必须通过 `wrangler secret put` 或 Dashboard encrypted secret 配置两个值，绝不写入 Git。
 
+### 7.5 生产指标验收快照（2026-07-26）
+
+生产管理员登录后强制刷新，D1 与 KV 均返回权威来源，没有安全错误或伪造容量：
+
+- Main Worker 当前活动版本 `45fc80db-0a8c-4037-a51c-18b003b618d6`，由 `CLOUDFLARE_API_TOKEN` Secret 更新生成，承载 100% 生产流量；本批运行时代码发布版本为 `ba476a0f-0583-431b-ba68-9d1b43d33c52`。
+- D1 API 在 `2026-07-27T01:52:41.947Z` 返回 `278,528 bytes`；Admin 按二进制单位显示 `272.0 KB`，同刻 Cloudflare Dashboard 按十进制单位显示 `279 kB`。
+- KV GraphQL Analytics 返回 `1,297,755 bytes`、`413` 个键，指标日为 `2026-07-27T00:00:00.000Z`；Admin 显示 `1.2 MB / 413`，Dashboard 显示 `1.3 MB / 413`。
+- Admin 与 Dashboard 的显示差异只来自二进制和十进制单位换算，精确来源值一致。D1/KV 容量上限仍未配置，因此界面不显示猜测百分比。
+
 ## 8. YouTube preview 与 display player
 
 Mobile preview：
@@ -580,6 +589,8 @@ Room Worker 不直接提供 admin 页面，因此无需复制 admin secrets。
 npx wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.toml
 npx wrangler secret list --config wrangler.toml
 ```
+
+交互提示中只粘贴原始 token 值，不包含 token 名称、token ID、引号或 `Bearer` 前缀。更新 Secret 会生成新的 Main Worker 版本；必须再用 `wrangler deployments status --config wrangler.toml --json` 确认新版本已获得 100% 流量。
 
 Worker 只在受保护的管理员请求中服务端调用 Cloudflare；token、account ID、database ID、namespace ID 和原始 provider response 均不会发送浏览器。D1 读取使用 Client API；KV bytes/key count 使用与 Dashboard 相同的 GraphQL Analytics dataset。
 
