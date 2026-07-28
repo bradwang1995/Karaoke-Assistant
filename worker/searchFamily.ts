@@ -31,17 +31,18 @@ export function buildSearchQueryFamily(
 ): SearchQueryFamily {
   const searchType = options.searchType ?? "song";
   const includeOriginalVocal = options.includeOriginalVocal ?? false;
-  const canonicalQuery = normalizeSearchFamilyQuery(query);
+  const canonicalQuery = normalizeQuery(query);
+  const providerQuery = normalizeSearchFamilyQuery(canonicalQuery);
   const normalizedArtist = normalizeOptionalText(artist);
-  const normalizedQuery = buildNormalizedQuery(canonicalQuery, searchType, includeOriginalVocal);
+  const normalizedQuery = buildNormalizedQuery(providerQuery, searchType, includeOriginalVocal);
   const aliases = buildFamilyAliases(
-    canonicalQuery,
+    providerQuery,
     normalizedArtist,
     searchType,
     includeOriginalVocal,
   );
   const sourceQueries = buildSourceQueries(
-    canonicalQuery,
+    providerQuery,
     aliases,
     normalizedArtist,
     searchType,

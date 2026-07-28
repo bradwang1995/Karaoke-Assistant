@@ -1,4 +1,4 @@
-import { normalizeSearchQuery } from "../src/lib/queryNormalize";
+import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { QueueItemInput } from "../src/types/room";
 import type { SearchResponse } from "../src/types/youtube";
 import type { SearchQueryFamily } from "./searchFamily";
@@ -114,19 +114,13 @@ export async function readSearchCache(
     return null;
   }
 
-  const indexedHash = await namespace.get(
-    searchCacheIndexKey(family.normalizedQuery, family),
+  const entry = await namespace.get<SearchCacheEntry>(
+    searchCacheFamilyKey(family.hash),
+    { type: "json" },
   );
-  const hashes = uniqueValues([family.hash, indexedHash].filter(isString));
 
-  for (const familyHash of hashes) {
-    const entry = await namespace.get<SearchCacheEntry>(searchCacheFamilyKey(familyHash), {
-      type: "json",
-    });
-
-    if (isValidSearchCacheEntry(entry) && isCompatibleSearchCacheEntry(entry, family)) {
-      return { entry, familyHash };
-    }
+  if (isValidSearchCacheEntry(entry) && isCompatibleSearchCacheEntry(entry, family)) {
+    return { entry, familyHash: family.hash };
   }
 
   return null;
@@ -165,7 +159,6 @@ export async function writeSearchCache(
     expirationTtl: ttlSeconds,
   });
 
-  await writeSearchCacheIndexes(namespace, family, ttlSeconds);
   await updateSearchRecommendations(namespace, payload.entry.results, ttlSeconds);
 
   return payload.entry;
@@ -360,27 +353,6 @@ function stringifyWithMeasuredBytes(entry: SearchCacheEntry, prunedResultCount: 
   };
 }
 
-async function writeSearchCacheIndexes(
-  namespace: SearchCacheNamespace,
-  family: SearchQueryFamily,
-  ttlSeconds: number,
-) {
-  const normalizedIndexQueries = uniqueValues([
-    family.normalizedQuery,
-    ...family.aliases
-      .filter((alias) => alias.includes(family.canonicalQuery))
-      .map((alias) => normalizeSearchQuery(alias)),
-  ]);
-
-  await Promise.all(
-    normalizedIndexQueries.map((normalizedQuery) =>
-      namespace.put(searchCacheIndexKey(normalizedQuery, family), family.hash, {
-        expirationTtl: ttlSeconds,
-      }),
-    ),
-  );
-}
-
 async function updateSearchRecommendations(
   namespace: SearchCacheNamespace,
   nextResults: SearchResponse["results"],
@@ -467,6 +439,8 @@ function isCompatibleSearchCacheEntry(
   family: SearchQueryFamily,
 ) {
   return (
+    normalizeQuery(entry.query) === family.canonicalQuery &&
+    entry.queryFamily.canonicalQuery === family.canonicalQuery &&
     entry.queryFamily.searchType === family.searchType &&
     entry.queryFamily.includeOriginalVocal === family.includeOriginalVocal &&
     (entry.queryFamily.artist ?? "") === (family.artist ?? "")
@@ -515,8 +489,4 @@ function byteLength(value: string) {
 
 function uniqueValues(values: string[]) {
   return [...new Set(values)];
-}
-
-function isString(value: string | null): value is string {
-  return typeof value === "string" && value.length > 0;
 }

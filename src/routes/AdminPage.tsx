@@ -337,10 +337,10 @@ function OverviewPage() {
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="font-semibold">用户搜索趋势</h3>
-            <p className="mt-1 text-xs text-slate-500">本地资料命中与外部 API 请求</p>
+            <p className="mt-1 text-xs text-slate-500">精确查询命中与外部 API 请求</p>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-400">
-            <LegendDot color="bg-teal-300" label="本地资料命中" />
+            <LegendDot color="bg-teal-300" label="精确查询命中" />
             <LegendDot color="bg-violet-400" label="外部 API" />
           </div>
         </div>
@@ -373,7 +373,7 @@ function OverviewPage() {
                   }}
                   labelStyle={{ color: "#94a3b8", marginBottom: 6 }}
                 />
-                <Area type="monotone" dataKey="repositoryHits" name="本地资料命中" stroke="#5eead4" fill="url(#repository-fill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="repositoryHits" name="精确查询命中" stroke="#5eead4" fill="url(#repository-fill)" strokeWidth={2} />
                 <Area type="monotone" dataKey="externalRequests" name="外部 API" stroke="#a78bfa" fill="url(#external-fill)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
@@ -472,9 +472,9 @@ function CatalogEfficiencySummary({ data }: { data: AdminOverview }) {
     <Panel>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold">候选目录与额度效率</p>
+          <p className="text-sm font-semibold">候选采集与精确复用效率</p>
           <p className="mt-1 text-xs text-slate-500">
-            原始可嵌入候选进入 D1 本地目录；用户只看到相关性过滤后的结果
+            原始可嵌入候选被动写入 D1；在线搜索不会扫描候选目录
           </p>
         </div>
         <p className="text-xs text-slate-500">
@@ -486,8 +486,8 @@ function CatalogEfficiencySummary({ data }: { data: AdminOverview }) {
       <div className="mt-6 grid grid-cols-2 gap-y-5 divide-white/10 sm:grid-cols-3 xl:grid-cols-6 xl:divide-x">
         <Metric label="目录视频" value={formatNumber(data.catalog.totalVideos)} />
         <Metric label="累计出现" value={formatNumber(data.catalog.totalAppearances)} />
-        <Metric label="免外部调用" value={formatNumber(data.searches.externalCallsAvoided)} />
-        <Metric label="本地复用率" value={formatPercentage(data.searches.localReuseRate)} />
+        <Metric label="精确复用" value={formatNumber(data.searches.externalCallsAvoided)} />
+        <Metric label="精确复用率" value={formatPercentage(data.searches.localReuseRate)} />
         <Metric
           label="新增候选/额度"
           value={data.searches.usableVideosPerExternalCall.toFixed(1)}
@@ -499,8 +499,8 @@ function CatalogEfficiencySummary({ data }: { data: AdminOverview }) {
       </div>
       <p className="mt-5 border-t border-white/[0.07] pt-3 text-xs leading-5 text-slate-500">
         当前范围内共调用 {formatNumber(data.searches.externalSearchCalls)} 次 search.list，
-        新增 {formatNumber(data.searches.uniqueCatalogVideosAdded)} 个独立候选。新查询本地命中至少
-        10 条时直接返回，不再消耗搜索额度。
+        新增 {formatNumber(data.searches.uniqueCatalogVideosAdded)} 个独立候选。只有搜索文字、歌曲/歌手模式、
+        原唱开关和 artist 字段（如有）完全相同的查询才会直接复用。
       </p>
     </Panel>
   );

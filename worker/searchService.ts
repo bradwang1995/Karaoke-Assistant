@@ -5,18 +5,15 @@ import {
   MAX_CACHED_SEARCH_RESULTS,
   readSearchCache,
   readSearchRecommendations,
-  type SearchCacheReadResult,
   type SearchCacheNamespace,
   touchSearchCache,
   writeSearchCache,
 } from "./kvCache";
 import { searchMockVideos } from "./mockSearchProvider";
-import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { readSearchRepository, writeSearchRepository } from "./searchRepository";
 import type { Env } from "./types";
 import {
-  searchVideoCatalog,
   upsertVideoCatalog,
   type VideoCatalogCandidate,
 } from "./videoCatalog";
@@ -28,7 +25,6 @@ import {
 
 const DEFAULT_YOUTUBE_DAILY_SEARCH_LIMIT = 100;
 const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 1;
-const LOCAL_CATALOG_SUFFICIENT_RESULT_COUNT = 10;
 
 type SearchServiceEnv = Omit<Env, "SEARCH_CACHE"> & {
   SEARCH_CACHE?: SearchCacheNamespace;
@@ -60,28 +56,11 @@ export async function searchVideos({
     return limitSearchResponse(repositoryHit.response, limit);
   }
 
-  const cachedEntries = await readCachedSearchEntries({
-    query,
-    artist,
-    searchType,
-    includeOriginalVocal,
-    env,
-  });
+  const cached = await readSearchCache(env.SEARCH_CACHE, family);
   const cacheTtlSeconds = getSearchCacheTtlSeconds(env);
-  const cachedResults = rankSearchResultsForQuery(
-    uniqueCachedResults(cachedEntries),
-    query,
-    {
-      searchType,
-      includeOriginalVocal,
-      artist,
-    },
-  );
 
-  if (cachedResults.length > 0) {
-    for (const cached of cachedEntries) {
-      await touchSearchCache(env.SEARCH_CACHE, cached.familyHash, cached.entry);
-    }
+  if (cached && cached.entry.results.length > 0) {
+    await touchSearchCache(env.SEARCH_CACHE, cached.familyHash, cached.entry);
 
     const response = {
         query,
@@ -89,25 +68,14 @@ export async function searchVideos({
         searchType,
         includeOriginalVocal,
         cached: true,
-        results: cachedResults,
+        results: cached.entry.results,
         cacheMeta: {
-          sourceQueryCount: sumCachedStat(
-            cachedEntries,
-            (cached) => cached.entry.stats.youtubeSearchCalls,
-          ),
-          cachedResultCount: cachedResults.length,
-          servedFromExpandedCache: true,
-          videosListCalls: sumCachedStat(
-            cachedEntries,
-            (cached) => cached.entry.stats.videosListCalls,
-          ),
-          sourceQueries: [
-            ...new Set(cachedEntries.flatMap((cached) => cached.entry.sourceQueries)),
-          ],
-          prunedResultCount: sumCachedStat(
-            cachedEntries,
-            (cached) => cached.entry.stats.prunedResultCount,
-          ),
+          sourceQueryCount: 0,
+          cachedResultCount: cached.entry.results.length,
+          servedFromExpandedCache: false,
+          videosListCalls: 0,
+          sourceQueries: cached.entry.sourceQueries,
+          prunedResultCount: cached.entry.stats.prunedResultCount,
           responseSource: "repository" as const,
           candidateResultCount: 0,
           filteredResultCount: 0,
@@ -132,93 +100,34 @@ export async function searchVideos({
     );
   }
 
-  const catalogResults = await safeSearchVideoCatalog({
-    db: env.DB,
-    query,
-    artist,
-    searchType,
-    includeOriginalVocal,
-    limit: MAX_CACHED_SEARCH_RESULTS,
-  });
-  const sufficientCatalogCount = Math.min(
-    Math.max(limit, 1),
-    LOCAL_CATALOG_SUFFICIENT_RESULT_COUNT,
-  );
-  const catalogIsSufficient = catalogResults.length >= sufficientCatalogCount;
-  let providerResponse: SearchResponse;
-
-  if (catalogIsSufficient) {
-    providerResponse = {
-      query,
-      normalizedQuery: family.normalizedQuery,
-      searchType,
-      includeOriginalVocal,
-      cached: true,
-      results: catalogResults,
-      cacheMeta: {
-        sourceQueryCount: 0,
-        cachedResultCount: catalogResults.length,
-        servedFromExpandedCache: true,
-        sourceQueries: [],
-        responseSource: "repository",
-        candidateResultCount: 0,
-        filteredResultCount: 0,
-        catalogResultCount: catalogResults.length,
-        uniqueCatalogVideosAdded: 0,
-        externalCallAvoided: true,
-      },
-    };
-  } else if (env.YOUTUBE_API_KEY) {
-    providerResponse = await searchLiveVideos({
-      query,
-      artist,
-      searchType,
-      includeOriginalVocal,
-      limit,
-      cacheFill,
-      env,
-    });
-  } else {
-    providerResponse = {
-      ...searchMockVideos(query, limit),
-      searchType,
-      includeOriginalVocal,
-    };
-  }
-  const combinedResults =
-    catalogResults.length > 0 && !catalogIsSufficient
-      ? rankSearchResultsForQuery(
-          uniqueSearchResults([...catalogResults, ...providerResponse.results]),
-          query,
-          {
-            searchType,
-            includeOriginalVocal,
-            artist,
-          },
-        )
-      : providerResponse.results;
+  const providerResponse = env.YOUTUBE_API_KEY
+    ? await searchLiveVideos({
+        query,
+        artist,
+        searchType,
+        includeOriginalVocal,
+        limit,
+        cacheFill,
+        env,
+      })
+    : {
+        ...searchMockVideos(query, limit),
+        searchType,
+        includeOriginalVocal,
+      };
   const usedExternalSearchCalls = providerResponse.cacheMeta?.sourceQueryCount ?? 0;
-  const responseSource = catalogIsSufficient
-    ? "repository"
-    : env.YOUTUBE_API_KEY
-      ? usedExternalSearchCalls > 0
-        ? "external"
-        : catalogResults.length > 0
-          ? "repository"
-          : "external"
-      : "mock";
+  const responseSource = env.YOUTUBE_API_KEY ? "external" : "mock";
   const responseWithSource: SearchResponse = {
     ...providerResponse,
-    cached: responseSource === "repository",
-    results: combinedResults,
+    cached: false,
     cacheMeta: {
       ...providerResponse.cacheMeta,
       sourceQueryCount: usedExternalSearchCalls,
-      cachedResultCount: combinedResults.length,
-      servedFromExpandedCache: catalogResults.length > 0,
+      cachedResultCount: providerResponse.results.length,
+      servedFromExpandedCache: false,
       responseSource,
-      catalogResultCount: catalogResults.length,
-      externalCallAvoided: responseSource === "repository",
+      catalogResultCount: 0,
+      externalCallAvoided: false,
     },
   };
 
@@ -262,22 +171,6 @@ async function safeWriteSearchRepository(
       }),
     );
     return null;
-  }
-}
-
-async function safeSearchVideoCatalog(
-  options: Parameters<typeof searchVideoCatalog>[0],
-) {
-  try {
-    return await searchVideoCatalog(options);
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "search-video-catalog-read-failed",
-        error: error instanceof Error ? error.message : "Unknown D1 error",
-      }),
-    );
-    return [];
   }
 }
 
@@ -344,92 +237,6 @@ async function persistAndLimitSearchResponse({
     },
     limit,
   );
-}
-
-async function readCachedSearchEntries({
-  query,
-  artist,
-  searchType,
-  includeOriginalVocal,
-  env,
-}: {
-  query: string;
-  artist?: string;
-  searchType: SearchType;
-  includeOriginalVocal: boolean;
-  env: SearchServiceEnv;
-}) {
-  const families =
-    searchType === "song"
-      ? [false, true].map((vocalIntent) =>
-          buildSearchQueryFamily(query, artist, {
-            searchType,
-            includeOriginalVocal: vocalIntent,
-          }),
-        )
-      : [
-          buildSearchQueryFamily(query, artist, {
-            searchType,
-            includeOriginalVocal,
-          }),
-        ];
-  const reads = await Promise.all(
-    families.map((candidate) => readSearchCache(env.SEARCH_CACHE, candidate)),
-  );
-  const entries: SearchCacheReadResult[] = [];
-  const seenFamilyHashes = new Set<string>();
-
-  for (const cached of reads) {
-    if (!cached || seenFamilyHashes.has(cached.familyHash)) {
-      continue;
-    }
-
-    seenFamilyHashes.add(cached.familyHash);
-    entries.push(cached);
-  }
-
-  return entries;
-}
-
-function uniqueCachedResults(cachedEntries: SearchCacheReadResult[]) {
-  const results: SearchResponse["results"] = [];
-  const seenVideoIds = new Set<string>();
-
-  for (const cached of cachedEntries) {
-    for (const result of cached.entry.results) {
-      if (seenVideoIds.has(result.videoId)) {
-        continue;
-      }
-
-      seenVideoIds.add(result.videoId);
-      results.push(result);
-    }
-  }
-
-  return results;
-}
-
-function uniqueSearchResults(results: SearchResponse["results"]) {
-  const unique: SearchResponse["results"] = [];
-  const seenVideoIds = new Set<string>();
-
-  for (const result of results) {
-    if (seenVideoIds.has(result.videoId)) {
-      continue;
-    }
-
-    seenVideoIds.add(result.videoId);
-    unique.push(result);
-  }
-
-  return unique;
-}
-
-function sumCachedStat(
-  cachedEntries: SearchCacheReadResult[],
-  readValue: (cached: SearchCacheReadResult) => number,
-) {
-  return cachedEntries.reduce((total, cached) => total + readValue(cached), 0);
 }
 
 export async function getSearchRecommendations({

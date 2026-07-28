@@ -223,14 +223,14 @@ Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。
 
 ## 6. Search technical design
 
-Search 的目标不是每次只返回少量临时结果，而是用一次 cold request 建立可复用、可重新排序的 KTV candidate pool。
+Search 的目标是优先复用完全相同的查询；任何不同的搜索文字、歌曲/歌手模式或原唱开关都执行新的 cold request，避免在线扫描历史候选池，也不以少量本地结果提前结束搜索。
 
 ### 6.1 目标与约束
 
 - API key 只存在于 Worker secret。
 - Cold search family 默认只发一次 `search.list`。
 - 一次最多取 50 个 embeddable candidates，去重、补 duration、打分、缓存。
-- 原始 embeddable candidates 与用户可见结果分开：候选写入 D1 视频目录，界面只接收通过相关性过滤的结果。
+- 原始 embeddable candidates 与用户可见结果分开：候选只被动写入 D1 供统计，在线搜索不会查询该目录；界面只接收本次外部结果中通过相关性过滤的内容。
 - 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
@@ -271,10 +271,10 @@ Response 保留：
 
 `buildSearchQueryFamily`：
 
-1. Normalize case/spacing。
-2. 反复移除结尾 `ktv`、`karaoke`、`instrumental`、`pinyin`、`伴奏`、`卡拉OK`。
-3. 用 canonical query、artist、type 和 vocal intent 生成稳定 hash。
-4. 生成 aliases、normalized query 和 source queries。
+1. 对用户实际输入只做 trim、连续空格折叠和小写规范化；该完整文字作为 cache identity。
+2. 用完整规范化文字、artist、type 和 vocal intent 生成稳定 hash。
+3. 只有在构造 YouTube provider query 时，才移除末尾 `ktv`、`karaoke`、`instrumental`、`pinyin`、`伴奏`、`卡拉OK`，避免重复后缀；这不会改变 cache identity。
+4. 生成 provider aliases、normalized query 和 source queries。
 
 Hash input：
 
@@ -282,7 +282,7 @@ Hash input：
 canonicalQuery | artist | searchType | original-or-karaoke
 ```
 
-所以 song/artist、伴奏/原唱和明确 artist 各有独立 family；歌名模式会显式合并同一 canonical song 的 KTV/原唱历史候选，再按当前 intent 重排，避免切换原唱时浪费 search call 或换成无关结果。
+所以只有完整规范化文字、song/artist、伴奏/原唱和明确 artist 全部相同才属于同一 family。`后来`、`后来 KTV`、歌曲模式/歌手模式、伴奏/原唱均彼此隔离，不再合并或互相复用。
 
 Song/KTV aliases：
 
@@ -311,14 +311,14 @@ Song mode 的第一条 source query 是精确 canonical song title，确保一�
 
 ### 6.4 Live fetch pipeline
 
-1. Read D1 exact repository，再读 KV family/index cache。
-2. Exact/KV miss 后用 D1 FTS5 视频目录按歌名/歌手词项找跨查询候选，并使用同一 scoring/filtering 重排。
-3. 本地相关结果达到 `min(requested limit, 10)` 时直接返回；不足才读 quota estimate 并准备外部补齐。
+1. Read D1 exact repository；key 必须同时匹配完整规范化文字、artist、song/artist mode 和 original-vocal flag。
+2. D1 miss 时只按同一个 exact family hash 读取 KV；不读 normalized index、不扫描其他 family、不合并相似 query 或相反 vocal intent。
+3. Exact D1/KV 均 miss 时读取 quota estimate，并准备一次外部搜索。
 4. `search.list` 使用 `type=video`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
 5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails)` 读取 duration，每 50 ids 一批。
-6. 将原始可嵌入候选 upsert 到 D1 视频目录；歌名模式过滤 title miss / channel-only hit，再针对 current user query 和 vocal intent 排序。
-7. 合并不足的本地结果与外部可见结果，再写 exact repository、family cache、intent-scoped indexes 和 recommendation pool。
-8. 返回 requested slice，非空搜索最多 50 条。
+6. 歌名模式过滤 title miss / channel-only hit，再针对 current user query 和 vocal intent 排序；原始可嵌入候选只被动写入 D1 统计目录，不参与本次或后续在线检索。
+7. 将本次过滤后的完整结果写入 exact repository、exact family cache 和 recommendation pool。
+8. 返回 requested slice，非空搜索最多 50 条；不存在“本地凑够 10 条就提前返回”的路径。
 
 没有 `YOUTUBE_API_KEY` 时使用 mock provider。Quota exhausted 且 cache miss 时返回空 results 和 quota metadata；已有 cache 仍可使用。
 
@@ -343,7 +343,7 @@ Song mode 的第一条 source query 是精确 canonical song title，确保一�
 | Remix、tutorial、教学、shorts | Downrank |
 | Duration < 60s 或 > 15min | Downrank |
 
-带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的正负权重；歌名模式复用并合并同一 canonical song 的两个 intent family，歌手模式继续使用各自 family。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
+带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的正负权重，并使用独立 exact family；不会合并相反 vocal intent 的历史结果。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
 
 关键 regression：搜索 `依赖` 时，`离开我的依赖` 的 KTV/lyrics/伴奏必须高于标题无关的 `唯一` KTV。
 
@@ -353,7 +353,6 @@ Keys：
 
 ```txt
 yt-search:v3:<familyHash>:CA:zh-Hans
-yt-search-index:v2:<song-or-artist>:<karaoke-or-original>:<artist-scope>:<normalizedQuery>:CA:zh-Hans
 yt-search-recommendations:v1:CA:zh-Hans
 yt-search-quota:v1:<Pacific-date>
 ```
@@ -366,21 +365,22 @@ Family entry 保存：
 - Search/videos call counts、payload bytes、pruned count。
 - Hit count 和 last accessed time。
 
-读取先查精确 family hash，再 fallback 到 type/vocal-intent/artist 隔离的 normalized index，并验证 entry scope。歌名 cache hit 会按固定顺序合并同一 canonical song 的 KTV/原唱 family、按当前 intent 重新打分并过滤无关 title；命中的 family 增加 hit count，但不延长原 expiry。
+读取只查精确 family hash，并再次验证完整规范化文字、type、vocal intent 和 artist scope。不会 fallback 到 normalized index，也不会合并其他 query family；命中的 family 增加 hit count，但不延长原 expiry。历史 `yt-search-index:v2` key 可自然过期，新搜索不再读取或写入。
 
 写入先限制 50 条，再测 UTF-8 JSON bytes；超过 512 KiB 时从尾部裁剪。默认 TTL 365 天。KV 可重建；D1 exact repository 与视频目录是持久资料源。
 
-### 6.7 D1 跨查询视频目录
+### 6.7 D1 被动候选统计目录
 
 `migrations/0005_search_video_catalog.sql` 新增：
 
 - `search_video_catalog`：按 `video_id` 去重保存标题、频道、缩略图、duration、发布时间、首次/最近来源 query、出现次数和时间。
-- `search_video_catalog_fts`：由 insert/update/delete triggers 同步的 FTS5 外部内容索引；标题权重大于频道。
 - `search_events` 效率列：外部候选数、过滤后数、目录结果数、新增独立候选、真实 search calls 和是否避免外部调用。
 
-目录只接收 YouTube `type=video + videoEmbeddable=true` 返回的原始候选。它不会把低相关候选直接暴露给用户；每次本地检索仍经过当前 query 的 song/artist、KTV/原唱 scoring，歌名 title miss 与 channel-only hit 继续过滤。
+目录只接收 YouTube `type=video + videoEmbeddable=true` 返回的原始候选，用于统计候选增长、重复出现和过滤效率。在线搜索完全不读取该表；低相关候选不会暴露给用户，也不会被拿来补足其他 query。
 
 同一视频在并发/重复写入时使用 `INSERT ... DO NOTHING` 的真实 D1 `changes` 计算新增数量，已存在视频只更新 metadata、appearance count 和 last seen。管理台因此可以显示真实的“新增候选/额度”，而不是把重复候选当成增长。
+
+`migrations/0006_remove_cross_query_catalog_search.sql` 删除 0005 曾建立的 FTS5 表和同步 triggers，保留原始候选统计数据，避免无用索引写入成本。
 
 ### 6.8 Recommendations、quota、rate limit
 
@@ -424,14 +424,14 @@ Family entry 保存：
 - 单管理员密码登录；服务端验证 `ADMIN_PASSWORD`，使用 `ADMIN_SESSION_SECRET` 签发 12 小时、`Secure`、`HttpOnly`、`SameSite=Strict` cookie。
 - 所有 admin read/mutation API 独立校验 session；前端路由隐藏与否不参与授权判断。
 - 登录端点按 IP 限流；admin mutation 额外校验 same-origin；错误响应与 admin 数据均使用 `Cache-Control: no-store`。
-- 总览展示本地耐久 quota ledger、Cloudflare D1 API 实际体积、Cloudflare Analytics KV bytes/key count、应用记录估算、持久查询/结果/复用计数、跨查询视频目录、候选过滤与额度效率、趋势、热门歌曲/歌手和原唱分类状态。
+- 总览展示本地耐久 quota ledger、Cloudflare D1 API 实际体积、Cloudflare Analytics KV bytes/key count、应用记录估算、持久查询/结果/复用计数、被动候选采集、精确复用与过滤效率、趋势、热门歌曲/歌手和原唱分类状态。
 - 搜索记录支持 `24 小时 / 7 天 / 30 天`、关键词、来源、分页；历史从 migration 上线后的新事件开始，不伪造 backfill。
 - 资料库支持关键词、查询类型、排序、分页、结果标题预览、最多 50 条选择删除和确认对话框。
 - 删除同时移除对应 D1 entry 与 KV 加速 key，并写 `admin_audit_events`；不提供 raw `TRUNCATE`。
 - 存储压力清理必须先预览；只有容量、预警线和较低目标都已配置且当前容量越线时，才按低复用、最久未用、最早创建的顺序生成候选。执行使用 60 秒短期锁和最多 50 条的有限批次，结果与最近历史可见且写入审计。
 - 首版不自动执行存储清理；D1 物理容量在逻辑删除后可能延迟变化，因此 partial outcome 会诚实显示并允许稍后重新预览。
 
-当前仍不包含 automated/prewarm search、趋势抓取、semantic/fuzzy matching、无人值守自动容量清理或多角色权限系统。跨查询复用只使用本地 FTS5 词项匹配和现有确定性 scoring。
+当前仍不包含 automated/prewarm search、趋势抓取、跨查询/semantic/fuzzy matching、无人值守自动容量清理或多角色权限系统。
 
 ### 7.2 D1 数据与复用路径
 
@@ -446,17 +446,16 @@ Family entry 保存：
 
 `migrations/0004_cloudflare_storage_metrics.sql` 新增 D1/KV 最近成功指标状态与 30 秒刷新 lease。缓存只保存标准化 bytes、key count、来源、时间和安全错误码，不保存 Cloudflare token 或原始 provider response。
 
-`migrations/0005_search_video_catalog.sql` 新增持久视频目录、FTS5 同步索引和搜索效率事件列。目录没有自动 TTL；实际 D1 `file_size` 继续由 Cloudflare 指标路径监控。
+`migrations/0005_search_video_catalog.sql` 新增持久视频目录和搜索效率事件列；`migrations/0006_remove_cross_query_catalog_search.sql` 删除不再使用的 FTS5 索引与 triggers。目录没有自动 TTL；实际 D1 `file_size` 继续由 Cloudflare 指标路径监控。
 
 用户搜索顺序：
 
-1. 使用现有 deterministic query family 规范化策略查 D1 exact match。
-2. 命中时更新 `access_count/last_accessed_at`，返回 `responseSource=repository`，不调用 YouTube。
-3. D1 miss 时可读取旧 KV family 作为兼容加速；有效 KV 结果会写回 D1。
-4. Exact/KV miss 后查 D1 FTS5 视频目录；当前 query 相关结果至少 10 条（或 requested limit 更小）时直接返回并写 exact repository。
-5. 本地结果不足才调用 YouTube（或 local mock）。Live path 在发出 `search.list` 前先通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
-6. 原始外部候选写入视频目录；过滤后结果与不足的本地结果合并，并写 exact repository。KV 仍保留 365 天 TTL，但只是可丢失的加速/推荐层。
-7. API route 记录 human search event、response source、候选/过滤/新增与避免外部调用指标，供 admin 聚合。
+1. 用完整规范化文字、artist、song/artist mode 和 original-vocal flag 查 D1 exact match。
+2. 命中时更新 `access_count/last_accessed_at`，原样返回该 family 的结果，`responseSource=repository`，不调用 YouTube。
+3. D1 miss 时只读取同一 exact family hash 的 KV；有效结果写回 D1。不会读取 normalized index、相似 query、相反 vocal intent 或候选目录。
+4. Exact D1/KV miss 就调用 YouTube（或 local mock）。Live path 在发出 `search.list` 前先通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
+5. 原始外部候选被动写入统计目录；过滤后的完整结果写入 exact repository 和 exact KV family。KV 保留 365 天 TTL，但只是可丢失的 exact 加速/推荐层。
+6. API route 记录 human search event、response source、候选/过滤/新增与精确复用指标，供 admin 聚合。
 
 如果 D1 暂时不可用，公开搜索会记录结构化错误并沿用 KV/live path，不因为 admin instrumentation 让用户搜索整体失败。
 

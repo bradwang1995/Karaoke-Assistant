@@ -1,11 +1,7 @@
 import { normalizeQuery } from "../src/lib/queryNormalize";
-import type { SearchType, VideoSearchResult } from "../src/types/youtube";
-import { rankSearchResultsForQuery } from "./scoring";
-import { buildSearchQueryFamily } from "./searchFamily";
+import type { VideoSearchResult } from "../src/types/youtube";
 
 const MAX_CATALOG_WRITE_RESULTS = 50;
-const MAX_CATALOG_SEARCH_RESULTS = 200;
-const MAX_FTS_QUERY_TERMS = 12;
 
 export type VideoCatalogCandidate = Omit<VideoSearchResult, "score" | "reasons">;
 
@@ -104,89 +100,6 @@ export async function upsertVideoCatalog(
   };
 }
 
-export async function searchVideoCatalog({
-  db,
-  query,
-  artist,
-  searchType,
-  includeOriginalVocal,
-  limit,
-}: {
-  db: D1Database | undefined;
-  query: string;
-  artist?: string;
-  searchType: SearchType;
-  includeOriginalVocal: boolean;
-  limit: number;
-}): Promise<VideoSearchResult[]> {
-  if (!db || limit <= 0) {
-    return [];
-  }
-
-  const family = buildSearchQueryFamily(query, artist, {
-    searchType,
-    includeOriginalVocal,
-  });
-  const matchQuery = buildCatalogMatchQuery(
-    family.canonicalQuery,
-    searchType === "song" ? artist : undefined,
-  );
-
-  if (!matchQuery) {
-    return [];
-  }
-
-  const queryLimit = Math.min(
-    Math.max(Math.ceil(limit) * 4, 50),
-    MAX_CATALOG_SEARCH_RESULTS,
-  );
-  const rows = await db
-    .prepare(
-      `SELECT catalog.video_id, catalog.title, catalog.channel_title,
-              catalog.thumbnail_url, catalog.duration_seconds, catalog.published_at
-       FROM search_video_catalog_fts
-       JOIN search_video_catalog AS catalog
-         ON catalog.rowid = search_video_catalog_fts.rowid
-       WHERE search_video_catalog_fts MATCH ?1
-       ORDER BY bm25(search_video_catalog_fts, 1.0, 0.45) ASC,
-                catalog.appearance_count DESC,
-                catalog.last_seen_at DESC
-       LIMIT ?2`,
-    )
-    .bind(matchQuery, queryLimit)
-    .all<Record<string, unknown>>();
-
-  return rankSearchResultsForQuery(
-    rows.results.map(toCatalogCandidate).filter(isCatalogCandidate),
-    query,
-    {
-      searchType,
-      includeOriginalVocal,
-      artist,
-    },
-  ).slice(0, limit);
-}
-
-export function buildCatalogMatchQuery(query: string, artist?: string) {
-  const terms = uniqueTerms([
-    ...catalogTerms(query),
-    ...catalogTerms(artist ?? ""),
-  ]).slice(0, MAX_FTS_QUERY_TERMS);
-
-  return terms.map((term) => `"${term.replace(/"/g, '""')}"`).join(" AND ");
-}
-
-function catalogTerms(value: string) {
-  return normalizeQuery(value)
-    .split(" ")
-    .map((term) => term.trim())
-    .filter(Boolean);
-}
-
-function uniqueTerms(terms: string[]) {
-  return [...new Set(terms)];
-}
-
 function uniqueCatalogCandidates(candidates: VideoCatalogCandidate[]) {
   const seen = new Set<string>();
   const unique: VideoCatalogCandidate[] = [];
@@ -201,48 +114,4 @@ function uniqueCatalogCandidates(candidates: VideoCatalogCandidate[]) {
   }
 
   return unique;
-}
-
-function toCatalogCandidate(row: Record<string, unknown>): VideoCatalogCandidate | null {
-  const videoId = rowString(row, "video_id");
-  const title = rowString(row, "title");
-
-  if (!videoId || !title) {
-    return null;
-  }
-
-  return {
-    videoId,
-    title,
-    ...(nullableRowString(row, "channel_title")
-      ? { channelTitle: nullableRowString(row, "channel_title") ?? undefined }
-      : {}),
-    ...(nullableRowString(row, "thumbnail_url")
-      ? { thumbnailUrl: nullableRowString(row, "thumbnail_url") ?? undefined }
-      : {}),
-    ...(rowNumber(row, "duration_seconds") !== undefined
-      ? { durationSeconds: rowNumber(row, "duration_seconds") }
-      : {}),
-    ...(nullableRowString(row, "published_at")
-      ? { publishedAt: nullableRowString(row, "published_at") ?? undefined }
-      : {}),
-  };
-}
-
-function rowString(row: Record<string, unknown>, key: string) {
-  return typeof row[key] === "string" ? row[key] : "";
-}
-
-function nullableRowString(row: Record<string, unknown>, key: string) {
-  return typeof row[key] === "string" && row[key].length > 0 ? row[key] : null;
-}
-
-function rowNumber(row: Record<string, unknown>, key: string) {
-  return typeof row[key] === "number" && Number.isFinite(row[key]) ? row[key] : undefined;
-}
-
-function isCatalogCandidate(
-  candidate: VideoCatalogCandidate | null,
-): candidate is VideoCatalogCandidate {
-  return candidate !== null;
 }

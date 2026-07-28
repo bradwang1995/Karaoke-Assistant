@@ -50,7 +50,7 @@ describe("KV search cache", () => {
     );
   });
 
-  it("writes a family cache entry and reads it through an equivalent query", async () => {
+  it("reads only the exact normalized query family", async () => {
     const kv = new MemoryKv();
     const family = buildSearchQueryFamily("Later");
     const response = buildResponse("Later", family.normalizedQuery, buildResults(6));
@@ -59,7 +59,11 @@ describe("KV search cache", () => {
       ttlSeconds: 60 * 60 * 24 * 365,
       maxEntryBytes: 100_000,
     });
-    const cached = await readSearchCache(kv, buildSearchQueryFamily("Later karaoke"));
+    const cached = await readSearchCache(kv, buildSearchQueryFamily("  LATER  "));
+    const differentText = await readSearchCache(
+      kv,
+      buildSearchQueryFamily("Later karaoke"),
+    );
 
     expect(written?.stats.youtubeSearchCalls).toBe(1);
     expect(written?.results).toHaveLength(6);
@@ -67,7 +71,11 @@ describe("KV search cache", () => {
     expect(cached?.entry.queryFamily.searchType).toBe("song");
     expect(cached?.entry.queryFamily.includeOriginalVocal).toBe(false);
     expect(cached?.entry.results).toHaveLength(6);
+    expect(differentText).toBeNull();
     expect(kv.values.has(searchCacheFamilyKey(family.hash))).toBe(true);
+    expect(
+      [...kv.values.keys()].some((key) => key.startsWith("yt-search-index:")),
+    ).toBe(false);
   });
 
   it("keeps song, artist, karaoke, and original-vocal indexes isolated", async () => {
@@ -93,6 +101,18 @@ describe("KV search cache", () => {
     await expect(readSearchCache(kv, artist)).resolves.toMatchObject({
       familyHash: artist.hash,
     });
+  });
+
+  it("rejects a legacy cache entry whose original query text differs", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("Later");
+    await writeSearchCache(
+      kv,
+      family,
+      buildResponse("Later KTV", family.normalizedQuery, buildResults(2)),
+    );
+
+    await expect(readSearchCache(kv, family)).resolves.toBeNull();
   });
 
   it("updates the default recommendation pool from written cache entries", async () => {

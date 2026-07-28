@@ -15,6 +15,7 @@ import type {
   AdminStorageResourceMetric,
   AdminStorageUsageSource,
 } from "../src/types/admin";
+import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { SearchResponse, SearchType, YouTubeQuotaStatus } from "../src/types/youtube";
 import { searchCacheFamilyKey, searchCacheIndexKey } from "./kvCache";
 import type { SearchQueryFamily } from "./searchFamily";
@@ -37,7 +38,7 @@ export async function readSearchRepository(
 
   const row = await db
     .prepare(
-      `SELECT id, response_json
+      `SELECT id, original_query, response_json
        FROM search_repository_entries
        WHERE normalized_query = ?1
          AND normalized_artist = ?2
@@ -51,9 +52,9 @@ export async function readSearchRepository(
       family.searchType,
       family.includeOriginalVocal ? 1 : 0,
     )
-    .first<{ id: string; response_json: string }>();
+    .first<{ id: string; original_query: string; response_json: string }>();
 
-  if (!row) {
+  if (!row || normalizeQuery(row.original_query) !== family.canonicalQuery) {
     return null;
   }
 
@@ -81,7 +82,7 @@ export async function readSearchRepository(
       cached: true,
       cacheMeta: {
         ...response.cacheMeta,
-        sourceQueryCount: response.cacheMeta?.sourceQueryCount ?? 0,
+        sourceQueryCount: 0,
         cachedResultCount: response.results.length,
         servedFromExpandedCache: false,
         responseSource: "repository" as const,

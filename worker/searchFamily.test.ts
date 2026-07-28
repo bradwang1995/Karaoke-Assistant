@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { buildSearchQueryFamily, normalizeSearchFamilyQuery } from "./searchFamily";
 
 describe("search query families", () => {
-  it("normalizes karaoke variants into the same family", () => {
+  it("keeps different query text in separate cache families", () => {
     expect(normalizeSearchFamilyQuery("Later ktv")).toBe("later");
     expect(normalizeSearchFamilyQuery("Later karaoke")).toBe("later");
-    expect(buildSearchQueryFamily("Later ktv").hash).toBe(buildSearchQueryFamily("Later").hash);
+    expect(buildSearchQueryFamily("Later ktv").hash).not.toBe(
+      buildSearchQueryFamily("Later").hash,
+    );
+    expect(buildSearchQueryFamily("  LATER  ").hash).toBe(
+      buildSearchQueryFamily("later").hash,
+    );
   });
 
   it("starts song searches with a focused title query before broader fallbacks", () => {

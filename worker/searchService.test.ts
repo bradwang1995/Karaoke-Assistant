@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { searchVideos } from "./searchService";
@@ -35,7 +34,7 @@ class MemoryKv {
 }
 
 describe("search service cache reuse", () => {
-  it("reuses one stable song history across karaoke and original-vocal searches", async () => {
+  it("keeps karaoke and original-vocal cache results strictly isolated", async () => {
     const kv = new MemoryKv();
     const karaokeFamily = buildSearchQueryFamily("年少有为");
     const originalFamily = buildSearchQueryFamily("年少有为", undefined, {
@@ -47,7 +46,6 @@ describe("search service cache reuse", () => {
       karaokeFamily,
       buildResponse("年少有为", karaokeFamily.normalizedQuery, [
         buildResult("karaoke", "年少有为 KTV 伴奏版"),
-        buildResult("unrelated-karaoke", "另一首歌 KTV 伴奏版"),
       ]),
     );
     await writeSearchCache(
@@ -55,7 +53,6 @@ describe("search service cache reuse", () => {
       originalFamily,
       buildResponse("年少有为", originalFamily.normalizedQuery, [
         buildResult("original", "年少有为 official MV 原唱 歌词"),
-        buildResult("unrelated-original", "完全无关 official MV lyrics"),
       ]),
     );
 
@@ -80,17 +77,13 @@ describe("search service cache reuse", () => {
 
     expect(karaoke.cached).toBe(true);
     expect(original.cached).toBe(true);
-    expect(karaoke.results.map((result) => result.videoId)).toEqual([
-      "karaoke",
-      "original",
-    ]);
-    expect(original.results.map((result) => result.videoId)).toEqual([
-      "original",
-      "karaoke",
-    ]);
+    expect(karaoke.results.map((result) => result.videoId)).toEqual(["karaoke"]);
+    expect(original.results.map((result) => result.videoId)).toEqual(["original"]);
+    expect(karaoke.cacheMeta?.servedFromExpandedCache).toBe(false);
+    expect(original.cacheMeta?.servedFromExpandedCache).toBe(false);
   });
 
-  it("persists a cold search in D1 and reuses it without the expiring KV accelerator", async () => {
+  it("reuses only the same normalized text and creates a new entry for different text", async () => {
     const db = new MemorySearchRepositoryD1();
     const first = await searchVideos({
       query: "青花瓷",
@@ -100,7 +93,14 @@ describe("search service cache reuse", () => {
       env: { DB: db.database },
     });
     const second = await searchVideos({
-      query: "  青花瓷 KTV  ",
+      query: "  青花瓷  ",
+      artist: "周杰伦",
+      searchType: "song",
+      limit: 3,
+      env: { DB: db.database },
+    });
+    const differentText = await searchVideos({
+      query: "青花瓷 KTV",
       artist: "周杰伦",
       searchType: "song",
       limit: 3,
@@ -115,126 +115,76 @@ describe("search service cache reuse", () => {
       responseSource: "repository",
       repositoryEntryId: first.cacheMeta?.repositoryEntryId,
     });
+    expect(differentText.cached).toBe(false);
+    expect(differentText.cacheMeta?.responseSource).toBe("mock");
     expect(db.accessUpdates).toBe(1);
-    expect(db.entryCount).toBe(1);
+    expect(db.entryCount).toBe(2);
   });
 
-  it("serves a new query from the cross-query catalog when one visible page is available", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const db = new CatalogSearchD1();
-
+  it("does not reuse a cache entry when the original-vocal flag differs", async () => {
+    const kv = new MemoryKv();
+    const karaokeFamily = buildSearchQueryFamily("后来");
+    await writeSearchCache(
+      kv,
+      karaokeFamily,
+      buildResponse("后来", karaokeFamily.normalizedQuery, [
+        buildResult("karaoke", "后来 KTV 伴奏版"),
+      ]),
+    );
     const response = await searchVideos({
-      query: "青花瓷",
+      query: "后来",
       searchType: "song",
-      includeOriginalVocal: false,
-      limit: 50,
+      includeOriginalVocal: true,
+      limit: 10,
       env: {
-        DB: db.database,
-        YOUTUBE_API_KEY: "test-key",
+        SEARCH_CACHE: kv,
         YOUTUBE_SEARCH_DAILY_LIMIT: "100",
       },
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(response.cached).toBe(true);
-    expect(response.results).toHaveLength(10);
+    expect(response.cached).toBe(false);
     expect(response.cacheMeta).toMatchObject({
-      responseSource: "repository",
-      catalogResultCount: 10,
-      externalCallAvoided: true,
+      responseSource: "mock",
+      catalogResultCount: 0,
+      externalCallAvoided: false,
       sourceQueryCount: 0,
     });
-    expect(db.repositoryWrites).toBe(1);
-    vi.unstubAllGlobals();
+    expect(response.results.map((result) => result.videoId)).not.toContain(
+      "karaoke",
+    );
+  });
+
+  it("rejects a legacy D1 row whose original query text differs", async () => {
+    const db = new MemorySearchRepositoryD1();
+    db.seedLegacyEntry({
+      normalizedQuery: "后来",
+      originalQuery: "后来 KTV",
+      response: buildResponse("后来 KTV", "后来 ktv", [
+        buildResult("legacy", "后来 KTV 旧结果"),
+      ]),
+    });
+
+    const response = await searchVideos({
+      query: "后来",
+      searchType: "song",
+      includeOriginalVocal: false,
+      limit: 10,
+      env: { DB: db.database },
+    });
+
+    expect(response.cached).toBe(false);
+    expect(response.cacheMeta?.responseSource).toBe("mock");
+    expect(response.results.map((result) => result.videoId)).not.toContain(
+      "legacy",
+    );
+    expect(db.accessUpdates).toBe(0);
   });
 });
-
-class CatalogSearchD1 {
-  repositoryWrites = 0;
-
-  database: D1Database = {
-    prepare: (sql: string) =>
-      new CatalogSearchStatement(this, sql) as D1PreparedStatement,
-    batch: async () => [],
-    exec: async () => ({ count: 0, duration: 0 }),
-    withSession: () => {
-      throw new Error("Not implemented in search service test.");
-    },
-    dump: async () => new ArrayBuffer(0),
-  };
-}
-
-class CatalogSearchStatement {
-  constructor(
-    private readonly db: CatalogSearchD1,
-    private readonly sql: string,
-  ) {}
-
-  bind() {
-    return this;
-  }
-
-  async first<T = Record<string, unknown>>() {
-    if (this.sql.includes("SELECT id") && this.db.repositoryWrites > 0) {
-      return { id: "catalog-repository-entry" } as T;
-    }
-
-    return null;
-  }
-
-  async all<T = Record<string, unknown>>() {
-    if (!this.sql.includes("FROM search_video_catalog_fts")) {
-      return d1SearchResult<T>([]);
-    }
-
-    return d1SearchResult<T>(
-      Array.from({ length: 10 }, (_, index) => ({
-        video_id: `catalog-${index}`,
-        title: `青花瓷 KTV 伴奏 ${index}`,
-        channel_title: "KTV Studio",
-        thumbnail_url: `https://img.youtube.com/vi/catalog-${index}/hqdefault.jpg`,
-        duration_seconds: 240,
-        published_at: "2026-01-01T00:00:00Z",
-      })) as T[],
-    );
-  }
-
-  async run<T = Record<string, unknown>>() {
-    if (this.sql.includes("INSERT INTO search_repository_entries")) {
-      this.db.repositoryWrites += 1;
-    }
-
-    return d1SearchResult<T>([]);
-  }
-
-  async raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
-  async raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
-  async raw<T = unknown[]>(options?: { columnNames?: boolean }) {
-    return options?.columnNames ? ([[]] as [string[], ...T[]]) : ([] as T[]);
-  }
-}
-
-function d1SearchResult<T>(results: T[]) {
-  return {
-    success: true as const,
-    results,
-    meta: {
-      duration: 0,
-      size_after: 0,
-      rows_read: 0,
-      rows_written: 0,
-      last_row_id: 0,
-      changed_db: false,
-      changes: 0,
-    },
-  };
-}
 
 class MemorySearchRepositoryD1 {
   private entries = new Map<
     string,
-    { id: string; responseJson: string; accessCount: number }
+    { id: string; originalQuery: string; responseJson: string; accessCount: number }
   >();
 
   database = {
@@ -250,6 +200,23 @@ class MemorySearchRepositoryD1 {
     return [...this.entries.values()].reduce((total, entry) => total + entry.accessCount, 0);
   }
 
+  seedLegacyEntry({
+    normalizedQuery,
+    originalQuery,
+    response,
+  }: {
+    normalizedQuery: string;
+    originalQuery: string;
+    response: SearchResponse;
+  }) {
+    this.entries.set(repositoryKey(normalizedQuery, "", "song", 0), {
+      id: "legacy-entry",
+      originalQuery,
+      responseJson: JSON.stringify(response),
+      accessCount: 0,
+    });
+  }
+
   find(bindings: unknown[]) {
     return this.entries.get(repositoryKey(bindings[0], bindings[1], bindings[2], bindings[3]));
   }
@@ -259,6 +226,7 @@ class MemorySearchRepositoryD1 {
     const current = this.entries.get(key);
     this.entries.set(key, {
       id: current?.id ?? String(bindings[0]),
+      originalQuery: String(bindings[2]),
       responseJson: String(bindings[8]),
       accessCount: current?.accessCount ?? 0,
     });
@@ -291,7 +259,11 @@ class MemorySearchRepositoryStatement {
     if (!entry) return null;
 
     if (this.sql.includes("response_json")) {
-      return { id: entry.id, response_json: entry.responseJson } as T;
+      return {
+        id: entry.id,
+        original_query: entry.originalQuery,
+        response_json: entry.responseJson,
+      } as T;
     }
 
     return { id: entry.id } as T;
