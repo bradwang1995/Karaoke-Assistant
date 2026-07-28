@@ -313,6 +313,7 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
       cacheFill,
       env,
     });
+    const responseSource = responseSourceFromSearchResponse(response, env);
     await safelyRecordSearchEvent(env, {
       roomId,
       query,
@@ -320,9 +321,18 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
       artist: artist || undefined,
       searchType,
       includeOriginalVocal,
-      source: responseSourceFromSearchResponse(response, env),
+      source: responseSource,
       resultCount: response.results.length,
       success: true,
+      candidateResultCount: response.cacheMeta?.candidateResultCount ?? 0,
+      filteredResultCount: response.cacheMeta?.filteredResultCount ?? 0,
+      catalogResultCount: response.cacheMeta?.catalogResultCount ?? 0,
+      uniqueCatalogVideosAdded: response.cacheMeta?.uniqueCatalogVideosAdded ?? 0,
+      externalSearchCalls:
+        responseSource === "external"
+          ? response.cacheMeta?.sourceQueryCount ?? 0
+          : 0,
+      externalCallAvoided: response.cacheMeta?.externalCallAvoided === true,
     });
     const quotaStatus = quotaStatusFromSearchResponse(response);
 

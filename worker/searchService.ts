@@ -15,6 +15,11 @@ import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { readSearchRepository, writeSearchRepository } from "./searchRepository";
 import type { Env } from "./types";
+import {
+  searchVideoCatalog,
+  upsertVideoCatalog,
+  type VideoCatalogCandidate,
+} from "./videoCatalog";
 import { searchYouTubeVideos } from "./youtubeSearch";
 import {
   getYouTubeSearchQuotaStatusForEnv,
@@ -23,6 +28,7 @@ import {
 
 const DEFAULT_YOUTUBE_DAILY_SEARCH_LIMIT = 100;
 const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 1;
+const LOCAL_CATALOG_SUFFICIENT_RESULT_COUNT = 10;
 
 type SearchServiceEnv = Omit<Env, "SEARCH_CACHE"> & {
   SEARCH_CACHE?: SearchCacheNamespace;
@@ -103,6 +109,11 @@ export async function searchVideos({
             (cached) => cached.entry.stats.prunedResultCount,
           ),
           responseSource: "repository" as const,
+          candidateResultCount: 0,
+          filteredResultCount: 0,
+          catalogResultCount: 0,
+          uniqueCatalogVideosAdded: 0,
+          externalCallAvoided: true,
         },
       } satisfies SearchResponse;
 
@@ -121,57 +132,103 @@ export async function searchVideos({
     );
   }
 
-  const response = env.YOUTUBE_API_KEY
-    ? await searchLiveVideos({
-        query,
-        artist,
-        searchType,
-        includeOriginalVocal,
-        limit,
-        cacheFill,
-        env,
-      })
-    : {
-        ...searchMockVideos(query, limit),
-        searchType,
-        includeOriginalVocal,
-      };
+  const catalogResults = await safeSearchVideoCatalog({
+    db: env.DB,
+    query,
+    artist,
+    searchType,
+    includeOriginalVocal,
+    limit: MAX_CACHED_SEARCH_RESULTS,
+  });
+  const sufficientCatalogCount = Math.min(
+    Math.max(limit, 1),
+    LOCAL_CATALOG_SUFFICIENT_RESULT_COUNT,
+  );
+  const catalogIsSufficient = catalogResults.length >= sufficientCatalogCount;
+  let providerResponse: SearchResponse;
 
-  const responseSource = env.YOUTUBE_API_KEY ? "external" : "mock";
+  if (catalogIsSufficient) {
+    providerResponse = {
+      query,
+      normalizedQuery: family.normalizedQuery,
+      searchType,
+      includeOriginalVocal,
+      cached: true,
+      results: catalogResults,
+      cacheMeta: {
+        sourceQueryCount: 0,
+        cachedResultCount: catalogResults.length,
+        servedFromExpandedCache: true,
+        sourceQueries: [],
+        responseSource: "repository",
+        candidateResultCount: 0,
+        filteredResultCount: 0,
+        catalogResultCount: catalogResults.length,
+        uniqueCatalogVideosAdded: 0,
+        externalCallAvoided: true,
+      },
+    };
+  } else if (env.YOUTUBE_API_KEY) {
+    providerResponse = await searchLiveVideos({
+      query,
+      artist,
+      searchType,
+      includeOriginalVocal,
+      limit,
+      cacheFill,
+      env,
+    });
+  } else {
+    providerResponse = {
+      ...searchMockVideos(query, limit),
+      searchType,
+      includeOriginalVocal,
+    };
+  }
+  const combinedResults =
+    catalogResults.length > 0 && !catalogIsSufficient
+      ? rankSearchResultsForQuery(
+          uniqueSearchResults([...catalogResults, ...providerResponse.results]),
+          query,
+          {
+            searchType,
+            includeOriginalVocal,
+            artist,
+          },
+        )
+      : providerResponse.results;
+  const usedExternalSearchCalls = providerResponse.cacheMeta?.sourceQueryCount ?? 0;
+  const responseSource = catalogIsSufficient
+    ? "repository"
+    : env.YOUTUBE_API_KEY
+      ? usedExternalSearchCalls > 0
+        ? "external"
+        : catalogResults.length > 0
+          ? "repository"
+          : "external"
+      : "mock";
   const responseWithSource: SearchResponse = {
-    ...response,
+    ...providerResponse,
+    cached: responseSource === "repository",
+    results: combinedResults,
     cacheMeta: {
-      ...response.cacheMeta,
-      sourceQueryCount: response.cacheMeta?.sourceQueryCount ?? 0,
-      cachedResultCount: response.results.length,
-      servedFromExpandedCache: false,
+      ...providerResponse.cacheMeta,
+      sourceQueryCount: usedExternalSearchCalls,
+      cachedResultCount: combinedResults.length,
+      servedFromExpandedCache: catalogResults.length > 0,
       responseSource,
+      catalogResultCount: catalogResults.length,
+      externalCallAvoided: responseSource === "repository",
     },
   };
-  const cachedEntry = await writeSearchCache(env.SEARCH_CACHE, family, responseWithSource, {
-    ttlSeconds: cacheTtlSeconds,
-    maxEntryBytes: getSearchCacheMaxEntryBytes(env),
-  });
-  const persisted = await safeWriteSearchRepository(env.DB, family, responseWithSource);
 
-  return limitSearchResponse(
-    {
-      ...responseWithSource,
-      cacheMeta: {
-        ...responseWithSource.cacheMeta,
-        sourceQueryCount: responseWithSource.cacheMeta?.sourceQueryCount ?? 0,
-        cachedResultCount: cachedEntry?.results.length ?? responseWithSource.results.length,
-        servedFromExpandedCache: false,
-        videosListCalls: responseWithSource.cacheMeta?.videosListCalls,
-        sourceQueries: responseWithSource.cacheMeta?.sourceQueries,
-        prunedResultCount: cachedEntry?.stats.prunedResultCount ?? 0,
-        quota: responseWithSource.cacheMeta?.quota,
-        responseSource,
-        repositoryEntryId: persisted?.id,
-      },
-    },
+  return persistAndLimitSearchResponse({
+    env,
+    family,
+    response: responseWithSource,
+    cacheTtlSeconds,
     limit,
-  );
+  });
 }
 
 async function safeReadSearchRepository(db: D1Database | undefined, family: ReturnType<typeof buildSearchQueryFamily>) {
@@ -206,6 +263,87 @@ async function safeWriteSearchRepository(
     );
     return null;
   }
+}
+
+async function safeSearchVideoCatalog(
+  options: Parameters<typeof searchVideoCatalog>[0],
+) {
+  try {
+    return await searchVideoCatalog(options);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "search-video-catalog-read-failed",
+        error: error instanceof Error ? error.message : "Unknown D1 error",
+      }),
+    );
+    return [];
+  }
+}
+
+async function safeUpsertVideoCatalog(
+  db: D1Database | undefined,
+  candidates: VideoCatalogCandidate[],
+  sourceQuery: string,
+) {
+  try {
+    return await upsertVideoCatalog(db, candidates, sourceQuery);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "search-video-catalog-write-failed",
+        error: error instanceof Error ? error.message : "Unknown D1 error",
+      }),
+    );
+    return {
+      candidateCount: candidates.length,
+      uniqueVideosAdded: 0,
+    };
+  }
+}
+
+async function persistAndLimitSearchResponse({
+  env,
+  family,
+  response,
+  cacheTtlSeconds,
+  limit,
+}: {
+  env: SearchServiceEnv;
+  family: ReturnType<typeof buildSearchQueryFamily>;
+  response: SearchResponse;
+  cacheTtlSeconds: number;
+  limit: number;
+}) {
+  const cachedEntry = await writeSearchCache(env.SEARCH_CACHE, family, response, {
+    ttlSeconds: cacheTtlSeconds,
+    maxEntryBytes: getSearchCacheMaxEntryBytes(env),
+  });
+  const persisted = await safeWriteSearchRepository(env.DB, family, response);
+
+  return limitSearchResponse(
+    {
+      ...response,
+      cacheMeta: {
+        ...response.cacheMeta,
+        sourceQueryCount: response.cacheMeta?.sourceQueryCount ?? 0,
+        cachedResultCount: cachedEntry?.results.length ?? response.results.length,
+        servedFromExpandedCache: response.cacheMeta?.servedFromExpandedCache ?? false,
+        videosListCalls: response.cacheMeta?.videosListCalls,
+        sourceQueries: response.cacheMeta?.sourceQueries,
+        prunedResultCount: cachedEntry?.stats.prunedResultCount ?? 0,
+        quota: response.cacheMeta?.quota,
+        responseSource: response.cacheMeta?.responseSource,
+        repositoryEntryId: persisted?.id,
+        candidateResultCount: response.cacheMeta?.candidateResultCount ?? 0,
+        filteredResultCount: response.cacheMeta?.filteredResultCount ?? 0,
+        catalogResultCount: response.cacheMeta?.catalogResultCount ?? 0,
+        uniqueCatalogVideosAdded: response.cacheMeta?.uniqueCatalogVideosAdded ?? 0,
+        externalCallAvoided: response.cacheMeta?.externalCallAvoided ?? false,
+      },
+    },
+    limit,
+  );
 }
 
 async function readCachedSearchEntries({
@@ -269,6 +407,22 @@ function uniqueCachedResults(cachedEntries: SearchCacheReadResult[]) {
   }
 
   return results;
+}
+
+function uniqueSearchResults(results: SearchResponse["results"]) {
+  const unique: SearchResponse["results"] = [];
+  const seenVideoIds = new Set<string>();
+
+  for (const result of results) {
+    if (seenVideoIds.has(result.videoId)) {
+      continue;
+    }
+
+    seenVideoIds.add(result.videoId);
+    unique.push(result);
+  }
+
+  return unique;
 }
 
 function sumCachedStat(
@@ -356,7 +510,7 @@ async function searchLiveVideos({
   const targetResultCount = cacheFill ? MAX_CACHED_SEARCH_RESULTS : limit;
   let quotaAfter = quotaBefore;
   let reservationRejectedWithCapacity = false;
-  const response = await searchYouTubeVideos({
+  const providerResult = await searchYouTubeVideos({
     query,
     artist,
     searchType,
@@ -371,12 +525,18 @@ async function searchLiveVideos({
       return reservation.reserved;
     },
   });
+  const response = providerResult.response;
   const usedSearchCalls = response.cacheMeta?.sourceQueryCount ?? 0;
 
   if (usedSearchCalls === 0 && reservationRejectedWithCapacity) {
     throw new Error("YouTube search quota ledger reservation failed.");
   }
 
+  const catalogWrite = await safeUpsertVideoCatalog(
+    env.DB,
+    providerResult.candidates,
+    query,
+  );
   const remainingAfter = quotaAfter.remaining;
 
   return {
@@ -386,6 +546,10 @@ async function searchLiveVideos({
       sourceQueryCount: usedSearchCalls,
       cachedResultCount: response.results.length,
       servedFromExpandedCache: false,
+      candidateResultCount: catalogWrite.candidateCount,
+      filteredResultCount: response.results.length,
+      uniqueCatalogVideosAdded: catalogWrite.uniqueVideosAdded,
+      externalCallAvoided: false,
       quota: {
         dailyLimit,
         used: quotaAfter.used,

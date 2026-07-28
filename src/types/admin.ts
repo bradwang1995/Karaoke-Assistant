@@ -88,11 +88,23 @@ export interface AdminOverview {
     uniqueSongs: number;
     uniqueArtists: number;
   };
+  catalog: {
+    totalVideos: number;
+    totalAppearances: number;
+    lastUpdatedAt: string | null;
+  };
   storage: AdminStorageStatus;
   searches: {
     total: number;
     repositoryHits: number;
     externalRequests: number;
+    externalSearchCalls: number;
+    externalCallsAvoided: number;
+    localReuseRate: number;
+    candidateResults: number;
+    filteredResults: number;
+    uniqueCatalogVideosAdded: number;
+    usableVideosPerExternalCall: number;
     trend: AdminOverviewTrendPoint[];
     topSearches: AdminTopSearch[];
     topSongs: AdminTopDimension[];

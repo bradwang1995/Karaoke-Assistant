@@ -1,6 +1,7 @@
 import type { SearchResponse, SearchType, VideoSearchResult } from "../src/types/youtube";
 import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
+import type { VideoCatalogCandidate } from "./videoCatalog";
 
 const YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
 const YOUTUBE_VIDEOS_URL = "https://www.googleapis.com/youtube/v3/videos";
@@ -49,6 +50,11 @@ export interface YouTubeSearchOptions {
   beforeSearchCall?: () => Promise<boolean>;
 }
 
+export interface YouTubeSearchProviderResult {
+  response: SearchResponse;
+  candidates: VideoCatalogCandidate[];
+}
+
 export async function searchYouTubeVideos({
   query,
   artist,
@@ -58,7 +64,7 @@ export async function searchYouTubeVideos({
   maxSearchCalls = DEFAULT_MAX_SEARCH_CALLS,
   targetResultCount = DEFAULT_TARGET_CACHE_RESULTS,
   beforeSearchCall,
-}: YouTubeSearchOptions): Promise<SearchResponse> {
+}: YouTubeSearchOptions): Promise<YouTubeSearchProviderResult> {
   const family = buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal });
   const dedupedResults = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
   const usedSourceQueries: string[] = [];
@@ -92,29 +98,35 @@ export async function searchYouTubeVideos({
     baseResults.map((result) => result.videoId),
   );
 
+  const candidates = baseResults.map((result) => ({
+    ...result,
+    durationSeconds: durations.get(result.videoId),
+  }));
   const results = rankSearchResultsForQuery(
-    baseResults.map((result) => ({
-      ...result,
-      durationSeconds: durations.get(result.videoId),
-    })),
+    candidates,
     query,
     { searchType, includeOriginalVocal, artist },
   );
 
   return {
-    query,
-    normalizedQuery: family.normalizedQuery,
-    searchType,
-    includeOriginalVocal,
-    cached: false,
-    results,
-    cacheMeta: {
-      sourceQueryCount: searchCallCount,
-      cachedResultCount: results.length,
-      servedFromExpandedCache: false,
-      videosListCalls,
-      sourceQueries: usedSourceQueries,
+    response: {
+      query,
+      normalizedQuery: family.normalizedQuery,
+      searchType,
+      includeOriginalVocal,
+      cached: false,
+      results,
+      cacheMeta: {
+        sourceQueryCount: searchCallCount,
+        cachedResultCount: results.length,
+        servedFromExpandedCache: false,
+        videosListCalls,
+        sourceQueries: usedSourceQueries,
+        candidateResultCount: candidates.length,
+        filteredResultCount: results.length,
+      },
     },
+    candidates,
   };
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { searchVideos } from "./searchService";
@@ -117,7 +118,118 @@ describe("search service cache reuse", () => {
     expect(db.accessUpdates).toBe(1);
     expect(db.entryCount).toBe(1);
   });
+
+  it("serves a new query from the cross-query catalog when one visible page is available", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const db = new CatalogSearchD1();
+
+    const response = await searchVideos({
+      query: "青花瓷",
+      searchType: "song",
+      includeOriginalVocal: false,
+      limit: 50,
+      env: {
+        DB: db.database,
+        YOUTUBE_API_KEY: "test-key",
+        YOUTUBE_SEARCH_DAILY_LIMIT: "100",
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.cached).toBe(true);
+    expect(response.results).toHaveLength(10);
+    expect(response.cacheMeta).toMatchObject({
+      responseSource: "repository",
+      catalogResultCount: 10,
+      externalCallAvoided: true,
+      sourceQueryCount: 0,
+    });
+    expect(db.repositoryWrites).toBe(1);
+    vi.unstubAllGlobals();
+  });
 });
+
+class CatalogSearchD1 {
+  repositoryWrites = 0;
+
+  database: D1Database = {
+    prepare: (sql: string) =>
+      new CatalogSearchStatement(this, sql) as D1PreparedStatement,
+    batch: async () => [],
+    exec: async () => ({ count: 0, duration: 0 }),
+    withSession: () => {
+      throw new Error("Not implemented in search service test.");
+    },
+    dump: async () => new ArrayBuffer(0),
+  };
+}
+
+class CatalogSearchStatement {
+  constructor(
+    private readonly db: CatalogSearchD1,
+    private readonly sql: string,
+  ) {}
+
+  bind() {
+    return this;
+  }
+
+  async first<T = Record<string, unknown>>() {
+    if (this.sql.includes("SELECT id") && this.db.repositoryWrites > 0) {
+      return { id: "catalog-repository-entry" } as T;
+    }
+
+    return null;
+  }
+
+  async all<T = Record<string, unknown>>() {
+    if (!this.sql.includes("FROM search_video_catalog_fts")) {
+      return d1SearchResult<T>([]);
+    }
+
+    return d1SearchResult<T>(
+      Array.from({ length: 10 }, (_, index) => ({
+        video_id: `catalog-${index}`,
+        title: `青花瓷 KTV 伴奏 ${index}`,
+        channel_title: "KTV Studio",
+        thumbnail_url: `https://img.youtube.com/vi/catalog-${index}/hqdefault.jpg`,
+        duration_seconds: 240,
+        published_at: "2026-01-01T00:00:00Z",
+      })) as T[],
+    );
+  }
+
+  async run<T = Record<string, unknown>>() {
+    if (this.sql.includes("INSERT INTO search_repository_entries")) {
+      this.db.repositoryWrites += 1;
+    }
+
+    return d1SearchResult<T>([]);
+  }
+
+  async raw<T = unknown[]>(options: { columnNames: true }): Promise<[string[], ...T[]]>;
+  async raw<T = unknown[]>(options?: { columnNames?: false }): Promise<T[]>;
+  async raw<T = unknown[]>(options?: { columnNames?: boolean }) {
+    return options?.columnNames ? ([[]] as [string[], ...T[]]) : ([] as T[]);
+  }
+}
+
+function d1SearchResult<T>(results: T[]) {
+  return {
+    success: true as const,
+    results,
+    meta: {
+      duration: 0,
+      size_after: 0,
+      rows_read: 0,
+      rows_written: 0,
+      last_row_id: 0,
+      changed_db: false,
+      changes: 0,
+    },
+  };
+}
 
 class MemorySearchRepositoryD1 {
   private entries = new Map<

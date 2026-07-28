@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-26
+Last updated: 2026-07-28
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -19,7 +19,7 @@ Last updated: 2026-07-26
 | Mobile preview | MVP complete | 2–4 列、单 iframe、固定 30 秒起点、600ms debounce、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 21 files / 88 tests | Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
+| Automated tests | 22 files / 92 tests | 跨查询目录、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -95,6 +95,8 @@ Last updated: 2026-07-26
 - `[x]` Partial-title regression coverage。
 - `[x]` KV v3 family cache、v2 intent-scoped index、metadata、payload pruning。
 - `[x]` Recommendation pool 和 cached re-ranking。
+- `[x]` D1 FTS5 跨查询视频目录；原始 embeddable candidates 与用户可见结果分离。
+- `[x]` 新查询先查本地目录；相关结果达到首屏 10 条时免外部调用，不足才用一次 `search.list` 补齐并合并。
 - `[x]` API 50 results；mobile 10-at-a-time expansion。
 - `[x]` Recommendation pool 200 results；缓存耗尽前自动无限滚动。
 - `[x]` 显式提交时原唱使用对立权重；歌名模式合并同曲 KTV/原唱历史 cache，顺序稳定且不重复消耗 search call。
@@ -148,10 +150,11 @@ Last updated: 2026-07-26
 
 - `[x]` `/admin` 独立 lazy-loaded 管理界面；侧栏只保留总览、搜索记录、资料库三项基础能力。
 - `[x]` 单管理员密码登录；12 小时 HMAC session cookie、登录限流、同源 mutation guard 和主动退出。
-- `[x]` 总览提供系统状态、YouTube 当日调用与 Pacific reset、资料库真实容量状态、搜索趋势、热门歌曲/歌手和系统提醒。
+- `[x]` 总览提供系统状态、YouTube 当日调用与 Pacific reset、资料库真实容量状态、候选目录与额度效率、搜索趋势、热门歌曲/歌手和系统提醒。
 - `[x]` 搜索记录支持时间、来源、类型和关键词筛选，以及服务端分页。
 - `[x]` 资料库支持关键词/类型/原唱状态筛选、排序、分页、结果摘要、批量选择和二次确认删除。
 - `[x]` D1 `search_repository_entries` 作为持久真实资料源；精确标准化查询优先复用，KV 仅保留为可过期加速层。
+- `[x]` D1 `search_video_catalog` 与 FTS5 triggers 持久保存跨查询候选；同一 scoring/filtering 决定用户可见结果。
 - `[x]` 搜索事件、资料库访问次数、每日 YouTube quota ledger 和管理员审计事件均持久化到 D1。
 - `[x]` 冷查询和旧 KV 命中可回填 D1；资料库故障不会阻断公开搜索的安全 fallback。
 - `[x]` 管理 API 覆盖 session、overview、searches、repository read/delete；未认证读取也返回 `401` 与 `no-store`。
@@ -162,7 +165,8 @@ Last updated: 2026-07-26
 - `[x]` 桌面 reference/implementation 同屏对照、移动端 viewport、全量自动验证和双 Worker dry-run 已通过。
 - `[x]` Production migration、secrets、Room → Main release、公开流程和未认证保护 smoke 已完成。
 - `[~]` 管理员密码由用户独立持有；生产登录页和 secret 已确认，登录后的真实数据终验交由管理员本人完成。
-- `[ ]` 自动搜索/自动补库是下一阶段，不属于本轮初始管理台发布。
+- `[x]` 用户触发搜索会自动积累并跨查询复用候选目录。
+- `[ ]` 无人值守 prewarm/自动搜索仍未启用。
 
 ## 3. Bugfix and internal-test archive
 
@@ -321,11 +325,22 @@ Last updated: 2026-07-26
 | ADM-14 | P1 | 保留用户选定的现有暗色界面与三项导航，仅在持久资料库卡片、系统提醒和清理预览中补充 D1/KV 实际值、key count、来源、测量时间和 app estimate 区分；全局刷新会强制服务端重新验证 Cloudflare。 |
 | ADM-15 | P0 | 完成生产管理员登录与 Dashboard 终验：D1 `278,528 bytes` 对应 Admin `272.0 KB` / Dashboard `279 kB`；KV `1,297,755 bytes`、`413` 个键对应 Admin `1.2 MB / 413` / Dashboard `1.3 MB / 413`。差异仅为单位换算。 |
 
+### 2026-07-28 cross-query catalog pass 7
+
+| ID | P | Completed |
+| --- | --- | --- |
+| SRCH7-01 | P0 | 新增 D1 `search_video_catalog` 与 FTS5 external-content 索引；insert/update/delete triggers 保持目录和索引同步。 |
+| SRCH7-02 | P0 | `search.list` 原始 embeddable candidates 全部进入目录；现有 title relevance 与 KTV/原唱 scoring 只把相关结果交给用户。 |
+| SRCH7-03 | P0 | Exact repository/KV miss 后先查跨查询目录；本地至少有 `min(limit, 10)` 条时不调用 YouTube，不足时外部补齐、去重、重排并持久化。 |
+| SRCH7-04 | P1 | 搜索事件新增候选数、过滤后数、目录结果、新增独立视频、真实 search calls 与免调用标记；新增数使用 D1 insert `changes`，避免把重复视频算作增长。 |
+| SRCH7-05 | P1 | Admin 总览新增候选目录与额度效率卡，显示总视频、累计出现、本地复用率、免调用、新增候选/额度和过滤前/后。 |
+| SRCH7-06 | P0 | Migration 0005 已在本地 D1 成功执行 14 条命令；真实 FTS5 中文 `MATCH`、trigger insert 与 join 返回通过。定向 6 files / 31 tests 和 typecheck 已通过，完整发布验证见 verification record。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
 - 2026-07-25 只读 `wrangler d1 info ktv-assistant-db` 报告 production `database_size = 197 kB`、10 tables；应用 migration 0004 与后续指标刷新后，2026-07-26 同刻生产对照为 D1 API `278,528 bytes`、Dashboard `279 kB`、12 tables。
-- D1 是真实持久资料源：`rooms`、`queue_items`、`playback_states`、`playback_events`、`search_repository_entries`、`search_events`、`youtube_quota_daily`、`admin_audit_events`、cleanup/metric leases 与最近成功 metric state。
+- D1 是真实持久资料源：`rooms`、`queue_items`、`playback_states`、`playback_events`、`search_repository_entries`、`search_video_catalog`/FTS5、`search_events`、`youtube_quota_daily`、`admin_audit_events`、cleanup/metric leases 与最近成功 metric state。
 - KV `SEARCH_CACHE` 是可丢失加速层：`yt-search:v3` family payload、`yt-search-index:v2` aliases、`yt-search-recommendations:v1`，以及 D1 quota ledger 异常时的 quota fallback。它不是持久资料库真相来源。
 - `RoomDurableObject` 的 Durable Object storage 只保存 `room-activity` lifecycle state；房间业务 snapshot 读写 D1，queued recommendation 会写 KV。
 - Main/Room 使用同一 production D1/KV IDs；仓库没有 `env.preview` / `env.production` 分叉，也没有此前 Cloudflare storage metrics client。Main Worker 是唯一公开 admin API 和唯一需要 Cloudflare read-only token 的 Worker。
@@ -357,6 +372,7 @@ Last updated: 2026-07-26
 | 2026-07-22 admin production release | Full 20 files / 82 tests、typecheck、production build、`git diff --check` passed。Production D1 migrations 无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，deployment status 复核两个新版本均为 100%。Production root/admin HTTP 200，未认证 overview 为 401 + `no-store`；UTF-8 冷查询返回 10 条，重复查询命中 repository 且 quota 不增加；内置浏览器完成登录页、create CTA → display、连接状态和 console smoke。 |
 | 2026-07-25 real storage metrics release | Full 21 files / 88 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run passed。Local 与 production D1 均已应用 migration 0004；production 复核无待应用 migration，两个指标表真实存在。按 Room → Main `--keep-vars` 发布，Room `8ee39e12-4618-4948-81d0-f753158a4046`、Main `ba476a0f-0583-431b-ba68-9d1b43d33c52` 均为 100%。Production root/admin 为 200，未认证 storage 为 401 + `no-store`；线上登录页加载正常且 console 无 error/warning。生产只读 token 和登录后的 Dashboard 数值对照尚待完成。 |
 | 2026-07-26 real storage metrics acceptance | Main Secret 更新生成活动版本 `45fc80db-0a8c-4037-a51c-18b003b618d6`，deployment status 为 100%。管理员登录生产 `/admin` 后强制刷新成功：D1 `278,528 bytes`、KV `1,297,755 bytes / 413 keys`，缓存无错误码；Cloudflare Dashboard 同刻显示 D1 `279 kB / 12 tables`、KV `1.3 MB / 413`。生产页面无横向溢出，console 无 error/warning。最终复跑 full 21 files / 88 tests、typecheck、production build、Room/Main 双 dry-run 和 `git diff --check` 均通过。 |
+| 2026-07-28 cross-query catalog local | Targeted 6 files / 31 tests、full 22 files / 92 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 migration 0005 执行 14 条命令；真实 FTS5 中文 `MATCH`、trigger insert 与 join 返回通过。内置浏览器在 1440×1024 验证新效率面板、无横向 overflow、console 无 error/warning；390×844 DOM 仍无页面级横向 overflow 且面板存在，但本次 full-page capture 出现现有侧栏文字压缩，因此不重新宣称移动端视觉终验。 |
 
 ### Admin console design QA（2026-07-21）
 

@@ -86,6 +86,11 @@ export async function readSearchRepository(
         servedFromExpandedCache: false,
         responseSource: "repository" as const,
         repositoryEntryId: row.id,
+        candidateResultCount: 0,
+        filteredResultCount: 0,
+        catalogResultCount: 0,
+        uniqueCatalogVideosAdded: 0,
+        externalCallAvoided: true,
       },
     } satisfies SearchResponse,
   };
@@ -174,6 +179,12 @@ export async function recordSearchEvent(
     resultCount: number;
     success: boolean;
     errorCode?: string;
+    candidateResultCount?: number;
+    filteredResultCount?: number;
+    catalogResultCount?: number;
+    uniqueCatalogVideosAdded?: number;
+    externalSearchCalls?: number;
+    externalCallAvoided?: boolean;
   },
 ) {
   if (!db) {
@@ -186,8 +197,13 @@ export async function recordSearchEvent(
       `INSERT INTO search_events (
          id, room_id, query_text, normalized_query, artist, song, search_type,
          original_performer_status, response_source, origin, result_count, success,
-         error_code, created_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'human', ?10, ?11, ?12, ?13)`,
+         error_code, candidate_result_count, filtered_result_count,
+         catalog_result_count, unique_catalog_videos_added, external_search_calls,
+         external_call_avoided, created_at
+       ) VALUES (
+         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'human', ?10, ?11, ?12,
+         ?13, ?14, ?15, ?16, ?17, ?18, ?19
+       )`,
     )
     .bind(
       crypto.randomUUID(),
@@ -202,6 +218,12 @@ export async function recordSearchEvent(
       input.resultCount,
       input.success ? 1 : 0,
       input.errorCode ?? null,
+      input.candidateResultCount ?? 0,
+      input.filteredResultCount ?? 0,
+      input.catalogResultCount ?? 0,
+      input.uniqueCatalogVideosAdded ?? 0,
+      input.externalSearchCalls ?? 0,
+      input.externalCallAvoided ? 1 : 0,
       new Date().toISOString(),
     )
     .run();
@@ -219,6 +241,7 @@ export async function getAdminOverview(
       : "strftime('%Y-%m-%dT00:00:00Z', created_at)";
   const [
     repositoryResult,
+    catalogResult,
     searchTotalsResult,
     trendResult,
     topResult,
@@ -243,9 +266,21 @@ export async function getAdminOverview(
          FROM search_repository_entries`,
       ),
       db.prepare(
+        `SELECT COUNT(*) AS total_videos,
+                COALESCE(SUM(appearance_count), 0) AS total_appearances,
+                MAX(last_seen_at) AS last_updated_at
+         FROM search_video_catalog`,
+      ),
+      db.prepare(
         `SELECT COUNT(*) AS total,
+                COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) AS successful_searches,
                 COALESCE(SUM(CASE WHEN response_source = 'repository' AND success = 1 THEN 1 ELSE 0 END), 0) AS repository_hits,
-                COALESCE(SUM(CASE WHEN response_source = 'external' AND success = 1 THEN 1 ELSE 0 END), 0) AS external_requests
+                COALESCE(SUM(CASE WHEN response_source = 'external' AND success = 1 THEN 1 ELSE 0 END), 0) AS external_requests,
+                COALESCE(SUM(external_search_calls), 0) AS external_search_calls,
+                COALESCE(SUM(external_call_avoided), 0) AS external_calls_avoided,
+                COALESCE(SUM(candidate_result_count), 0) AS candidate_results,
+                COALESCE(SUM(filtered_result_count), 0) AS filtered_results,
+                COALESCE(SUM(unique_catalog_videos_added), 0) AS unique_catalog_videos_added
          FROM search_events
          WHERE created_at >= ?1`,
       ).bind(startAt),
@@ -294,9 +329,17 @@ export async function getAdminOverview(
     ]);
 
   const repository = repositoryResult.results[0] ?? {};
+  const catalog = catalogResult.results[0] ?? {};
   const searchTotals = searchTotalsResult.results[0] ?? {};
   const collection = collectionResult.results[0] ?? {};
   const originalPerformer = originalPerformerResult.results[0] ?? {};
+  const successfulSearches = rowNumber(searchTotals, "successful_searches");
+  const externalSearchCalls = rowNumber(searchTotals, "external_search_calls");
+  const externalCallsAvoided = rowNumber(searchTotals, "external_calls_avoided");
+  const uniqueCatalogVideosAdded = rowNumber(
+    searchTotals,
+    "unique_catalog_videos_added",
+  );
 
   return {
     range,
@@ -315,10 +358,28 @@ export async function getAdminOverview(
       uniqueSongs: rowNumber(repository, "unique_songs"),
       uniqueArtists: rowNumber(repository, "unique_artists"),
     },
+    catalog: {
+      totalVideos: rowNumber(catalog, "total_videos"),
+      totalAppearances: rowNumber(catalog, "total_appearances"),
+      lastUpdatedAt: nullableRowString(catalog, "last_updated_at"),
+    },
     searches: {
       total: rowNumber(searchTotals, "total"),
       repositoryHits: rowNumber(searchTotals, "repository_hits"),
       externalRequests: rowNumber(searchTotals, "external_requests"),
+      externalSearchCalls,
+      externalCallsAvoided,
+      localReuseRate:
+        successfulSearches > 0
+          ? (externalCallsAvoided / successfulSearches) * 100
+          : 0,
+      candidateResults: rowNumber(searchTotals, "candidate_results"),
+      filteredResults: rowNumber(searchTotals, "filtered_results"),
+      uniqueCatalogVideosAdded,
+      usableVideosPerExternalCall:
+        externalSearchCalls > 0
+          ? uniqueCatalogVideosAdded / externalSearchCalls
+          : 0,
       trend: trendResult.results.map((row) => {
         const bucket = rowString(row, "bucket");
         return {

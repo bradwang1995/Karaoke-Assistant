@@ -31,12 +31,13 @@ describe("youtube search helpers", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await searchYouTubeVideos({
+    const providerResult = await searchYouTubeVideos({
       query: "Later",
       apiKey: "test-key",
       maxSearchCalls: 1,
       targetResultCount: 50,
     });
+    const response = providerResult.response;
     const searchCalls = fetchMock.mock.calls
       .map(([input]) => new URL(String(input)))
       .filter((url) => url.pathname.endsWith("/search"));
@@ -47,6 +48,9 @@ describe("youtube search helpers", () => {
     expect(response.results).toHaveLength(50);
     expect(response.cacheMeta?.sourceQueryCount).toBe(1);
     expect(response.cacheMeta?.cachedResultCount).toBe(50);
+    expect(response.cacheMeta?.candidateResultCount).toBe(50);
+    expect(response.cacheMeta?.filteredResultCount).toBe(50);
+    expect(providerResult.candidates).toHaveLength(50);
     expect(response.cacheMeta?.videosListCalls).toBe(1);
     expect(searchCalls).toHaveLength(1);
     expect(videosCalls).toHaveLength(1);
@@ -70,11 +74,12 @@ describe("youtube search helpers", () => {
     const beforeSearchCall = vi.fn(async () => false);
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await searchYouTubeVideos({
+    const providerResult = await searchYouTubeVideos({
       query: "青花瓷",
       apiKey: "test-key",
       beforeSearchCall,
     });
+    const response = providerResult.response;
 
     expect(beforeSearchCall).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();

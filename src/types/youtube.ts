@@ -37,6 +37,11 @@ export interface SearchResponse {
     prunedResultCount?: number;
     responseSource?: "repository" | "external" | "mock";
     repositoryEntryId?: string;
+    candidateResultCount?: number;
+    filteredResultCount?: number;
+    catalogResultCount?: number;
+    uniqueCatalogVideosAdded?: number;
+    externalCallAvoided?: boolean;
   };
 }
 
