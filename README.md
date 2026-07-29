@@ -517,7 +517,7 @@ Mobile preview：
 - Mobile 使用与 display 连续一致的 slate/teal 深色背景，`theme-color`、`color-scheme`、HTML/body 和 safe-area 都保持深色，避免 Safari 顶部状态栏、底部地址栏或结果区露出白带。
 - 选择后 debounce 600ms；快速切换会取消旧 preview，只有 active card 挂载 iframe。
 - Pending/加载阶段显示 spinner；10 秒仍未加载会显示可重试提示；点击外部停止。
-- Preview 固定请求从 30 秒开始，并通过专用 URL helper 和回归测试保护；mute、autoplay、playsinline，画质由 YouTube 自适应。
+- Preview 使用 IFrame Player API 显式执行播放：Player 初始化不抢跑，ready 后依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试播放。只有收到真实 `PLAYING` 状态才结束 spinner；30 秒起点与调用顺序由回归测试保护。
 - App 不重复显示 video title/channel/quality；YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡。
 
 Display：

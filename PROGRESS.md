@@ -16,10 +16,10 @@ Last updated: 2026-07-29
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
-| Mobile preview | MVP complete | 2–4 列、单 iframe、固定 30 秒起点、600ms debounce、spinner/timeout fallback 已完成。 |
+| Mobile preview | MVP complete | 2–4 列、单 IFrame Player、ready 后静音并从 30 秒显式 load/seek/play、600ms debounce、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 23 files / 99 tests | Music/7 分钟过滤、同文字四选项 cache、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
+| Automated tests | 23 files / 100 tests | Preview API 静音/30 秒/load/seek/play、Music/7 分钟过滤、同文字四选项 cache、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -360,6 +360,14 @@ Last updated: 2026-07-29
 | SRCH9-04 | P0 | Mobile 搜索开始即清空旧卡片与 preview，搜索按钮灰显并旋转，结果区持续显示歌曲筛选 spinner，直到新 response 到达。 |
 | SRCH9-05 | P1 | D1 四 family 合并为单次读取；KV 四 key 并行；repository/KV touch、结果持久化、事件与 quota broadcast 使用 Worker `waitUntil`，同时保留候选新增指标的同步真实性。 |
 
+### 2026-07-29 mobile preview playback restoration pass 10
+
+| ID | P | Completed |
+| --- | --- | --- |
+| PREV10-01 | P0 | Mobile preview 从仅依赖 iframe URL 参数改为 IFrame Player API；ready 后先静音，再从 30 秒显式 load、seek、play，并做 250ms/900ms 短重试。 |
+| PREV10-02 | P0 | Spinner 只在收到真实 `PLAYING` 后消失，不再把 iframe `onLoad` 误当作已播放；error/autoplay blocked/10 秒 timeout 统一进入可重试状态。 |
+| PREV10-03 | P1 | 保留 600ms 防误触、单 active preview、点击外部停止、无 native controls 与 adaptive quality；新增调用顺序 regression test。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -402,6 +410,7 @@ Last updated: 2026-07-29
 | 2026-07-29 exact-query rollback production release | Production D1 migration 0006 执行 5 条命令；候选基础表保留 247 条，FTS5 表和 3 个同步 triggers 均已删除，并复核无待应用 migration。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `8317ea66-8de7-4177-80ad-bed8622ece20`、Main `8326d942-3a08-4253-84c5-eee8c696442a` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`；线上 Admin chunk 与本地 build SHA-256 完全一致。UTF-8 `后来 + 刘若英` 冷查询、原唱 flag 变体和 `后来 KTV` 文字变体各自调用 1 次 external 并返回 26 条；两个 exact repeats 均由 repository 返回 26 条、0 次 external，quota `0 → 3`，所有事件 `catalogResultCount=0`。 |
 | 2026-07-29 song-only same-text cache local | Targeted 7 files / 39 tests、full 23 files / 99 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。内置浏览器在 390×844 通过 1.2 秒受控延迟验证：已有 8 张结果卡时提交下一次搜索，卡片立即变为 0、结果区 `aria-busy=true`、搜索按钮 disabled 且 spinner 文案可见；response 到达后恢复 8 张卡片。页面 `scrollWidth=clientWidth=390`，console 无 error/warning。 |
 | 2026-07-29 song-only same-text cache production release | Production migration 复核为无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，Room `4d1dfa72-9a84-48b8-9a1e-538075dc0108`、Main `ae0f1f0e-1c4c-4672-a1ef-667cdff1b644` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`。`甜甜的 + 周杰伦` 冷查询由 external 返回 28 条，全部 category 10 且 `0 < duration < 420`；改为 artist + 原唱后由 repository 返回 28 条，`servedFromExpandedCache=true`、`sourceQueryCount=0`、`externalCallAvoided=true`，quota 仅 `6 → 7`。生产内置浏览器 390×844 显示实时已连接、10/28 条推荐，无横向 overflow，console 无 error/warning。 |
+| 2026-07-29 mobile preview playback restoration local | Focused YouTube helper 1 file / 4 tests、full 23 files / 100 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed。内置浏览器 390×844 实际点选卡片后只创建一个 `enablejsapi=1` iframe，参数为 `autoplay=0`、`start=30`、`playsinline=1` 和正确 origin；API helper 回归测试确认 ready 后调用顺序为 mute → load at 30 → seek 30 → play。自动化 YouTube 仍返回既有 error 150，因此没有虚报真实 PLAYING；真实手机播放留给周末内测复核。 |
 
 ### Admin console design QA（2026-07-21）
 

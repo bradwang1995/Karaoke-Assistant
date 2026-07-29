@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   MOBILE_PREVIEW_START_SECONDS,
+  startYouTubePreview,
   youtubeEmbedUrl,
   youtubePreviewEmbedUrl,
 } from "./youtube";
+import type { YouTubePlayer } from "./youtubeIframeApi";
 
 describe("YouTube embed URLs", () => {
   it("starts mobile previews at 30 seconds", () => {
@@ -13,6 +15,27 @@ describe("YouTube embed URLs", () => {
     expect(url.searchParams.get("start")).toBe("30");
     expect(url.searchParams.get("autoplay")).toBe("1");
     expect(url.searchParams.get("mute")).toBe("1");
+  });
+
+  it("explicitly mutes, seeks, and starts mobile previews through the player API", () => {
+    const calls: string[] = [];
+    const player = {
+      mute: () => calls.push("mute"),
+      loadVideoById: ({ videoId, startSeconds }) =>
+        calls.push(`load:${videoId}:${startSeconds}`),
+      seekTo: (seconds, allowSeekAhead) =>
+        calls.push(`seek:${seconds}:${allowSeekAhead}`),
+      playVideo: () => calls.push("play"),
+    } satisfies YouTubePlayer;
+
+    startYouTubePreview(player, "video-id");
+
+    expect(calls).toEqual([
+      "mute",
+      "load:video-id:30",
+      "seek:30:true",
+      "play",
+    ]);
   });
 
   it("keeps app-owned embeds free of native controls", () => {

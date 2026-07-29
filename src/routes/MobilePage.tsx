@@ -30,7 +30,19 @@ import {
   restartCurrentSong,
   useRoomSnapshot,
 } from "../lib/roomState";
-import { youtubePreviewEmbedUrl, youtubeThumbnailUrl } from "../lib/youtube";
+import {
+  MOBILE_PREVIEW_START_SECONDS,
+  startYouTubePreview,
+  youtubeThumbnailUrl,
+} from "../lib/youtube";
+import {
+  loadYouTubeIframeApi,
+  YOUTUBE_PLAYER_STATE,
+  type YouTubePlayer,
+  type YouTubePlayerErrorEvent,
+  type YouTubePlayerEvent,
+  type YouTubePlayerStateChangeEvent,
+} from "../lib/youtubeIframeApi";
 import { useMobileUiStore } from "../stores/mobileUiStore";
 import type { QueueItem } from "../types/room";
 import type { ClientToServerMessage } from "../types/websocket";
@@ -1019,22 +1031,143 @@ function CandidatePreview({
   active: boolean;
   pending: boolean;
 }) {
+  const playerShellRef = useRef<HTMLDivElement | null>(null);
+  const playerRef = useRef<YouTubePlayer | null>(null);
+  const playRetryTimeoutsRef = useRef<number[]>([]);
+  const playingRef = useRef(false);
   const [loadStatus, setLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">(
     "idle",
   );
 
   useEffect(() => {
+    const shell = playerShellRef.current;
+    let cancelled = false;
+
+    const clearPlayRetries = () => {
+      for (const timeoutId of playRetryTimeoutsRef.current) {
+        window.clearTimeout(timeoutId);
+      }
+
+      playRetryTimeoutsRef.current = [];
+    };
+
+    const destroyPlayer = () => {
+      clearPlayRetries();
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
+      shell?.replaceChildren();
+    };
+
     if (!active) {
+      playingRef.current = false;
+      destroyPlayer();
       setLoadStatus("idle");
       return;
     }
 
+    if (!shell) {
+      setLoadStatus("error");
+      return;
+    }
+
+    playingRef.current = false;
+    destroyPlayer();
     setLoadStatus("loading");
     const timeoutId = window.setTimeout(() => {
       setLoadStatus((current) => (current === "loading" ? "error" : current));
     }, PREVIEW_LOAD_TIMEOUT_MS);
+    const host = document.createElement("div");
+    host.className = "h-full w-full";
+    shell.appendChild(host);
 
-    return () => window.clearTimeout(timeoutId);
+    loadYouTubeIframeApi()
+      .then((api) => {
+        if (cancelled) {
+          return;
+        }
+
+        playerRef.current = new api.Player(host, {
+          width: "100%",
+          height: "100%",
+          videoId: result.videoId,
+          playerVars: {
+            autoplay: 0,
+            controls: 0,
+            disablekb: 1,
+            enablejsapi: 1,
+            fs: 0,
+            iv_load_policy: 3,
+            playsinline: 1,
+            rel: 0,
+            start: MOBILE_PREVIEW_START_SECONDS,
+            origin: window.location.origin,
+          },
+          events: {
+            onReady: handleReady,
+            onStateChange: handleStateChange,
+            onError: handleError,
+            onAutoplayBlocked: handleAutoplayBlocked,
+          },
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoadStatus("error");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      playingRef.current = false;
+      destroyPlayer();
+    };
+
+    function handleReady(event: YouTubePlayerEvent) {
+      const iframe = event.target.getIframe?.() ?? shell?.querySelector("iframe");
+
+      iframe?.setAttribute(
+        "allow",
+        "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture",
+      );
+      startYouTubePreview(event.target, result.videoId);
+
+      for (const delay of [250, 900]) {
+        const retryId = window.setTimeout(() => {
+          if (!playingRef.current) {
+            event.target.mute?.();
+            event.target.playVideo?.();
+          }
+        }, delay);
+
+        playRetryTimeoutsRef.current.push(retryId);
+      }
+    }
+
+    function handleStateChange(event: YouTubePlayerStateChangeEvent) {
+      if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
+        playingRef.current = true;
+        clearPlayRetries();
+        setLoadStatus("loaded");
+        return;
+      }
+
+      if (event.data === YOUTUBE_PLAYER_STATE.CUED) {
+        event.target.mute?.();
+        event.target.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
+        event.target.playVideo?.();
+      }
+    }
+
+    function handleError(_event: YouTubePlayerErrorEvent) {
+      clearPlayRetries();
+      setLoadStatus("error");
+    }
+
+    function handleAutoplayBlocked() {
+      clearPlayRetries();
+      setLoadStatus("error");
+    }
   }, [active, result.videoId]);
 
   return (
@@ -1046,17 +1179,13 @@ function CandidatePreview({
         draggable={false}
         className="h-full w-full object-cover"
       />
-      {active ? (
-        <iframe
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          title="视频预览"
-          src={youtubePreviewEmbedUrl(result.videoId)}
-          loading="eager"
-          allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
-          onLoad={() => setLoadStatus("loaded")}
-          onError={() => setLoadStatus("error")}
-        />
-      ) : null}
+      <div
+        ref={playerShellRef}
+        className={`pointer-events-none absolute inset-0 h-full w-full [&_iframe]:h-full [&_iframe]:w-full ${
+          active && loadStatus !== "error" ? "" : "invisible"
+        }`}
+        aria-hidden="true"
+      />
       {pending || loadStatus === "loading" ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/80 text-white">
           <LoaderCircle className="animate-spin" size={22} />

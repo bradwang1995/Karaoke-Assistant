@@ -1,3 +1,5 @@
+import type { YouTubePlayer } from "./youtubeIframeApi";
+
 export const MOBILE_PREVIEW_START_SECONDS = 30;
 
 export function youtubeThumbnailUrl(videoId: string) {
@@ -33,4 +35,14 @@ export function youtubePreviewEmbedUrl(videoId: string) {
     muted: true,
     autoplay: true,
   });
+}
+
+export function startYouTubePreview(player: YouTubePlayer, videoId: string) {
+  player.mute?.();
+  player.loadVideoById?.({
+    videoId,
+    startSeconds: MOBILE_PREVIEW_START_SECONDS,
+  });
+  player.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
+  player.playVideo?.();
 }
