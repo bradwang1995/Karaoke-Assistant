@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-28
+Last updated: 2026-07-29
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -387,6 +387,7 @@ Last updated: 2026-07-28
 | 2026-07-28 cross-query catalog local | Targeted 6 files / 31 tests、full 22 files / 92 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 migration 0005 执行 14 条命令；真实 FTS5 中文 `MATCH`、trigger insert 与 join 返回通过。内置浏览器在 1440×1024 验证新效率面板、无横向 overflow、console 无 error/warning；390×844 DOM 仍无页面级横向 overflow 且面板存在，但本次 full-page capture 出现现有侧栏文字压缩，因此不重新宣称移动端视觉终验。 |
 | 2026-07-28 exact-query rollback local | Targeted 5 files / 25 tests、full 22 files / 92 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 migration 0006 执行 5 条命令，保留 `search_video_catalog` 基础数据并删除 FTS5 表和 3 个同步 triggers。内置浏览器在 1440×1024 与 390×844 验证“候选采集与精确复用效率”文案；旧 10 条门槛与在线跨查询文案不存在，两种 viewport 均无页面级横向 overflow，console 无 error/warning。 |
 | 2026-07-28 cross-query catalog production release | Production D1 migration 0005 执行 14 条命令并复核无待应用项。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `fdf83e2b-69ad-4ea8-a00c-5d2e58c760f3`、Main `79f4ffaa-93b8-48b7-b35e-becbc62b20a8` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`。一次 UTF-8 冷搜索用 1 次额度取得 50 个原始候选、过滤后 44 条并新增 50 个目录视频；精确复用与跨查询复用分别返回 44/43 条，额度保持 1，后者由 FTS5 目录返回且 `sourceQueryCount=0`。 |
+| 2026-07-29 exact-query rollback production release | Production D1 migration 0006 执行 5 条命令；候选基础表保留 247 条，FTS5 表和 3 个同步 triggers 均已删除，并复核无待应用 migration。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `8317ea66-8de7-4177-80ad-bed8622ece20`、Main `8326d942-3a08-4253-84c5-eee8c696442a` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`；线上 Admin chunk 与本地 build SHA-256 完全一致。UTF-8 `后来 + 刘若英` 冷查询、原唱 flag 变体和 `后来 KTV` 文字变体各自调用 1 次 external 并返回 26 条；两个 exact repeats 均由 repository 返回 26 条、0 次 external，quota `0 → 3`，所有事件 `catalogResultCount=0`。 |
 
 ### Admin console design QA（2026-07-21）
 
@@ -451,6 +452,7 @@ Current coverage：
 | 2026-07-22 admin production release | Main `23be9233-b48a-4b1d-b788-236e3851c9f7`（100%）；Room `a3458d1b-f30b-4ba4-b4d6-07eb9f230b54`（100%）。 |
 | 2026-07-25 real storage metrics release | Main `ba476a0f-0583-431b-ba68-9d1b43d33c52`（100%）；Room `8ee39e12-4618-4948-81d0-f753158a4046`（100%）。 |
 | 2026-07-26 storage token acceptance | Main Secret-change version `45fc80db-0a8c-4037-a51c-18b003b618d6`（100%）；Room unchanged。 |
+| 2026-07-29 exact-query rollback release | Main `8326d942-3a08-4253-84c5-eee8c696442a`（100%）；Room `8317ea66-8de7-4177-80ad-bed8622ece20`（100%）。 |
 
 Last local pass-4 smoke room `3r512238`：create CTA、mock search、单 iframe preview `start=30`、两首点歌、restart 保持当前 item、next 推进第二首且 progress value 为 `0`。Create 已确认 390×844 无横向 overflow、1280×720 无页面滚动；Display 已确认 dark 140px QR、无画质 selector、三键 panel。
 
@@ -467,6 +469,8 @@ Production admin release API smoke room `1q6s3n4v`：root 与 `/admin` 均 HTTP 
 Production storage metrics acceptance：管理员已自行登录，Codex 未读取密码。强制刷新后 D1 与 KV 系统提醒均为正常；服务端状态表记录 `cloudflare-d1-api` 的 `278,528 bytes` 与 `cloudflare-analytics` 的 `1,297,755 bytes / 413 keys`，`last_error_code` 均为空。Dashboard 同刻显示 D1 `279 kB / 12 tables`、KV `1.3 MB / 413`；生产页面 `scrollWidth=clientWidth=2036`，console 为空。
 
 Production cross-query catalog smoke room `5r652e0d`：quota `0 → 1 → 1 → 1`。`暖暖 + 梁静茹` cold search 为 `external`，取得 50 个 embeddable candidates、过滤后返回 44 条并新增 50 个独立目录视频；相同查询由 exact repository 返回 44 条；移除 artist 的新查询由跨查询目录返回 43 条，`catalogResultCount=43`、`externalCallAvoided=true`、`sourceQueryCount=0`。Production D1 只读复核为目录 50 条、appearance 50、FTS5 `暖暖` 命中 43 条，三条 `search_events` 的候选/过滤/目录/额度列与 API metadata 一致。Production `AdminPage-BQ8ZOyC6.js` 与本地 production build SHA-256 完全一致，且包含“候选目录与额度效率”面板；生产管理员密码未提供给 Codex，因此没有代替管理员登录查看受保护总览。
+
+Production exact-query rollback smoke room `5o3m3t27`：quota `0 → 3`。`后来 + 刘若英`（song、无原唱）冷查询由 external 返回 26 条，完全相同查询由 repository 返回 26 条且 `sourceQueryCount=0`；只改原唱 flag 后重新由 external 返回 26 条；文字改为 `后来 KTV` 后也重新由 external 返回 26 条，再次完全相同请求则由 repository 返回 26 条且不增加额度。D1 只读复核为三个独立 repository identity，两个 exact repeat 的 `access_count=1`；五条事件均为 `catalogResultCount=0`，来源顺序为 external / repository / external / external / repository。Production migration 0006 后候选基础表保留 247 条，FTS5 与 triggers 不存在；`AdminPage-Cb4kbW9h.js` 与本地 production build SHA-256 完全一致，包含新精确复用文案且不含旧 10 条门槛或在线跨查询文案。
 
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 
