@@ -54,6 +54,8 @@ export function searchMockVideos(query: string, limit = 10): SearchResponse {
         thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
         durationSeconds: [265, 241, 304, 278, 252, 299, 286, 270][index],
         publishedAt: "2026-01-01T00:00:00Z",
+        categoryId: "10",
+        tags: ["music", "karaoke"],
         score: 32 - index * 3,
         reasons: ["mock result", "title contains KTV"],
       };

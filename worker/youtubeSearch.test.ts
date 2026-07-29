@@ -23,6 +23,11 @@ describe("youtube search helpers", () => {
           items: ids.map((id) => ({
             id,
             contentDetails: { duration: "PT4M" },
+            snippet: {
+              categoryId: "10",
+              tags: ["music", "karaoke"],
+            },
+            status: { embeddable: true },
           })),
         });
       }
@@ -56,7 +61,54 @@ describe("youtube search helpers", () => {
     expect(videosCalls).toHaveLength(1);
     expect(searchCalls[0].searchParams.get("maxResults")).toBe("50");
     expect(searchCalls[0].searchParams.get("q")).toBe("later");
+    expect(searchCalls[0].searchParams.get("videoCategoryId")).toBe("10");
     expect(searchCalls[0].searchParams.has("pageToken")).toBe(false);
+    expect(videosCalls[0].searchParams.get("part")).toBe(
+      "contentDetails,snippet,status",
+    );
+    expect(response.results[0]).toMatchObject({
+      categoryId: "10",
+      durationSeconds: 240,
+      tags: ["music", "karaoke"],
+    });
+  });
+
+  it("rejects seven-minute, non-music, and non-embeddable videos", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/search")) {
+        return jsonResponse({ items: buildSearchItems(0, 4) });
+      }
+
+      if (url.pathname.endsWith("/videos")) {
+        return jsonResponse({
+          items: [
+            videoDetails("video-0", "PT6M59S", "10", true),
+            videoDetails("video-1", "PT7M", "10", true),
+            videoDetails("video-2", "PT4M", "19", true),
+            videoDetails("video-3", "PT4M", "10", false),
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerResult = await searchYouTubeVideos({
+      query: "Later",
+      apiKey: "test-key",
+    });
+
+    expect(providerResult.response.results.map((result) => result.videoId)).toEqual([
+      "video-0",
+    ]);
+    expect(providerResult.candidates).toHaveLength(1);
+    expect(providerResult.response.cacheMeta).toMatchObject({
+      candidateResultCount: 1,
+      filteredResultCount: 1,
+    });
   });
 
   it("parses ISO 8601 YouTube durations", () => {
@@ -133,4 +185,18 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function videoDetails(
+  id: string,
+  duration: string,
+  categoryId: string,
+  embeddable: boolean,
+) {
+  return {
+    id,
+    contentDetails: { duration },
+    snippet: { categoryId, tags: ["music"] },
+    status: { embeddable },
+  };
 }

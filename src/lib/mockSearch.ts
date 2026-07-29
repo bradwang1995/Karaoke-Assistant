@@ -83,6 +83,8 @@ export async function searchMockVideos(
         channelTitle: MOCK_CHANNEL_TITLES[index % MOCK_CHANNEL_TITLES.length],
         thumbnailUrl: youtubeThumbnailUrl(videoId),
         durationSeconds: MOCK_DURATIONS[index % MOCK_DURATIONS.length],
+        categoryId: "10",
+        tags: ["music", options.includeOriginalVocal ? "lyrics" : "karaoke"],
         score: 32 - index * 0.5,
         reasons: ["mock result", "title contains KTV"],
       };

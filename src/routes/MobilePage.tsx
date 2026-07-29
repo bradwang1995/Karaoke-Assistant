@@ -326,9 +326,22 @@ function SearchTab({
     },
   });
 
+  const isSearching = searchMutation.isPending;
+  const showingRecommendations =
+    !searchResponse && !isSearching && !searchMutation.isError;
   const activeResults = useMemo(
-    () => searchResponse?.results ?? recommendationsQuery.data?.results ?? [],
-    [recommendationsQuery.data?.results, searchResponse?.results],
+    () =>
+      isSearching
+        ? []
+        : searchResponse?.results ??
+          (showingRecommendations ? recommendationsQuery.data?.results : []) ??
+          [],
+    [
+      isSearching,
+      recommendationsQuery.data?.results,
+      searchResponse?.results,
+      showingRecommendations,
+    ],
   );
   const visibleResults = useMemo(
     () =>
@@ -570,6 +583,13 @@ function SearchTab({
     latestSearchRequestRef.current = requestId;
     setToast(null);
     setDuplicateCandidate(null);
+    setSearchResponse(null);
+    setSelected(null);
+    setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
+    setIsLoadingMore(false);
+    setActivePreviewVideoId(null);
+    cancelPendingPreview();
+    scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     searchMutation.mutate({
       query: trimmedQuery,
       searchType: nextSearchType,
@@ -631,13 +651,17 @@ function SearchTab({
     setDuplicateCandidate(null);
   };
 
-  const showingRecommendations = !searchResponse;
-  const isLoadingResults =
-    activeResults.length === 0 &&
-    (searchMutation.isPending || (showingRecommendations && recommendationsQuery.isPending));
-  const resultHeading = showingRecommendations ? "缓存推荐" : "搜索结果";
-  const resultCountLabel = isLoadingResults
-    ? "加载中"
+  const isLoadingRecommendations =
+    showingRecommendations && recommendationsQuery.isPending;
+  const resultHeading = isSearching
+    ? "正在搜索"
+    : showingRecommendations
+      ? "缓存推荐"
+      : "搜索结果";
+  const resultCountLabel = isSearching
+    ? "搜索中"
+    : isLoadingRecommendations
+      ? "加载中"
     : `${visibleResults.length}/${activeResults.length} 首`;
 
   return (
@@ -683,7 +707,14 @@ function SearchTab({
               disabled={!query.trim() || searchMutation.isPending}
               className="inline-flex h-12 w-[3.25rem] shrink-0 items-center justify-center rounded-lg bg-teal-300 text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 sm:w-14"
             >
-              <Search size={21} />
+              {isSearching ? (
+                <>
+                  <LoaderCircle className="animate-spin" size={21} />
+                  <span className="sr-only">正在搜索</span>
+                </>
+              ) : (
+                <Search size={21} />
+              )}
             </button>
           </div>
         </form>
@@ -697,6 +728,7 @@ function SearchTab({
 
       <div
         ref={scrollContainerRef}
+        aria-busy={isSearching}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[radial-gradient(circle_at_18%_8%,rgba(20,184,166,0.10),transparent_34%),radial-gradient(circle_at_88%_82%,rgba(251,113,133,0.08),transparent_32%)] px-4 pb-3 scrollbar-soft-dark"
       >
         {searchMutation.isError ? (
@@ -711,7 +743,21 @@ function SearchTab({
           </StatusMessage>
         ) : null}
 
-        {isLoadingResults ? (
+        {isSearching ? (
+          <div
+            className="grid min-h-64 place-items-center py-12 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <div>
+              <LoaderCircle className="mx-auto animate-spin text-teal-300" size={36} />
+              <p className="mt-4 text-base font-semibold text-slate-100">正在搜索歌曲…</p>
+              <p className="mt-1 text-sm text-slate-400">正在筛选音乐分类和合适时长</p>
+            </div>
+          </div>
+        ) : null}
+
+        {isLoadingRecommendations ? (
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
             {Array.from({ length: SEARCH_RESULT_PAGE_SIZE }, (_, item) => (
               <div key={item} className="aspect-[16/11] animate-pulse rounded-xl bg-slate-800" />
@@ -719,19 +765,19 @@ function SearchTab({
           </div>
         ) : null}
 
-        {!isLoadingResults && searchResponse && activeResults.length === 0 ? (
+        {!isSearching && !isLoadingRecommendations && searchResponse && activeResults.length === 0 ? (
           <StatusMessage tone="info" appearance="dark" className="mt-5">
             没有找到合适的视频。
           </StatusMessage>
         ) : null}
 
-        {!isLoadingResults && showingRecommendations && activeResults.length === 0 ? (
+        {!isSearching && !isLoadingRecommendations && showingRecommendations && activeResults.length === 0 ? (
           <StatusMessage tone="info" appearance="dark" className="mt-5">
             暂无推荐内容。
           </StatusMessage>
         ) : null}
 
-        {!isLoadingResults && activeResults.length > 0 ? (
+        {!isSearching && !isLoadingRecommendations && activeResults.length > 0 ? (
           <>
           <div
             ref={resultsGridRef}

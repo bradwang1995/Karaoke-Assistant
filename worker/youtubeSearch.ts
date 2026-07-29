@@ -1,6 +1,10 @@
 import type { SearchResponse, SearchType, VideoSearchResult } from "../src/types/youtube";
 import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
+import {
+  isEligibleSongResult,
+  YOUTUBE_MUSIC_CATEGORY_ID,
+} from "./songFilter";
 import type { VideoCatalogCandidate } from "./videoCatalog";
 
 const YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
@@ -35,6 +39,13 @@ interface YouTubeVideosListResponse {
     id?: string;
     contentDetails?: {
       duration?: string;
+    };
+    snippet?: {
+      categoryId?: string;
+      tags?: string[];
+    };
+    status?: {
+      embeddable?: boolean;
     };
   }>;
 }
@@ -93,15 +104,26 @@ export async function searchYouTubeVideos({
   }
 
   const baseResults = [...dedupedResults.values()].slice(0, targetResultCount);
-  const { durations, callCount: videosListCalls } = await fetchVideoDurations(
+  const { details, callCount: videosListCalls } = await fetchVideoDetails(
     apiKey,
     baseResults.map((result) => result.videoId),
   );
+  const candidates = baseResults.flatMap((result) => {
+    const videoDetails = details.get(result.videoId);
 
-  const candidates = baseResults.map((result) => ({
-    ...result,
-    durationSeconds: durations.get(result.videoId),
-  }));
+    if (!videoDetails || videoDetails.embeddable === false) {
+      return [];
+    }
+
+    const candidate = {
+      ...result,
+      durationSeconds: videoDetails.durationSeconds,
+      categoryId: videoDetails.categoryId,
+      ...(videoDetails.tags.length > 0 ? { tags: videoDetails.tags } : {}),
+    };
+
+    return isEligibleSongResult(candidate) ? [candidate] : [];
+  });
   const results = rankSearchResultsForQuery(
     candidates,
     query,
@@ -143,6 +165,7 @@ async function fetchSearchPage({
     q: sourceQuery,
     maxResults: String(SEARCH_PAGE_SIZE),
     videoEmbeddable: "true",
+    videoCategoryId: YOUTUBE_MUSIC_CATEGORY_ID,
     safeSearch: "moderate",
     regionCode: REGION_CODE,
     relevanceLanguage: RELEVANCE_LANGUAGE,
@@ -179,8 +202,16 @@ function toBaseResult(
   };
 }
 
-async function fetchVideoDurations(apiKey: string, videoIds: string[]) {
-  const durations = new Map<string, number>();
+async function fetchVideoDetails(apiKey: string, videoIds: string[]) {
+  const details = new Map<
+    string,
+    {
+      durationSeconds: number;
+      categoryId?: string;
+      tags: string[];
+      embeddable?: boolean;
+    }
+  >();
   let callCount = 0;
 
   for (let start = 0; start < videoIds.length; start += VIDEO_DETAILS_CHUNK_SIZE) {
@@ -191,7 +222,7 @@ async function fetchVideoDurations(apiKey: string, videoIds: string[]) {
     }
 
     const params = new URLSearchParams({
-      part: "contentDetails",
+      part: "contentDetails,snippet,status",
       id: ids.join(","),
       key: apiKey,
     });
@@ -200,23 +231,30 @@ async function fetchVideoDurations(apiKey: string, videoIds: string[]) {
     callCount += 1;
 
     if (!response.ok) {
-      continue;
+      throw new Error(`YouTube video details failed with status ${response.status}.`);
     }
 
     const body = (await response.json()) as YouTubeVideosListResponse;
 
     for (const item of body.items ?? []) {
-      if (item.id && item.contentDetails?.duration) {
-        const durationSeconds = parseIso8601DurationSeconds(item.contentDetails.duration);
+      if (!item.id || !item.contentDetails?.duration) {
+        continue;
+      }
 
-        if (typeof durationSeconds === "number") {
-          durations.set(item.id, durationSeconds);
-        }
+      const durationSeconds = parseIso8601DurationSeconds(item.contentDetails.duration);
+
+      if (typeof durationSeconds === "number") {
+        details.set(item.id, {
+          durationSeconds,
+          categoryId: item.snippet?.categoryId,
+          tags: (item.snippet?.tags ?? []).slice(0, 20),
+          embeddable: item.status?.embeddable,
+        });
       }
     }
   }
 
-  return { durations, callCount };
+  return { details, callCount };
 }
 
 export function parseIso8601DurationSeconds(duration: string) {

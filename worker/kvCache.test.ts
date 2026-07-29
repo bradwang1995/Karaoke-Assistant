@@ -43,11 +43,35 @@ class MemoryKv {
 }
 
 describe("KV search cache", () => {
-  it("builds stable v3 cache keys", () => {
-    expect(searchCacheFamilyKey("abc123")).toBe("yt-search:v3:abc123:CA:zh-Hans");
+  it("builds stable v4 cache keys", () => {
+    expect(searchCacheFamilyKey("abc123")).toBe("yt-search:v4:abc123:CA:zh-Hans");
     expect(searchCacheIndexKey("later ktv")).toBe(
       "yt-search-index:v2:song:karaoke:-:later ktv:CA:zh-Hans",
     );
+  });
+
+  it("does not cache non-music or seven-minute videos", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("Later");
+    const candidates = buildResults(3);
+    const valid = candidates[0]!;
+    const nonMusic = candidates[1]!;
+    const tooLong = candidates[2]!;
+    nonMusic.categoryId = "19";
+    tooLong.durationSeconds = 420;
+
+    const written = await writeSearchCache(
+      kv,
+      family,
+      buildResponse("Later", family.normalizedQuery, [valid, nonMusic, tooLong]),
+    );
+
+    expect(written?.results.map((result) => result.videoId)).toEqual([valid.videoId]);
+    await expect(readSearchCache(kv, family)).resolves.toMatchObject({
+      entry: {
+        results: [{ videoId: valid.videoId }],
+      },
+    });
   });
 
   it("reads only the exact normalized query family", async () => {
@@ -263,6 +287,8 @@ function buildResults(count: number, offset = 0): VideoSearchResult[] {
     thumbnailUrl: `https://img.youtube.com/vi/video-${index + offset}/hqdefault.jpg`,
     durationSeconds: 240,
     publishedAt: "2026-01-01T00:00:00Z",
+    categoryId: "10",
+    tags: ["music", "karaoke"],
     score: 100 - index,
     reasons: ["test"],
   }));

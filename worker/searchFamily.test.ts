@@ -1,7 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchQueryFamily, normalizeSearchFamilyQuery } from "./searchFamily";
+import {
+  buildSearchQueryFamily,
+  buildSearchQueryFamilyVariants,
+  normalizeSearchFamilyQuery,
+} from "./searchFamily";
 
 describe("search query families", () => {
+  it("builds the current option family first and the other three combinations after it", () => {
+    const variants = buildSearchQueryFamilyVariants("周杰伦", undefined, {
+      searchType: "song",
+      includeOriginalVocal: false,
+    });
+
+    expect(
+      variants.map((family) => [
+        family.searchType,
+        family.includeOriginalVocal,
+        family.canonicalQuery,
+      ]),
+    ).toEqual([
+      ["song", false, "周杰伦"],
+      ["song", true, "周杰伦"],
+      ["artist", false, "周杰伦"],
+      ["artist", true, "周杰伦"],
+    ]);
+    expect(new Set(variants.map((family) => family.hash)).size).toBe(4);
+  });
+
   it("keeps different query text in separate cache families", () => {
     expect(normalizeSearchFamilyQuery("Later ktv")).toBe("later");
     expect(normalizeSearchFamilyQuery("Later karaoke")).toBe("later");

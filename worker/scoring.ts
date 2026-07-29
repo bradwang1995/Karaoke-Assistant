@@ -14,6 +14,7 @@ interface SearchScoringOptions {
   searchType?: SearchType;
   includeOriginalVocal?: boolean;
   artist?: string;
+  allowMetadataOnlyMatches?: boolean;
 }
 
 const KTV_PRIMARY_SIGNALS = [
@@ -75,9 +76,10 @@ export function scoreSearchResult(
   originalQuery: string,
   options: SearchScoringOptions = {},
 ): VideoSearchResult {
-  const haystack = `${result.title} ${result.channelTitle ?? ""}`.toLowerCase();
+  const haystack = `${result.title} ${result.channelTitle ?? ""} ${result.tags?.join(" ") ?? ""}`.toLowerCase();
   const title = normalizeQuery(result.title);
   const channelTitle = normalizeQuery(result.channelTitle ?? "");
+  const tags = normalizeQuery(result.tags?.join(" ") ?? "");
   const reasons: string[] = [];
   let score = 0;
 
@@ -110,8 +112,8 @@ export function scoreSearchResult(
 
   const queryMatch =
     options.searchType === "artist"
-      ? scoreArtistQueryMatch(title, channelTitle, originalQuery)
-      : scoreTitleQueryMatch(title, channelTitle, originalQuery);
+      ? scoreArtistQueryMatch(title, channelTitle, tags, originalQuery)
+      : scoreTitleQueryMatch(title, channelTitle, tags, originalQuery);
 
   if (queryMatch.score !== 0) {
     score += queryMatch.score;
@@ -146,13 +148,19 @@ export function rankSearchResultsForQuery(
       ({ result }) =>
         options.searchType !== "song" ||
         (!result.reasons.includes("title does not match query") &&
-          !result.reasons.includes("channel contains query")),
+          (options.allowMetadataOnlyMatches ||
+            !result.reasons.includes("channel contains query"))),
     )
     .sort((a, b) => b.result.score - a.result.score || a.index - b.index)
     .map(({ result }) => result);
 }
 
-function scoreArtistQueryMatch(title: string, channelTitle: string, originalQuery: string) {
+function scoreArtistQueryMatch(
+  title: string,
+  channelTitle: string,
+  tags: string,
+  originalQuery: string,
+) {
   const canonicalQuery = normalizeSearchFamilyQuery(originalQuery);
 
   if (!canonicalQuery) {
@@ -175,6 +183,11 @@ function scoreArtistQueryMatch(title: string, channelTitle: string, originalQuer
     reasons.push("channel contains artist query");
   }
 
+  if (tags.includes(canonicalQuery)) {
+    score += 16;
+    reasons.push("tags contain artist query");
+  }
+
   if (score > 0) {
     return { score, reason: reasons.join("; ") };
   }
@@ -195,7 +208,12 @@ function scoreArtistQueryMatch(title: string, channelTitle: string, originalQuer
   };
 }
 
-function scoreTitleQueryMatch(title: string, channelTitle: string, originalQuery: string) {
+function scoreTitleQueryMatch(
+  title: string,
+  channelTitle: string,
+  tags: string,
+  originalQuery: string,
+) {
   const canonicalQuery = normalizeSearchFamilyQuery(originalQuery);
 
   if (!canonicalQuery) {
@@ -265,6 +283,13 @@ function scoreTitleQueryMatch(title: string, channelTitle: string, originalQuery
     return {
       score: CHANNEL_ONLY_QUERY_SCORE,
       reason: "channel contains query",
+    };
+  }
+
+  if (tags.includes(canonicalQuery)) {
+    return {
+      score: 8,
+      reason: "tags contain query",
     };
   }
 

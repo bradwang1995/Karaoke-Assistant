@@ -7,6 +7,8 @@ export interface VideoSearchResult {
   thumbnailUrl?: string;
   durationSeconds?: number;
   publishedAt?: string;
+  categoryId?: string;
+  tags?: string[];
   score: number;
   reasons: string[];
 }

@@ -5,8 +5,7 @@ import type { Env } from "./types";
 export { RoomDurableObject };
 
 export default {
-  fetch(request: Request, env: Env) {
-    return handleApiRequest(request, env);
+  fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    return handleApiRequest(request, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
-

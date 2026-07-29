@@ -2,10 +2,11 @@ import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { QueueItemInput } from "../src/types/room";
 import type { SearchResponse } from "../src/types/youtube";
 import type { SearchQueryFamily } from "./searchFamily";
+import { filterEligibleSongResults } from "./songFilter";
 
-const SEARCH_CACHE_VERSION = "v3";
+const SEARCH_CACHE_VERSION = "v4";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v1";
+const SEARCH_RECOMMENDATIONS_VERSION = "v2";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
@@ -120,7 +121,11 @@ export async function readSearchCache(
   );
 
   if (isValidSearchCacheEntry(entry) && isCompatibleSearchCacheEntry(entry, family)) {
-    return { entry, familyHash: family.hash };
+    const results = filterEligibleSongResults(entry.results);
+
+    if (results.length > 0) {
+      return { entry: { ...entry, results }, familyHash: family.hash };
+    }
   }
 
   return null;
@@ -143,7 +148,14 @@ export async function writeSearchCache(
   const maxEntryBytes = options.maxEntryBytes ?? DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES;
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
-  const results = response.results.slice(0, MAX_CACHED_SEARCH_RESULTS);
+  const results = filterEligibleSongResults(response.results).slice(
+    0,
+    MAX_CACHED_SEARCH_RESULTS,
+  );
+
+  if (results.length === 0) {
+    return null;
+  }
   const entry = buildSearchCacheEntry({
     response,
     family,
@@ -178,7 +190,7 @@ export async function readSearchRecommendations(
   );
 
   const storedResults = isValidRecommendationsEntry(recommendations)
-    ? recommendations.results
+    ? filterEligibleSongResults(recommendations.results)
     : [];
 
   if (storedResults.length >= limit) {
@@ -398,7 +410,13 @@ async function readRecommendationsFromFamilyCaches(
         }),
       ),
     )
-  ).filter(isValidSearchCacheEntry);
+  )
+    .filter(isValidSearchCacheEntry)
+    .map((entry) => ({
+      ...entry,
+      results: filterEligibleSongResults(entry.results),
+    }))
+    .filter((entry) => entry.results.length > 0);
   const rankedGroups = entries
     .sort((a, b) => recommendationEntryScore(b) - recommendationEntryScore(a))
     .map((entry) => entry.results);

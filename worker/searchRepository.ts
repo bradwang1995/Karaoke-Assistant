@@ -19,6 +19,7 @@ import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { SearchResponse, SearchType, YouTubeQuotaStatus } from "../src/types/youtube";
 import { searchCacheFamilyKey, searchCacheIndexKey } from "./kvCache";
 import type { SearchQueryFamily } from "./searchFamily";
+import { filterEligibleSongResults } from "./songFilter";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -31,70 +32,121 @@ const CLEANUP_LOCK_SECONDS = 60;
 export async function readSearchRepository(
   db: D1Database | undefined,
   family: SearchQueryFamily,
+  options: {
+    waitUntil?: (promise: Promise<unknown>) => void;
+  } = {},
+) {
+  const hits = await readSearchRepositories(db, [family], options);
+  return hits[0] ?? null;
+}
+
+export async function readSearchRepositories(
+  db: D1Database | undefined,
+  families: SearchQueryFamily[],
+  options: {
+    waitUntil?: (promise: Promise<unknown>) => void;
+  } = {},
 ) {
   if (!db) {
-    return null;
+    return [];
   }
 
-  const row = await db
+  const primaryFamily = families[0];
+
+  if (!primaryFamily) {
+    return [];
+  }
+
+  const rows = await db
     .prepare(
-      `SELECT id, original_query, response_json
+      `SELECT id, original_query, search_type, include_original_vocal, response_json
        FROM search_repository_entries
        WHERE normalized_query = ?1
          AND normalized_artist = ?2
-         AND search_type = ?3
-         AND include_original_vocal = ?4
-       LIMIT 1`,
+       LIMIT 4`,
     )
     .bind(
-      family.canonicalQuery,
-      family.artist ?? "",
-      family.searchType,
-      family.includeOriginalVocal ? 1 : 0,
+      primaryFamily.canonicalQuery,
+      primaryFamily.artist ?? "",
     )
-    .first<{ id: string; original_query: string; response_json: string }>();
+    .all<{
+      id: string;
+      original_query: string;
+      search_type: SearchType;
+      include_original_vocal: number;
+      response_json: string;
+    }>();
+  const familyByOptions = new Map(
+    families.map((family) => [
+      repositoryOptionsKey(family.searchType, family.includeOriginalVocal),
+      family,
+    ]),
+  );
+  const hits: Array<{
+    id: string;
+    family: SearchQueryFamily;
+    response: SearchResponse;
+  }> = [];
 
-  if (!row || normalizeQuery(row.original_query) !== family.canonicalQuery) {
-    return null;
+  for (const row of rows.results ?? []) {
+    const family = familyByOptions.get(
+      repositoryOptionsKey(row.search_type, row.include_original_vocal === 1),
+    );
+
+    if (!family || normalizeQuery(row.original_query) !== family.canonicalQuery) {
+      continue;
+    }
+
+    const storedResponse = parseStoredResponse(row.response_json);
+
+    if (!storedResponse) {
+      continue;
+    }
+
+    const results = filterEligibleSongResults(storedResponse.results);
+
+    if (results.length === 0) {
+      continue;
+    }
+
+    hits.push({
+      id: row.id,
+      family,
+      response: {
+        ...storedResponse,
+        cached: true,
+        results,
+        cacheMeta: {
+          ...storedResponse.cacheMeta,
+          sourceQueryCount: 0,
+          cachedResultCount: results.length,
+          servedFromExpandedCache: false,
+          responseSource: "repository" as const,
+          repositoryEntryId: row.id,
+          candidateResultCount: 0,
+          filteredResultCount: 0,
+          catalogResultCount: 0,
+          uniqueCatalogVideosAdded: 0,
+          externalCallAvoided: true,
+        },
+      } satisfies SearchResponse,
+    });
   }
 
-  const response = parseStoredResponse(row.response_json);
+  if (hits.length > 0) {
+    const touchPromise = touchSearchRepositoryEntries(
+      db,
+      hits.map((hit) => hit.id),
+    );
 
-  if (!response) {
-    return null;
+    if (options.waitUntil) {
+      options.waitUntil(touchPromise);
+    } else {
+      await touchPromise;
+    }
   }
 
-  const now = new Date().toISOString();
-  await db
-    .prepare(
-      `UPDATE search_repository_entries
-       SET access_count = access_count + 1,
-           last_accessed_at = ?1
-       WHERE id = ?2`,
-    )
-    .bind(now, row.id)
-    .run();
-
-  return {
-    id: row.id,
-    response: {
-      ...response,
-      cached: true,
-      cacheMeta: {
-        ...response.cacheMeta,
-        sourceQueryCount: 0,
-        cachedResultCount: response.results.length,
-        servedFromExpandedCache: false,
-        responseSource: "repository" as const,
-        repositoryEntryId: row.id,
-        candidateResultCount: 0,
-        filteredResultCount: 0,
-        catalogResultCount: 0,
-        uniqueCatalogVideosAdded: 0,
-        externalCallAvoided: true,
-      },
-    } satisfies SearchResponse,
-  };
+  return hits;
 }
 
 export async function writeSearchRepository(
@@ -102,12 +154,24 @@ export async function writeSearchRepository(
   family: SearchQueryFamily,
   response: SearchResponse,
 ) {
-  if (!db || response.results.length === 0) {
+  const results = filterEligibleSongResults(response.results);
+
+  if (!db || results.length === 0) {
     return null;
   }
 
   const now = new Date().toISOString();
-  const responseJson = JSON.stringify(response);
+  const filteredResponse: SearchResponse = {
+    ...response,
+    results,
+    cacheMeta: response.cacheMeta
+      ? {
+          ...response.cacheMeta,
+          cachedResultCount: results.length,
+        }
+      : undefined,
+  };
+  const responseJson = JSON.stringify(filteredResponse);
   const approxBytes = new TextEncoder().encode(responseJson).byteLength;
   const id = crypto.randomUUID();
 
@@ -134,15 +198,15 @@ export async function writeSearchRepository(
     .bind(
       id,
       family.hash,
-      response.query,
+      filteredResponse.query,
       family.canonicalQuery,
       family.artist ?? null,
       family.artist ?? "",
       family.searchType,
       family.includeOriginalVocal ? 1 : 0,
       responseJson,
-      response.results.length,
-      response.cacheMeta?.sourceQueryCount ?? 0,
+      filteredResponse.results.length,
+      filteredResponse.cacheMeta?.sourceQueryCount ?? 0,
       approxBytes,
       now,
     )
@@ -165,6 +229,40 @@ export async function writeSearchRepository(
       family.includeOriginalVocal ? 1 : 0,
     )
     .first<{ id: string }>();
+}
+
+function repositoryOptionsKey(searchType: SearchType, includeOriginalVocal: boolean) {
+  return `${searchType}:${includeOriginalVocal ? "1" : "0"}`;
+}
+
+async function touchSearchRepositoryEntries(db: D1Database, ids: string[]) {
+  const uniqueIds = [...new Set(ids)];
+
+  if (uniqueIds.length === 0) {
+    return;
+  }
+
+  const placeholders = uniqueIds.map((_, index) => `?${index + 2}`).join(", ");
+
+  try {
+    await db
+      .prepare(
+        `UPDATE search_repository_entries
+         SET access_count = access_count + 1,
+             last_accessed_at = ?1
+         WHERE id IN (${placeholders})`,
+      )
+      .bind(new Date().toISOString(), ...uniqueIds)
+      .run();
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "search-repository-touch-failed",
+        entryCount: uniqueIds.length,
+        error: error instanceof Error ? error.message : "Unknown D1 error",
+      }),
+    );
+  }
 }
 
 export async function recordSearchEvent(

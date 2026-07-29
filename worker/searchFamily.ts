@@ -62,6 +62,32 @@ export function buildSearchQueryFamily(
   };
 }
 
+export function buildSearchQueryFamilyVariants(
+  query: string,
+  artist?: string,
+  options: { searchType?: SearchType; includeOriginalVocal?: boolean } = {},
+) {
+  const searchType = options.searchType ?? "song";
+  const includeOriginalVocal = options.includeOriginalVocal ?? false;
+  const alternateSearchType: SearchType = searchType === "song" ? "artist" : "song";
+
+  return [
+    buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal }),
+    buildSearchQueryFamily(query, artist, {
+      searchType,
+      includeOriginalVocal: !includeOriginalVocal,
+    }),
+    buildSearchQueryFamily(query, artist, {
+      searchType: alternateSearchType,
+      includeOriginalVocal,
+    }),
+    buildSearchQueryFamily(query, artist, {
+      searchType: alternateSearchType,
+      includeOriginalVocal: !includeOriginalVocal,
+    }),
+  ];
+}
+
 export function normalizeSearchFamilyQuery(query: string) {
   let normalized = normalizeQuery(query);
   let next = stripKaraokeSuffix(normalized);

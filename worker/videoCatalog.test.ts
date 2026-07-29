@@ -20,6 +20,19 @@ describe("passive video candidate catalog", () => {
     });
     expect(fake.batchSizes).toEqual([2, 1]);
   });
+
+  it("does not persist non-music or seven-minute candidates", async () => {
+    const valid = catalogCandidate("valid", "青花瓷 KTV");
+    const nonMusic = { ...catalogCandidate("travel", "加拿大旅游"), categoryId: "19" };
+    const tooLong = { ...catalogCandidate("concert", "完整演唱会"), durationSeconds: 420 };
+
+    await expect(
+      upsertVideoCatalog(undefined, [valid, nonMusic, tooLong], "青花瓷"),
+    ).resolves.toEqual({
+      candidateCount: 1,
+      uniqueVideosAdded: 0,
+    });
+  });
 });
 
 class CatalogD1 {
@@ -110,5 +123,7 @@ function catalogCandidate(videoId: string, title: string) {
     title,
     channelTitle: "KTV Studio",
     durationSeconds: 240,
+    categoryId: "10",
+    tags: ["music", "karaoke"],
   };
 }

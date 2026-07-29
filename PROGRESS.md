@@ -12,14 +12,14 @@ Last updated: 2026-07-29
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
-| YouTube search | MVP complete | Live API、family cache、ranking、推荐、rate limit、quota 已完成。 |
+| YouTube search | MVP complete | Live API、同文字四选项 family cache、Music/7 分钟资格过滤、ranking、推荐、rate limit、quota 已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
 | Mobile preview | MVP complete | 2–4 列、单 iframe、固定 30 秒起点、600ms debounce、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 22 files / 92 tests | Exact query identity、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
+| Automated tests | 23 files / 99 tests | Music/7 分钟过滤、同文字四选项 cache、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -89,17 +89,17 @@ Last updated: 2026-07-29
 - `[x]` Worker-only API key、live provider、mock fallback。
 - `[x]` Song/artist 和 original-vocal intents。
 - `[x]` Deterministic aliases、歌名 focused source query、歌手 broad OR query、family hash。
-- `[x]` One `search.list` page、最多 50 embeddable candidates。
-- `[x]` Duration enrichment、dedupe、scoring。
+- `[x]` One `search.list` page、最多 50 Music category embeddable candidates。
+- `[x]` Duration/category/tags/status enrichment、dedupe；严格拒绝 7 分钟及以上与非音乐视频。
 - `[x]` Song title relevance filter；title/artist/KTV/伴奏/lyrics/original ranking。
 - `[x]` Partial-title regression coverage。
-- `[x]` KV v3 exact family cache、metadata、payload pruning；历史 v2 normalized index 不再读写。
+- `[x]` KV v4 exact family cache、v2 recommendations、metadata、payload pruning；历史 v2 normalized index 不再读写。
 - `[x]` Recommendation pool 和 cached re-ranking。
 - `[x]` 原始 embeddable candidates 与用户可见结果分离；D1 候选目录只被动统计，不参与在线搜索。
-- `[x]` 仅在完整规范化文字、song/artist、original-vocal 和 artist 字段全部相同时复用；其他查询直接执行 cold search。
+- `[x]` 只在完整规范化文字与 artist 相同时复用；当前 song/artist × original-vocal family 优先，其余三个选项 family 可补充并重排，不读取不同文字或全局目录。
 - `[x]` API 50 results；mobile 10-at-a-time expansion。
 - `[x]` Recommendation pool 200 results；缓存耗尽前自动无限滚动。
-- `[x]` 显式提交时原唱使用对立权重；KTV/原唱使用独立 exact family，不再合并历史 cache。
+- `[x]` 显式提交时原唱使用对立权重；各选项保持独立 exact family，同文字与 artist 的其他选项 cache 只用于补充。
 - `[x]` 20/min rate limit。
 - `[x]` Project quota 100/day、1/fill、Pacific reset、status API 和 room WebSocket 即时额度推送。
 - `[x]` Real YouTube result + repeat-query cache hit verified。
@@ -165,7 +165,7 @@ Last updated: 2026-07-29
 - `[x]` 桌面 reference/implementation 同屏对照、移动端 viewport、全量自动验证和双 Worker dry-run 已通过。
 - `[x]` Production migration、secrets、Room → Main release、公开流程和未认证保护 smoke 已完成。
 - `[~]` 管理员密码由用户独立持有；生产登录页和 secret 已确认，登录后的真实数据终验交由管理员本人完成。
-- `[x]` 用户触发搜索会积累 exact response cache 和被动候选统计；只有完全相同的 query identity 会被复用。
+- `[x]` 用户触发搜索会积累 exact response cache 和被动候选统计；只在同一完整文字与 artist 的四个 option families 内复用。
 - `[ ]` 无人值守 prewarm/自动搜索仍未启用。
 
 ## 3. Bugfix and internal-test archive
@@ -348,12 +348,24 @@ Last updated: 2026-07-29
 | SRCH8-04 | P1 | 候选表仅保留被动增长/过滤统计；migration 0006 删除 FTS5 表和同步 triggers，避免无用索引写入。 |
 | SRCH8-05 | P1 | Admin 改为“候选采集与精确复用效率”，明确在线搜索不扫描目录，精确复用条件完整可见。 |
 
+### 2026-07-29 song-only same-text cache pass 9
+
+本轮保留 pass 8 的“绝不扫描全局候选目录”，但把搜索文字提升为主要 identity：歌曲/歌手与原唱开关只在同一文字、同一 artist 的四个精确 family 之间作为次级选项复用。
+
+| ID | P | Completed |
+| --- | --- | --- |
+| SRCH9-01 | P0 | YouTube `search.list` 限定 Music category 10；`videos.list` 同时读取 duration、category、tags 与 embeddable，未知详情、非音乐分类、恰好或超过 7 分钟的视频全部拒绝。 |
+| SRCH9-02 | P0 | D1 用一次查询读取同一文字与 artist 的最多四个 option families，KV 并行读取四个精确 hash；当前选项优先，其余组合只用于补充并按当前意图重排，绝不扫描全局候选目录。 |
+| SRCH9-03 | P0 | KV search/recommendation namespaces 升到 v4/v2；旧 D1/KV 结果缺少新歌曲资格 metadata 时 fail closed，避免历史旅游视频或超长视频继续返回。 |
+| SRCH9-04 | P0 | Mobile 搜索开始即清空旧卡片与 preview，搜索按钮灰显并旋转，结果区持续显示歌曲筛选 spinner，直到新 response 到达。 |
+| SRCH9-05 | P1 | D1 四 family 合并为单次读取；KV 四 key 并行；repository/KV touch、结果持久化、事件与 quota broadcast 使用 Worker `waitUntil`，同时保留候选新增指标的同步真实性。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
 - 2026-07-25 只读 `wrangler d1 info ktv-assistant-db` 报告 production `database_size = 197 kB`、10 tables；应用 migration 0004 与后续指标刷新后，2026-07-26 同刻生产对照为 D1 API `278,528 bytes`、Dashboard `279 kB`、12 tables。
 - D1 是真实持久资料源：`rooms`、`queue_items`、`playback_states`、`playback_events`、`search_repository_entries`、被动 `search_video_catalog`、`search_events`、`youtube_quota_daily`、`admin_audit_events`、cleanup/metric leases 与最近成功 metric state。
-- KV `SEARCH_CACHE` 是可丢失加速层：`yt-search:v3` exact family payload、`yt-search-recommendations:v1`，以及 D1 quota ledger 异常时的 quota fallback。历史 `yt-search-index:v2` key 不再读写并等待 TTL 自然过期。
+- KV `SEARCH_CACHE` 是可丢失加速层：`yt-search:v4` exact family payload、`yt-search-recommendations:v2`，以及 D1 quota ledger 异常时的 quota fallback。历史 `yt-search:v3`、`yt-search-recommendations:v1` 与 `yt-search-index:v2` key 不再读写并等待 TTL 自然过期。
 - `RoomDurableObject` 的 Durable Object storage 只保存 `room-activity` lifecycle state；房间业务 snapshot 读写 D1，queued recommendation 会写 KV。
 - Main/Room 使用同一 production D1/KV IDs；仓库没有 `env.preview` / `env.production` 分叉，也没有此前 Cloudflare storage metrics client。Main Worker 是唯一公开 admin API 和唯一需要 Cloudflare read-only token 的 Worker。
 
@@ -388,6 +400,7 @@ Last updated: 2026-07-29
 | 2026-07-28 exact-query rollback local | Targeted 5 files / 25 tests、full 22 files / 92 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。Local D1 migration 0006 执行 5 条命令，保留 `search_video_catalog` 基础数据并删除 FTS5 表和 3 个同步 triggers。内置浏览器在 1440×1024 与 390×844 验证“候选采集与精确复用效率”文案；旧 10 条门槛与在线跨查询文案不存在，两种 viewport 均无页面级横向 overflow，console 无 error/warning。 |
 | 2026-07-28 cross-query catalog production release | Production D1 migration 0005 执行 14 条命令并复核无待应用项。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `fdf83e2b-69ad-4ea8-a00c-5d2e58c760f3`、Main `79f4ffaa-93b8-48b7-b35e-becbc62b20a8` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`。一次 UTF-8 冷搜索用 1 次额度取得 50 个原始候选、过滤后 44 条并新增 50 个目录视频；精确复用与跨查询复用分别返回 44/43 条，额度保持 1，后者由 FTS5 目录返回且 `sourceQueryCount=0`。 |
 | 2026-07-29 exact-query rollback production release | Production D1 migration 0006 执行 5 条命令；候选基础表保留 247 条，FTS5 表和 3 个同步 triggers 均已删除，并复核无待应用 migration。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `8317ea66-8de7-4177-80ad-bed8622ece20`、Main `8326d942-3a08-4253-84c5-eee8c696442a` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`；线上 Admin chunk 与本地 build SHA-256 完全一致。UTF-8 `后来 + 刘若英` 冷查询、原唱 flag 变体和 `后来 KTV` 文字变体各自调用 1 次 external 并返回 26 条；两个 exact repeats 均由 repository 返回 26 条、0 次 external，quota `0 → 3`，所有事件 `catalogResultCount=0`。 |
+| 2026-07-29 song-only same-text cache local | Targeted 7 files / 39 tests、full 23 files / 99 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。内置浏览器在 390×844 通过 1.2 秒受控延迟验证：已有 8 张结果卡时提交下一次搜索，卡片立即变为 0、结果区 `aria-busy=true`、搜索按钮 disabled 且 spinner 文案可见；response 到达后恢复 8 张卡片。页面 `scrollWidth=clientWidth=390`，console 无 error/warning。 |
 
 ### Admin console design QA（2026-07-21）
 

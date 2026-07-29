@@ -10,8 +10,14 @@ import {
   writeSearchCache,
 } from "./kvCache";
 import { searchMockVideos } from "./mockSearchProvider";
-import { buildSearchQueryFamily } from "./searchFamily";
-import { readSearchRepository, writeSearchRepository } from "./searchRepository";
+import {
+  buildSearchQueryFamily,
+  buildSearchQueryFamilyVariants,
+  type SearchQueryFamily,
+} from "./searchFamily";
+import { rankSearchResultsForQuery } from "./scoring";
+import { readSearchRepositories, writeSearchRepository } from "./searchRepository";
+import { filterEligibleSongResults } from "./songFilter";
 import type { Env } from "./types";
 import {
   upsertVideoCatalog,
@@ -37,7 +43,14 @@ interface SearchVideosOptions {
   includeOriginalVocal?: boolean;
   limit?: number;
   cacheFill?: boolean;
+  waitUntil?: (promise: Promise<unknown>) => void;
   env: SearchServiceEnv;
+}
+
+interface LocalSearchHit {
+  family: SearchQueryFamily;
+  response: SearchResponse;
+  repositoryEntryId?: string;
 }
 
 export async function searchVideos({
@@ -47,57 +60,72 @@ export async function searchVideos({
   includeOriginalVocal = false,
   limit = 10,
   cacheFill = true,
+  waitUntil,
   env,
 }: SearchVideosOptions): Promise<SearchResponse> {
-  const family = buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal });
-  const repositoryHit = await safeReadSearchRepository(env.DB, family);
+  const families = buildSearchQueryFamilyVariants(query, artist, {
+    searchType,
+    includeOriginalVocal,
+  });
+  const family = families[0]!;
+  const [repositoryHits, kvHits] = await Promise.all([
+    safeReadSearchRepositories(env.DB, families, waitUntil),
+    readSearchCacheVariants(env.SEARCH_CACHE, families),
+  ]);
+  const repositoryByFamily = new Map(
+    repositoryHits.map((hit) => [hit.family.hash, hit]),
+  );
+  const kvByFamily = new Map(kvHits.map((hit) => [hit.family.hash, hit]));
+  const localHits: LocalSearchHit[] = [];
 
-  if (repositoryHit) {
-    return limitSearchResponse(repositoryHit.response, limit);
+  for (const candidateFamily of families) {
+    const repositoryHit = repositoryByFamily.get(candidateFamily.hash);
+
+    if (repositoryHit) {
+      localHits.push({
+        family: candidateFamily,
+        response: repositoryHit.response,
+        repositoryEntryId: repositoryHit.id,
+      });
+      continue;
+    }
+
+    const kvHit = kvByFamily.get(candidateFamily.hash);
+
+    if (kvHit) {
+      localHits.push(kvHit);
+    }
   }
-
-  const cached = await readSearchCache(env.SEARCH_CACHE, family);
   const cacheTtlSeconds = getSearchCacheTtlSeconds(env);
 
-  if (cached && cached.entry.results.length > 0) {
-    await touchSearchCache(env.SEARCH_CACHE, cached.familyHash, cached.entry);
+  if (localHits.length > 0) {
+    const response = mergeLocalSearchResponses({
+      query,
+      artist,
+      searchType,
+      includeOriginalVocal,
+      family,
+      hits: localHits,
+    });
+    const backgroundTasks = kvHits
+      .filter((hit) => !repositoryByFamily.has(hit.family.hash))
+      .map((hit) => touchSearchCache(env.SEARCH_CACHE, hit.familyHash, hit.entry));
 
-    const response = {
-        query,
-        normalizedQuery: family.normalizedQuery,
-        searchType,
-        includeOriginalVocal,
-        cached: true,
-        results: cached.entry.results,
-        cacheMeta: {
-          sourceQueryCount: 0,
-          cachedResultCount: cached.entry.results.length,
-          servedFromExpandedCache: false,
-          videosListCalls: 0,
-          sourceQueries: cached.entry.sourceQueries,
-          prunedResultCount: cached.entry.stats.prunedResultCount,
-          responseSource: "repository" as const,
-          candidateResultCount: 0,
-          filteredResultCount: 0,
-          catalogResultCount: 0,
-          uniqueCatalogVideosAdded: 0,
-          externalCallAvoided: true,
-        },
-      } satisfies SearchResponse;
+    if (
+      response.cacheMeta?.servedFromExpandedCache ||
+      !repositoryByFamily.has(family.hash)
+    ) {
+      backgroundTasks.push(
+        writeSearchCache(env.SEARCH_CACHE, family, response, {
+          ttlSeconds: cacheTtlSeconds,
+          maxEntryBytes: getSearchCacheMaxEntryBytes(env),
+        }).then(() => undefined),
+        safeWriteSearchRepository(env.DB, family, response).then(() => undefined),
+      );
+    }
 
-    const persisted = await safeWriteSearchRepository(env.DB, family, response);
-    return limitSearchResponse(
-      persisted
-        ? {
-            ...response,
-            cacheMeta: {
-              ...response.cacheMeta,
-              repositoryEntryId: persisted.id,
-            },
-          }
-        : response,
-      limit,
-    );
+    await runBackgroundTasks(backgroundTasks, waitUntil, "search-cache-refresh-failed");
+    return limitSearchResponse(response, limit);
   }
 
   const providerResponse = env.YOUTUBE_API_KEY
@@ -108,6 +136,7 @@ export async function searchVideos({
         includeOriginalVocal,
         limit,
         cacheFill,
+        waitUntil,
         env,
       })
     : {
@@ -137,22 +166,159 @@ export async function searchVideos({
     response: responseWithSource,
     cacheTtlSeconds,
     limit,
+    waitUntil,
   });
 }
 
-async function safeReadSearchRepository(db: D1Database | undefined, family: ReturnType<typeof buildSearchQueryFamily>) {
+async function safeReadSearchRepositories(
+  db: D1Database | undefined,
+  families: SearchQueryFamily[],
+  waitUntil?: (promise: Promise<unknown>) => void,
+) {
   try {
-    return await readSearchRepository(db, family);
+    return await readSearchRepositories(db, families, { waitUntil });
   } catch (error) {
     console.error(
       JSON.stringify({
         event: "search-repository-read-failed",
-        familyHash: family.hash,
+        familyHash: families[0]?.hash,
         error: error instanceof Error ? error.message : "Unknown D1 error",
       }),
     );
-    return null;
+    return [];
   }
+}
+
+async function readSearchCacheVariants(
+  namespace: SearchCacheNamespace | undefined,
+  families: SearchQueryFamily[],
+) {
+  const results = await Promise.all(
+    families.map(async (family) => {
+      const cached = await readSearchCache(namespace, family);
+
+      if (!cached) {
+        return null;
+      }
+
+      return {
+        family,
+        familyHash: cached.familyHash,
+        entry: cached.entry,
+        response: {
+          query: cached.entry.query,
+          normalizedQuery: cached.entry.normalizedQuery,
+          searchType: family.searchType,
+          includeOriginalVocal: family.includeOriginalVocal,
+          cached: true,
+          results: cached.entry.results,
+        } satisfies SearchResponse,
+      };
+    }),
+  );
+
+  return results.filter((result) => result !== null);
+}
+
+function mergeLocalSearchResponses({
+  query,
+  artist,
+  searchType,
+  includeOriginalVocal,
+  family,
+  hits,
+}: {
+  query: string;
+  artist?: string;
+  searchType: SearchType;
+  includeOriginalVocal: boolean;
+  family: SearchQueryFamily;
+  hits: LocalSearchHit[];
+}) {
+  const exactHit = hits.find((hit) => hit.family.hash === family.hash);
+  const exactVideoIds = new Set(exactHit?.response.results.map((result) => result.videoId) ?? []);
+  const seenVideoIds = new Set<string>();
+  const merged: SearchResponse["results"] = [];
+
+  for (const hit of hits) {
+    for (const result of filterEligibleSongResults(hit.response.results)) {
+      if (!seenVideoIds.has(result.videoId)) {
+        seenVideoIds.add(result.videoId);
+        merged.push(result);
+      }
+    }
+  }
+
+  const results = rankSearchResultsForQuery(merged, query, {
+    artist,
+    searchType,
+    includeOriginalVocal,
+    allowMetadataOnlyMatches: hits.some(
+      (hit) => hit.family.searchType !== searchType,
+    ),
+  }).slice(0, MAX_CACHED_SEARCH_RESULTS);
+  const expandedResultCount = results.filter(
+    (result) => !exactVideoIds.has(result.videoId),
+  ).length;
+
+  return {
+    query,
+    normalizedQuery: family.normalizedQuery,
+    searchType,
+    includeOriginalVocal,
+    cached: true,
+    results,
+    cacheMeta: {
+      sourceQueryCount: 0,
+      cachedResultCount: results.length,
+      servedFromExpandedCache: !exactHit || expandedResultCount > 0,
+      videosListCalls: 0,
+      sourceQueries: uniqueStrings(
+        hits.flatMap((hit) => hit.response.cacheMeta?.sourceQueries ?? []),
+      ),
+      responseSource: "repository" as const,
+      repositoryEntryId:
+        exactHit?.repositoryEntryId ??
+        hits.find((hit) => hit.repositoryEntryId)?.repositoryEntryId,
+      candidateResultCount: 0,
+      filteredResultCount: 0,
+      catalogResultCount: 0,
+      uniqueCatalogVideosAdded: 0,
+      externalCallAvoided: true,
+    },
+  } satisfies SearchResponse;
+}
+
+async function runBackgroundTasks(
+  tasks: Promise<unknown>[],
+  waitUntil: ((promise: Promise<unknown>) => void) | undefined,
+  errorEvent: string,
+) {
+  if (tasks.length === 0) {
+    return;
+  }
+
+  const task = Promise.all(tasks)
+    .then(() => undefined)
+    .catch((error) => {
+      console.error(
+        JSON.stringify({
+          event: errorEvent,
+          error: error instanceof Error ? error.message : "Unknown background task error",
+        }),
+      );
+    });
+
+  if (waitUntil) {
+    waitUntil(task);
+    return;
+  }
+
+  await task;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values)];
 }
 
 async function safeWriteSearchRepository(
@@ -201,18 +367,48 @@ async function persistAndLimitSearchResponse({
   response,
   cacheTtlSeconds,
   limit,
+  waitUntil,
 }: {
   env: SearchServiceEnv;
   family: ReturnType<typeof buildSearchQueryFamily>;
   response: SearchResponse;
   cacheTtlSeconds: number;
   limit: number;
+  waitUntil?: (promise: Promise<unknown>) => void;
 }) {
-  const cachedEntry = await writeSearchCache(env.SEARCH_CACHE, family, response, {
+  const cacheWrite = writeSearchCache(env.SEARCH_CACHE, family, response, {
     ttlSeconds: cacheTtlSeconds,
     maxEntryBytes: getSearchCacheMaxEntryBytes(env),
   });
-  const persisted = await safeWriteSearchRepository(env.DB, family, response);
+  const repositoryWrite = safeWriteSearchRepository(env.DB, family, response);
+
+  if (waitUntil) {
+    await runBackgroundTasks(
+      [cacheWrite, repositoryWrite],
+      waitUntil,
+      "search-result-persistence-failed",
+    );
+
+    return limitSearchResponse(
+      {
+        ...response,
+        cacheMeta: {
+          ...response.cacheMeta,
+          sourceQueryCount: response.cacheMeta?.sourceQueryCount ?? 0,
+          cachedResultCount: response.results.length,
+          servedFromExpandedCache: response.cacheMeta?.servedFromExpandedCache ?? false,
+          candidateResultCount: response.cacheMeta?.candidateResultCount ?? 0,
+          filteredResultCount: response.cacheMeta?.filteredResultCount ?? 0,
+          catalogResultCount: response.cacheMeta?.catalogResultCount ?? 0,
+          uniqueCatalogVideosAdded: response.cacheMeta?.uniqueCatalogVideosAdded ?? 0,
+          externalCallAvoided: response.cacheMeta?.externalCallAvoided ?? false,
+        },
+      },
+      limit,
+    );
+  }
+
+  const [cachedEntry, persisted] = await Promise.all([cacheWrite, repositoryWrite]);
 
   return limitSearchResponse(
     {
@@ -269,6 +465,7 @@ async function searchLiveVideos({
   includeOriginalVocal,
   limit,
   cacheFill,
+  waitUntil,
   env,
 }: {
   query: string;
@@ -277,6 +474,7 @@ async function searchLiveVideos({
   includeOriginalVocal: boolean;
   limit: number;
   cacheFill: boolean;
+  waitUntil?: (promise: Promise<unknown>) => void;
   env: SearchServiceEnv;
 }) {
   const dailyLimit = getYouTubeDailySearchLimit(env);

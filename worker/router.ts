@@ -45,7 +45,11 @@ const DEFAULT_SEARCH_RESPONSE_LIMIT = 10;
 const MAX_SEARCH_RESPONSE_LIMIT = 50;
 const MAX_RECOMMENDATION_RESPONSE_LIMIT = 200;
 
-export async function handleApiRequest(request: Request, env: Env) {
+export async function handleApiRequest(
+  request: Request,
+  env: Env,
+  ctx?: ExecutionContext,
+) {
   const url = new URL(request.url);
   const route = matchApiRoute(url.pathname);
 
@@ -107,7 +111,7 @@ export async function handleApiRequest(request: Request, env: Env) {
       return apiError(405, "METHOD_NOT_ALLOWED", "Use POST to search videos.");
     }
 
-    return searchRoomVideos(request, env, route.roomId);
+    return searchRoomVideos(request, env, route.roomId, ctx);
   }
 
   if (route.name === "roomCleanup") {
@@ -239,7 +243,12 @@ async function connectRoomWebSocket(request: Request, env: Env, roomId: string) 
   return stub.fetch(new Request(url, request));
 }
 
-async function searchRoomVideos(request: Request, env: Env, roomId: string) {
+async function searchRoomVideos(
+  request: Request,
+  env: Env,
+  roomId: string,
+  ctx?: ExecutionContext,
+) {
   if (!isValidRoomId(roomId)) {
     return apiError(400, "INVALID_ROOM_ID", "Room id must be 8 lowercase letters or numbers.");
   }
@@ -311,10 +320,11 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
       includeOriginalVocal,
       limit,
       cacheFill,
+      waitUntil: ctx ? (promise) => ctx.waitUntil(promise) : undefined,
       env,
     });
     const responseSource = responseSourceFromSearchResponse(response, env);
-    await safelyRecordSearchEvent(env, {
+    const sideEffects: Promise<unknown>[] = [safelyRecordSearchEvent(env, {
       roomId,
       query,
       normalizedQuery: response.normalizedQuery,
@@ -333,16 +343,17 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
           ? response.cacheMeta?.sourceQueryCount ?? 0
           : 0,
       externalCallAvoided: response.cacheMeta?.externalCallAvoided === true,
-    });
+    })];
     const quotaStatus = quotaStatusFromSearchResponse(response);
 
     if (quotaStatus) {
-      await broadcastYouTubeQuotaStatus(env, roomId, quotaStatus);
+      sideEffects.push(broadcastYouTubeQuotaStatus(env, roomId, quotaStatus));
     }
 
+    await finishSearchSideEffects(sideEffects, ctx);
     return jsonResponse(response);
   } catch (error) {
-    await safelyRecordSearchEvent(env, {
+    await finishSearchSideEffects([safelyRecordSearchEvent(env, {
       roomId,
       query,
       normalizedQuery: query.toLocaleLowerCase(),
@@ -353,13 +364,27 @@ async function searchRoomVideos(request: Request, env: Env, roomId: string) {
       resultCount: 0,
       success: false,
       errorCode: "SEARCH_FAILED",
-    });
+    })], ctx);
     return apiError(
       502,
       "SEARCH_FAILED",
       error instanceof Error ? error.message : "Search failed.",
     );
   }
+}
+
+async function finishSearchSideEffects(
+  tasks: Promise<unknown>[],
+  ctx?: ExecutionContext,
+) {
+  const task = Promise.all(tasks).then(() => undefined);
+
+  if (ctx) {
+    ctx.waitUntil(task);
+    return;
+  }
+
+  await task;
 }
 
 function quotaStatusFromSearchResponse(

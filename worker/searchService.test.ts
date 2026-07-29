@@ -34,7 +34,7 @@ class MemoryKv {
 }
 
 describe("search service cache reuse", () => {
-  it("keeps karaoke and original-vocal cache results strictly isolated", async () => {
+  it("uses the current option cache first and supplements it from the other same-text option cache", async () => {
     const kv = new MemoryKv();
     const karaokeFamily = buildSearchQueryFamily("年少有为");
     const originalFamily = buildSearchQueryFamily("年少有为", undefined, {
@@ -77,10 +77,66 @@ describe("search service cache reuse", () => {
 
     expect(karaoke.cached).toBe(true);
     expect(original.cached).toBe(true);
-    expect(karaoke.results.map((result) => result.videoId)).toEqual(["karaoke"]);
-    expect(original.results.map((result) => result.videoId)).toEqual(["original"]);
-    expect(karaoke.cacheMeta?.servedFromExpandedCache).toBe(false);
-    expect(original.cacheMeta?.servedFromExpandedCache).toBe(false);
+    expect(karaoke.results.map((result) => result.videoId)).toEqual([
+      "karaoke",
+      "original",
+    ]);
+    expect(original.results.map((result) => result.videoId)).toEqual([
+      "original",
+      "karaoke",
+    ]);
+    expect(karaoke.cacheMeta?.servedFromExpandedCache).toBe(true);
+    expect(original.cacheMeta?.servedFromExpandedCache).toBe(true);
+    expect(karaoke.cacheMeta?.sourceQueryCount).toBe(0);
+    expect(original.cacheMeta?.sourceQueryCount).toBe(0);
+  });
+
+  it("supplements a mistaken song-mode search from same-text artist-mode caches", async () => {
+    const kv = new MemoryKv();
+    const songFamily = buildSearchQueryFamily("周杰伦", undefined, {
+      searchType: "song",
+    });
+    const artistFamily = buildSearchQueryFamily("周杰伦", undefined, {
+      searchType: "artist",
+    });
+    const channelOnlyArtistResult = buildResult("artist-one", "晴天 KTV");
+    channelOnlyArtistResult.channelTitle = "周杰伦";
+
+    await writeSearchCache(
+      kv,
+      songFamily,
+      buildResponse("周杰伦", songFamily.normalizedQuery, [
+        buildResult("song-current", "周杰伦 KTV 精选"),
+      ]),
+    );
+    await writeSearchCache(
+      kv,
+      artistFamily,
+      buildResponse("周杰伦", artistFamily.normalizedQuery, [
+        channelOnlyArtistResult,
+        buildResult("artist-two", "周杰伦 夜曲 KTV"),
+      ]),
+    );
+
+    const response = await searchVideos({
+      query: "周杰伦",
+      searchType: "song",
+      includeOriginalVocal: false,
+      limit: 50,
+      env: { SEARCH_CACHE: kv },
+    });
+
+    expect(response.cached).toBe(true);
+    expect(response.results.map((result) => result.videoId)).toEqual([
+      "song-current",
+      "artist-two",
+      "artist-one",
+    ]);
+    expect(response.cacheMeta).toMatchObject({
+      servedFromExpandedCache: true,
+      sourceQueryCount: 0,
+      externalCallAvoided: true,
+    });
   });
 
   it("reuses only the same normalized text and creates a new entry for different text", async () => {
@@ -121,7 +177,7 @@ describe("search service cache reuse", () => {
     expect(db.entryCount).toBe(2);
   });
 
-  it("does not reuse a cache entry when the original-vocal flag differs", async () => {
+  it("reuses a same-text cache entry when only the original-vocal flag differs", async () => {
     const kv = new MemoryKv();
     const karaokeFamily = buildSearchQueryFamily("后来");
     await writeSearchCache(
@@ -142,16 +198,15 @@ describe("search service cache reuse", () => {
       },
     });
 
-    expect(response.cached).toBe(false);
+    expect(response.cached).toBe(true);
     expect(response.cacheMeta).toMatchObject({
-      responseSource: "mock",
+      responseSource: "repository",
+      servedFromExpandedCache: true,
       catalogResultCount: 0,
-      externalCallAvoided: false,
+      externalCallAvoided: true,
       sourceQueryCount: 0,
     });
-    expect(response.results.map((result) => result.videoId)).not.toContain(
-      "karaoke",
-    );
+    expect(response.results.map((result) => result.videoId)).toContain("karaoke");
   });
 
   it("rejects a legacy D1 row whose original query text differs", async () => {
@@ -179,12 +234,47 @@ describe("search service cache reuse", () => {
     );
     expect(db.accessUpdates).toBe(0);
   });
+
+  it("rejects legacy D1 results without verified music category metadata", async () => {
+    const db = new MemorySearchRepositoryD1();
+    const legacyResult = buildResult("legacy-unverified", "后来 KTV 旧结果");
+    delete legacyResult.categoryId;
+    db.seedLegacyEntry({
+      normalizedQuery: "后来",
+      originalQuery: "后来",
+      response: buildResponse("后来", "后来 ktv", [legacyResult]),
+    });
+
+    const response = await searchVideos({
+      query: "后来",
+      searchType: "song",
+      includeOriginalVocal: false,
+      limit: 10,
+      env: { DB: db.database },
+    });
+
+    expect(response.cached).toBe(false);
+    expect(response.cacheMeta?.responseSource).toBe("mock");
+    expect(response.results.map((result) => result.videoId)).not.toContain(
+      "legacy-unverified",
+    );
+    expect(db.accessUpdates).toBe(0);
+  });
 });
 
 class MemorySearchRepositoryD1 {
   private entries = new Map<
     string,
-    { id: string; originalQuery: string; responseJson: string; accessCount: number }
+    {
+      id: string;
+      originalQuery: string;
+      normalizedQuery: string;
+      normalizedArtist: string;
+      searchType: string;
+      includeOriginalVocal: number;
+      responseJson: string;
+      accessCount: number;
+    }
   >();
 
   database = {
@@ -212,6 +302,10 @@ class MemorySearchRepositoryD1 {
     this.entries.set(repositoryKey(normalizedQuery, "", "song", 0), {
       id: "legacy-entry",
       originalQuery,
+      normalizedQuery,
+      normalizedArtist: "",
+      searchType: "song",
+      includeOriginalVocal: 0,
       responseJson: JSON.stringify(response),
       accessCount: 0,
     });
@@ -221,20 +315,32 @@ class MemorySearchRepositoryD1 {
     return this.entries.get(repositoryKey(bindings[0], bindings[1], bindings[2], bindings[3]));
   }
 
+  findVariants(bindings: unknown[]) {
+    return [...this.entries.values()].filter(
+      (entry) =>
+        entry.normalizedQuery === String(bindings[0]) &&
+        entry.normalizedArtist === String(bindings[1]),
+    );
+  }
+
   insert(bindings: unknown[]) {
     const key = repositoryKey(bindings[3], bindings[5], bindings[6], bindings[7]);
     const current = this.entries.get(key);
     this.entries.set(key, {
       id: current?.id ?? String(bindings[0]),
       originalQuery: String(bindings[2]),
+      normalizedQuery: String(bindings[3]),
+      normalizedArtist: String(bindings[5]),
+      searchType: String(bindings[6]),
+      includeOriginalVocal: Number(bindings[7]),
       responseJson: String(bindings[8]),
       accessCount: current?.accessCount ?? 0,
     });
   }
 
-  touch(id: unknown) {
+  touch(ids: unknown[]) {
     for (const [key, entry] of this.entries) {
-      if (entry.id === id) {
+      if (ids.includes(entry.id)) {
         this.entries.set(key, { ...entry, accessCount: entry.accessCount + 1 });
       }
     }
@@ -273,13 +379,26 @@ class MemorySearchRepositoryStatement {
     if (this.sql.includes("INSERT INTO search_repository_entries")) {
       this.db.insert(this.bindings);
     } else if (this.sql.includes("UPDATE search_repository_entries")) {
-      this.db.touch(this.bindings[1]);
+      this.db.touch(this.bindings.slice(1));
     }
 
     return d1Result<T>([], 1);
   }
 
   async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
+    if (this.sql.includes("SELECT id, original_query, search_type")) {
+      return d1Result<T>(
+        this.db.findVariants(this.bindings).map((entry) => ({
+          id: entry.id,
+          original_query: entry.originalQuery,
+          search_type: entry.searchType,
+          include_original_vocal: entry.includeOriginalVocal,
+          response_json: entry.responseJson,
+        })) as T[],
+        0,
+      );
+    }
+
     return d1Result<T>([], 0);
   }
 
@@ -336,6 +455,8 @@ function buildResult(videoId: string, title: string): VideoSearchResult {
     title,
     channelTitle: "Test Channel",
     durationSeconds: 280,
+    categoryId: "10",
+    tags: ["music", "karaoke"],
     score: 0,
     reasons: [],
   };

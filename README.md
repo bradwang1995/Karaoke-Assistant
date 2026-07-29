@@ -223,18 +223,19 @@ Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。
 
 ## 6. Search technical design
 
-Search 的目标是优先复用完全相同的查询；任何不同的搜索文字、歌曲/歌手模式或原唱开关都执行新的 cold request，避免在线扫描历史候选池，也不以少量本地结果提前结束搜索。
+Search 的目标是把用户输入文字作为主要 cache identity。系统先读同一完整规范化文字与 artist 的当前歌曲/歌手、伴奏/原唱组合；若结果不足，再合并另外三个选项组合并按当前意图重排。只有四个组合都没有可用结果才执行 cold request。在线流程不会扫描历史候选目录，也不会以少量本地结果提前结束搜索。
 
 ### 6.1 目标与约束
 
 - API key 只存在于 Worker secret。
 - Cold search family 默认只发一次 `search.list`。
-- 一次最多取 50 个 embeddable candidates，去重、补 duration、打分、缓存。
+- 一次最多取 50 个 Music category embeddable candidates，去重、补 duration/category/tags/status，只保留严格短于 7 分钟的歌曲，再打分和缓存；恰好 7 分钟也会被拒绝。
 - 原始 embeddable candidates 与用户可见结果分开：候选只被动写入 D1 供统计，在线搜索不会查询该目录；界面只接收本次外部结果中通过相关性过滤的内容。
 - 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
 - 歌名模式先过滤 title 不相关结果；其余排序先保证 title/artist 相关，再考虑 KTV、伴奏、lyrics 和原唱意图。
+- 新搜索发出后立即清空上一批卡片，按钮进入灰色 disabled 状态并显示旋转图标；结果区域持续显示加载状态，直到新 response 到达。
 - Guardrails 通过 Wrangler variables 配置。
 
 Google `search.list` 当前 `maxResults` 是 0–50；`q` 支持 OR `|` 和 NOT `-`。额外 page request 会消耗新的 search call，因此默认只取第一页。
@@ -282,7 +283,7 @@ Hash input：
 canonicalQuery | artist | searchType | original-or-karaoke
 ```
 
-所以只有完整规范化文字、song/artist、伴奏/原唱和明确 artist 全部相同才属于同一 family。`后来`、`后来 KTV`、歌曲模式/歌手模式、伴奏/原唱均彼此隔离，不再合并或互相复用。
+单个 family 仍要求完整规范化文字、song/artist、伴奏/原唱和明确 artist 全部相同。一次本地读取会以当前 family 为首，再按“同模式另一原唱开关 → 另一模式同原唱开关 → 另一模式另一原唱开关”检查同一文字与 artist 的其余三个 family。`后来` 与 `后来 KTV` 仍完全隔离；系统绝不会用不同文字或全局候选目录补结果。
 
 Song/KTV aliases：
 
@@ -311,14 +312,15 @@ Song mode 的第一条 source query 是精确 canonical song title，确保一�
 
 ### 6.4 Live fetch pipeline
 
-1. Read D1 exact repository；key 必须同时匹配完整规范化文字、artist、song/artist mode 和 original-vocal flag。
-2. D1 miss 时只按同一个 exact family hash 读取 KV；不读 normalized index、不扫描其他 family、不合并相似 query 或相反 vocal intent。
-3. Exact D1/KV 均 miss 时读取 quota estimate，并准备一次外部搜索。
-4. `search.list` 使用 `type=video`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
-5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails)` 读取 duration，每 50 ids 一批。
-6. 歌名模式过滤 title miss / channel-only hit，再针对 current user query 和 vocal intent 排序；原始可嵌入候选只被动写入 D1 统计目录，不参与本次或后续在线检索。
-7. 将本次过滤后的完整结果写入 exact repository、exact family cache 和 recommendation pool。
-8. 返回 requested slice，非空搜索最多 50 条；不存在“本地凑够 10 条就提前返回”的路径。
+1. D1 用一次查询读取同一完整规范化文字与 artist 的最多四个 option families；KV 并行读取对应四个精确 hash。当前 family 优先，缺少或不足时才合并另外三个 family。
+2. 只合并四个相同文字与 artist 的 option families；不读 normalized index、不匹配相似文字、不扫描被动候选目录。
+3. 对本地结果重新执行歌曲资格过滤、按 `videoId` 去重，再以当前 song/artist 与 vocal intent 重排；只有四个 family 全部没有可用结果才读取 quota estimate 并准备一次外部搜索。
+4. `search.list` 使用 `type=video`、`videoCategoryId=10`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
+5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails,snippet,status)` 每 50 ids 一批读取 duration、category、tags 和最新 embeddable 状态。
+6. 只保留 `categoryId=10`、duration 大于 0 且严格小于 420 秒、仍可嵌入的视频；详情缺失、非音乐分类、恰好或超过 7 分钟全部 fail closed。
+7. 歌名模式过滤 title miss / channel-only hit，再针对 current user query 和 vocal intent 排序；合并歌手模式 family 时允许歌手 channel/tags metadata 命中。通过歌曲资格过滤的外部候选被动写入 D1 统计目录，但该目录不参与在线检索。
+8. 将本次过滤后的完整结果写入当前 exact repository、exact family cache 和 recommendation pool。生产请求使用 Worker lifecycle 后台刷新 cache、repository access 与搜索事件；真实候选新增计数仍在 response 前完成。
+9. 返回 requested slice，非空搜索最多 50 条；50 是上限而非保证，不存在“本地凑够 10 条就提前返回”的路径。
 
 没有 `YOUTUBE_API_KEY` 时使用 mock provider。Quota exhausted 且 cache miss 时返回空 results 和 quota metadata；已有 cache 仍可使用。
 
@@ -341,9 +343,9 @@ Song mode 的第一条 source query 是精确 canonical song title，确保一�
 | Original / 原唱 / MV / official | 原唱 intent：+34 / +38 / +24 / +20；普通 intent 会降权 |
 | Live、现场、reaction、cover | Downrank |
 | Remix、tutorial、教学、shorts | Downrank |
-| Duration < 60s 或 > 15min | Downrank |
+| Duration < 60s | Downrank；duration ≥ 7min 在 scoring 前拒绝 |
 
-带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的正负权重，并使用独立 exact family；不会合并相反 vocal intent 的历史结果。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
+带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的正负权重；当前 exact family 优先，同一文字与 artist 的相反 vocal intent family 只在结果不足时补充并重新打分。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
 
 关键 regression：搜索 `依赖` 时，`离开我的依赖` 的 KTV/lyrics/伴奏必须高于标题无关的 `唯一` KTV。
 
@@ -352,8 +354,8 @@ Song mode 的第一条 source query 是精确 canonical song title，确保一�
 Keys：
 
 ```txt
-yt-search:v3:<familyHash>:CA:zh-Hans
-yt-search-recommendations:v1:CA:zh-Hans
+yt-search:v4:<familyHash>:CA:zh-Hans
+yt-search-recommendations:v2:CA:zh-Hans
 yt-search-quota:v1:<Pacific-date>
 ```
 
@@ -365,7 +367,7 @@ Family entry 保存：
 - Search/videos call counts、payload bytes、pruned count。
 - Hit count 和 last accessed time。
 
-读取只查精确 family hash，并再次验证完整规范化文字、type、vocal intent 和 artist scope。不会 fallback 到 normalized index，也不会合并其他 query family；命中的 family 增加 hit count，但不延长原 expiry。历史 `yt-search-index:v2` key 可自然过期，新搜索不再读取或写入。
+每个 KV read 只查精确 family hash，并再次验证完整规范化文字、type、vocal intent 和 artist scope；一次用户搜索会并行读取同一文字与 artist 的四个精确 option hashes。不会 fallback 到 normalized index、不同文字或全局候选目录；命中的 family 增加 hit count，但不延长原 expiry。历史 `yt-search:v3`、`yt-search-recommendations:v1` 与 `yt-search-index:v2` key 可自然过期，新搜索不再读取或写入。
 
 写入先限制 50 条，再测 UTF-8 JSON bytes；超过 512 KiB 时从尾部裁剪。默认 TTL 365 天。KV 可重建；D1 exact repository 与视频目录是持久资料源。
 
@@ -376,7 +378,7 @@ Family entry 保存：
 - `search_video_catalog`：按 `video_id` 去重保存标题、频道、缩略图、duration、发布时间、首次/最近来源 query、出现次数和时间。
 - `search_events` 效率列：外部候选数、过滤后数、目录结果数、新增独立候选、真实 search calls 和是否避免外部调用。
 
-目录只接收 YouTube `type=video + videoEmbeddable=true` 返回的原始候选，用于统计候选增长、重复出现和过滤效率。在线搜索完全不读取该表；低相关候选不会暴露给用户，也不会被拿来补足其他 query。
+目录只接收 YouTube `type=video + videoEmbeddable=true + videoCategoryId=10` 且经详情复核为 Music、严格短于 7 分钟、仍可嵌入的候选，用于统计候选增长、重复出现和过滤效率。在线搜索完全不读取该表；低相关候选不会暴露给用户，也不会被拿来补足其他 query。
 
 同一视频在并发/重复写入时使用 `INSERT ... DO NOTHING` 的真实 D1 `changes` 计算新增数量，已存在视频只更新 metadata、appearance count 和 last seen。管理台因此可以显示真实的“新增候选/额度”，而不是把重复候选当成增长。
 
@@ -450,12 +452,12 @@ Family entry 保存：
 
 用户搜索顺序：
 
-1. 用完整规范化文字、artist、song/artist mode 和 original-vocal flag 查 D1 exact match。
-2. 命中时更新 `access_count/last_accessed_at`，原样返回该 family 的结果，`responseSource=repository`，不调用 YouTube。
-3. D1 miss 时只读取同一 exact family hash 的 KV；有效结果写回 D1。不会读取 normalized index、相似 query、相反 vocal intent 或候选目录。
-4. Exact D1/KV miss 就调用 YouTube（或 local mock）。Live path 在发出 `search.list` 前先通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
-5. 原始外部候选被动写入统计目录；过滤后的完整结果写入 exact repository 和 exact KV family。KV 保留 365 天 TTL，但只是可丢失的 exact 加速/推荐层。
-6. API route 记录 human search event、response source、候选/过滤/新增与精确复用指标，供 admin 聚合。
+1. 用完整规范化文字与 artist 一次查询 D1 的四个 song/artist × original-vocal option families，并行读取 KV 的四个精确 hash。
+2. 当前 family 优先；如其他 family 提供了额外歌曲，按当前意图合并、去重和重排，`responseSource=repository`、`externalCallAvoided=true`，不调用 YouTube。
+3. 四个 family 都没有可用结果才调用 YouTube（或 local mock）。不会读取 normalized index、相似 query 或候选目录。Live path 在发出 `search.list` 前先通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
+4. 外部结果必须有可验证的 Music category、严格短于 7 分钟的 duration 和可嵌入状态；过滤后的完整结果写入当前 exact repository、KV family 与 recommendations。
+5. KV search key 已升到 `yt-search:v4`、recommendation key 已升到 `yt-search-recommendations:v2`，避免旧的未验证 metadata 继续返回。D1 旧 row 若缺少 category/duration 也会被忽略，直到 live search 刷新。
+6. 命中的 repository access、KV touch、cache/repository refresh、human search event 与 quota broadcast 在生产使用 `ctx.waitUntil` 完成；API route 仍记录真实 response source、候选/过滤/新增与复用指标。
 
 如果 D1 暂时不可用，公开搜索会记录结构化错误并沿用 KV/live path，不因为 admin instrumentation 让用户搜索整体失败。
 
