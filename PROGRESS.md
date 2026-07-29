@@ -401,6 +401,7 @@ Last updated: 2026-07-29
 | 2026-07-28 cross-query catalog production release | Production D1 migration 0005 执行 14 条命令并复核无待应用项。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `fdf83e2b-69ad-4ea8-a00c-5d2e58c760f3`、Main `79f4ffaa-93b8-48b7-b35e-becbc62b20a8` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`。一次 UTF-8 冷搜索用 1 次额度取得 50 个原始候选、过滤后 44 条并新增 50 个目录视频；精确复用与跨查询复用分别返回 44/43 条，额度保持 1，后者由 FTS5 目录返回且 `sourceQueryCount=0`。 |
 | 2026-07-29 exact-query rollback production release | Production D1 migration 0006 执行 5 条命令；候选基础表保留 247 条，FTS5 表和 3 个同步 triggers 均已删除，并复核无待应用 migration。Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布；Room `8317ea66-8de7-4177-80ad-bed8622ece20`、Main `8326d942-3a08-4253-84c5-eee8c696442a` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`；线上 Admin chunk 与本地 build SHA-256 完全一致。UTF-8 `后来 + 刘若英` 冷查询、原唱 flag 变体和 `后来 KTV` 文字变体各自调用 1 次 external 并返回 26 条；两个 exact repeats 均由 repository 返回 26 条、0 次 external，quota `0 → 3`，所有事件 `catalogResultCount=0`。 |
 | 2026-07-29 song-only same-text cache local | Targeted 7 files / 39 tests、full 23 files / 99 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。内置浏览器在 390×844 通过 1.2 秒受控延迟验证：已有 8 张结果卡时提交下一次搜索，卡片立即变为 0、结果区 `aria-busy=true`、搜索按钮 disabled 且 spinner 文案可见；response 到达后恢复 8 张卡片。页面 `scrollWidth=clientWidth=390`，console 无 error/warning。 |
+| 2026-07-29 song-only same-text cache production release | Production migration 复核为无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，Room `4d1dfa72-9a84-48b8-9a1e-538075dc0108`、Main `ae0f1f0e-1c4c-4672-a1ef-667cdff1b644` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`。`甜甜的 + 周杰伦` 冷查询由 external 返回 28 条，全部 category 10 且 `0 < duration < 420`；改为 artist + 原唱后由 repository 返回 28 条，`servedFromExpandedCache=true`、`sourceQueryCount=0`、`externalCallAvoided=true`，quota 仅 `6 → 7`。生产内置浏览器 390×844 显示实时已连接、10/28 条推荐，无横向 overflow，console 无 error/warning。 |
 
 ### Admin console design QA（2026-07-21）
 
@@ -466,6 +467,7 @@ Current coverage：
 | 2026-07-25 real storage metrics release | Main `ba476a0f-0583-431b-ba68-9d1b43d33c52`（100%）；Room `8ee39e12-4618-4948-81d0-f753158a4046`（100%）。 |
 | 2026-07-26 storage token acceptance | Main Secret-change version `45fc80db-0a8c-4037-a51c-18b003b618d6`（100%）；Room unchanged。 |
 | 2026-07-29 exact-query rollback release | Main `8326d942-3a08-4253-84c5-eee8c696442a`（100%）；Room `8317ea66-8de7-4177-80ad-bed8622ece20`（100%）。 |
+| 2026-07-29 song-only same-text cache release | Main `ae0f1f0e-1c4c-4672-a1ef-667cdff1b644`（100%）；Room `4d1dfa72-9a84-48b8-9a1e-538075dc0108`（100%）。 |
 
 Last local pass-4 smoke room `3r512238`：create CTA、mock search、单 iframe preview `start=30`、两首点歌、restart 保持当前 item、next 推进第二首且 progress value 为 `0`。Create 已确认 390×844 无横向 overflow、1280×720 无页面滚动；Display 已确认 dark 140px QR、无画质 selector、三键 panel。
 
@@ -484,6 +486,8 @@ Production storage metrics acceptance：管理员已自行登录，Codex 未读�
 Production cross-query catalog smoke room `5r652e0d`：quota `0 → 1 → 1 → 1`。`暖暖 + 梁静茹` cold search 为 `external`，取得 50 个 embeddable candidates、过滤后返回 44 条并新增 50 个独立目录视频；相同查询由 exact repository 返回 44 条；移除 artist 的新查询由跨查询目录返回 43 条，`catalogResultCount=43`、`externalCallAvoided=true`、`sourceQueryCount=0`。Production D1 只读复核为目录 50 条、appearance 50、FTS5 `暖暖` 命中 43 条，三条 `search_events` 的候选/过滤/目录/额度列与 API metadata 一致。Production `AdminPage-BQ8ZOyC6.js` 与本地 production build SHA-256 完全一致，且包含“候选目录与额度效率”面板；生产管理员密码未提供给 Codex，因此没有代替管理员登录查看受保护总览。
 
 Production exact-query rollback smoke room `5o3m3t27`：quota `0 → 3`。`后来 + 刘若英`（song、无原唱）冷查询由 external 返回 26 条，完全相同查询由 repository 返回 26 条且 `sourceQueryCount=0`；只改原唱 flag 后重新由 external 返回 26 条；文字改为 `后来 KTV` 后也重新由 external 返回 26 条，再次完全相同请求则由 repository 返回 26 条且不增加额度。D1 只读复核为三个独立 repository identity，两个 exact repeat 的 `access_count=1`；五条事件均为 `catalogResultCount=0`，来源顺序为 external / repository / external / external / repository。Production migration 0006 后候选基础表保留 247 条，FTS5 与 triggers 不存在；`AdminPage-Cb4kbW9h.js` 与本地 production build SHA-256 完全一致，包含新精确复用文案且不含旧 10 条门槛或在线跨查询文案。
+
+Production song-only same-text cache smoke room `326t192b`：quota `6 → 7`。`甜甜的 + 周杰伦` song/无原唱冷查询由 external 返回 28 条；全部结果均为 YouTube Music category 10、duration 大于 0 且严格小于 420 秒。保持完整文字与 artist 不变，只改为 artist/原唱后由 repository 返回同样 28 条，`servedFromExpandedCache=true`、`externalCallAvoided=true`、`sourceQueryCount=0`，没有第二次 external call。Production D1 两条事件复核为 external `49 candidates → 28 filtered / 1 call / avoided=0` 与 repository `28 results / 0 call / avoided=1`。Production root/admin 为 200，未认证 overview 为 401 + `Cache-Control: no-store`；内置浏览器 390×844 显示实时已连接与 10/28 条缓存推荐，页面 `scrollWidth=clientWidth=390`，console 无 error/warning。
 
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 
