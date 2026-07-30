@@ -18,6 +18,7 @@ import { getAdminStorageStatus } from "./cloudflareStorage";
 import { apiError, jsonResponse } from "./json";
 import { checkRateLimit } from "./rateLimit";
 import { createRoomId, isValidRoomId } from "./roomIds";
+import { classifySearchQuery } from "./searchQuery";
 import { getSearchRecommendations, getYouTubeDailySearchLimit, searchVideos } from "./searchService";
 import {
   deleteAdminRepositoryEntries,
@@ -44,6 +45,7 @@ const DEFAULT_SEARCH_RATE_LIMIT_PER_MINUTE = 20;
 const DEFAULT_SEARCH_RESPONSE_LIMIT = 10;
 const MAX_SEARCH_RESPONSE_LIMIT = 50;
 const MAX_RECOMMENDATION_RESPONSE_LIMIT = 200;
+const MAX_URL_QUERY_LENGTH = 2_048;
 
 export async function handleApiRequest(
   request: Request,
@@ -275,8 +277,16 @@ async function searchRoomVideos(
     return jsonResponse(await getSearchRecommendations({ limit, env }));
   }
 
-  if (query.length > 100) {
-    return apiError(400, "QUERY_TOO_LONG", "Search query must be 100 characters or fewer.");
+  const queryClassification = classifySearchQuery(query);
+  const maxQueryLength =
+    queryClassification.kind === "text" ? 100 : MAX_URL_QUERY_LENGTH;
+
+  if (query.length > maxQueryLength) {
+    return apiError(
+      400,
+      "QUERY_TOO_LONG",
+      `Search query must be ${maxQueryLength} characters or fewer.`,
+    );
   }
 
   const artist = typeof body.artist === "string" ? body.artist.trim() : undefined;
@@ -324,26 +334,28 @@ async function searchRoomVideos(
       env,
     });
     const responseSource = responseSourceFromSearchResponse(response, env);
-    const sideEffects: Promise<unknown>[] = [safelyRecordSearchEvent(env, {
-      roomId,
-      query,
-      normalizedQuery: response.normalizedQuery,
-      artist: artist || undefined,
-      searchType,
-      includeOriginalVocal,
-      source: responseSource,
-      resultCount: response.results.length,
-      success: true,
-      candidateResultCount: response.cacheMeta?.candidateResultCount ?? 0,
-      filteredResultCount: response.cacheMeta?.filteredResultCount ?? 0,
-      catalogResultCount: response.cacheMeta?.catalogResultCount ?? 0,
-      uniqueCatalogVideosAdded: response.cacheMeta?.uniqueCatalogVideosAdded ?? 0,
-      externalSearchCalls:
-        responseSource === "external"
-          ? response.cacheMeta?.sourceQueryCount ?? 0
-          : 0,
-      externalCallAvoided: response.cacheMeta?.externalCallAvoided === true,
-    })];
+    const sideEffects: Promise<unknown>[] = response.cacheMeta?.queryMode
+      ? []
+      : [safelyRecordSearchEvent(env, {
+          roomId,
+          query,
+          normalizedQuery: response.normalizedQuery,
+          artist: artist || undefined,
+          searchType,
+          includeOriginalVocal,
+          source: responseSource,
+          resultCount: response.results.length,
+          success: true,
+          candidateResultCount: response.cacheMeta?.candidateResultCount ?? 0,
+          filteredResultCount: response.cacheMeta?.filteredResultCount ?? 0,
+          catalogResultCount: response.cacheMeta?.catalogResultCount ?? 0,
+          uniqueCatalogVideosAdded: response.cacheMeta?.uniqueCatalogVideosAdded ?? 0,
+          externalSearchCalls:
+            responseSource === "external"
+              ? response.cacheMeta?.sourceQueryCount ?? 0
+              : 0,
+          externalCallAvoided: response.cacheMeta?.externalCallAvoided === true,
+        })];
     const quotaStatus = quotaStatusFromSearchResponse(response);
 
     if (quotaStatus) {

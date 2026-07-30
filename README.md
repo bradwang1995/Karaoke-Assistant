@@ -33,6 +33,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
 - 第一首歌自动成为 `playing`；后续歌曲 `queued`，不会打断当前播放。
 - Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
+- 搜索框保留一个不展示提示的 YouTube 单视频 URL 兜底：支持常见 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 链接，命中后只读取该视频并沿用现有 preview/点歌卡片；其他明确 URL 直接返回空结果。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
@@ -224,6 +225,8 @@ Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。
 ## 6. Search technical design
 
 Search 的目标是把用户输入文字作为主要 cache identity，同时保证 cache 只稳定复现候选、绝不改变搜索相关性。系统读取同一完整规范化文字与 artist 的四个歌曲/歌手、伴奏/原唱组合，先做当前查询的严格相关性过滤，再按当前意图重排。若旧缓存经严格过滤后一条可用结果也没有，系统会执行新的精准 cold request 来修复该 family；在线流程不会扫描历史候选目录。
+
+YouTube 单视频 URL 是独立于上述算法的隐形兜底路径。服务端先做严格 host、route 与 11 位 video ID 解析；命中后跳过 family、D1/KV 搜索资料、ranking、歌曲资格过滤、`search.list` 配额 ledger 和搜索事件，只调用一次低成本 `videos.list` 获取标题与缩略图。元数据临时失败时仍返回基于 video ID 的兜底卡片；视频不存在或明确不可嵌入时返回空结果。非 YouTube HTTP(S) URL、YouTube playlist/channel URL 和无效 video URL 均不调用 YouTube。
 
 ### 6.1 目标与约束
 

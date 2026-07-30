@@ -1,4 +1,8 @@
-import type { SearchResponse, SearchType } from "../src/types/youtube";
+import type {
+  SearchResponse,
+  SearchType,
+  VideoSearchResult,
+} from "../src/types/youtube";
 import {
   DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES,
   DEFAULT_SEARCH_CACHE_TTL_SECONDS,
@@ -23,7 +27,8 @@ import {
   upsertVideoCatalog,
   type VideoCatalogCandidate,
 } from "./videoCatalog";
-import { searchYouTubeVideos } from "./youtubeSearch";
+import { classifySearchQuery } from "./searchQuery";
+import { lookupYouTubeVideoById, searchYouTubeVideos } from "./youtubeSearch";
 import {
   getYouTubeSearchQuotaStatusForEnv,
   reserveYouTubeSearchCallsForEnv,
@@ -63,6 +68,50 @@ export async function searchVideos({
   waitUntil,
   env,
 }: SearchVideosOptions): Promise<SearchResponse> {
+  const queryClassification = classifySearchQuery(query);
+
+  if (queryClassification.kind === "blocked-url") {
+    return directQueryResponse(query, "blocked-url", []);
+  }
+
+  if (queryClassification.kind === "youtube-video-url") {
+    const fallbackResult: VideoSearchResult = {
+      videoId: queryClassification.videoId,
+      title: "YouTube 视频",
+      thumbnailUrl: `https://i.ytimg.com/vi/${queryClassification.videoId}/hqdefault.jpg`,
+      score: 0,
+      reasons: ["youtube-direct-url"],
+    };
+    let result = fallbackResult;
+    let videosListCalls = 0;
+
+    if (env.YOUTUBE_API_KEY) {
+      try {
+        videosListCalls = 1;
+        const video = await lookupYouTubeVideoById(
+          queryClassification.videoId,
+          env.YOUTUBE_API_KEY,
+        );
+
+        if (!video) {
+          return directQueryResponse(query, "youtube-url", [], videosListCalls);
+        }
+
+        result = video;
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "youtube-direct-video-lookup-failed",
+            videoId: queryClassification.videoId,
+            error: error instanceof Error ? error.message : "Unknown YouTube error",
+          }),
+        );
+      }
+    }
+
+    return directQueryResponse(query, "youtube-url", [result], videosListCalls);
+  }
+
   const families = buildSearchQueryFamilyVariants(query, artist, {
     searchType,
     includeOriginalVocal,
@@ -170,6 +219,33 @@ export async function searchVideos({
     limit,
     waitUntil,
   });
+}
+
+function directQueryResponse(
+  query: string,
+  queryMode: "youtube-url" | "blocked-url",
+  results: SearchResponse["results"],
+  videosListCalls = 0,
+): SearchResponse {
+  return {
+    query,
+    normalizedQuery: query.trim().toLocaleLowerCase(),
+    cached: false,
+    results,
+    cacheMeta: {
+      queryMode,
+      sourceQueryCount: 0,
+      cachedResultCount: results.length,
+      servedFromExpandedCache: false,
+      videosListCalls,
+      sourceQueries: [],
+      candidateResultCount: results.length,
+      filteredResultCount: results.length,
+      catalogResultCount: 0,
+      uniqueCatalogVideosAdded: 0,
+      externalCallAvoided: true,
+    },
+  };
 }
 
 async function safeReadSearchRepositories(

@@ -41,8 +41,16 @@ interface YouTubeVideosListResponse {
       duration?: string;
     };
     snippet?: {
+      title?: string;
+      channelTitle?: string;
+      publishedAt?: string;
       categoryId?: string;
       tags?: string[];
+      thumbnails?: {
+        high?: { url?: string };
+        medium?: { url?: string };
+        default?: { url?: string };
+      };
     };
     status?: {
       embeddable?: boolean;
@@ -64,6 +72,46 @@ export interface YouTubeSearchOptions {
 export interface YouTubeSearchProviderResult {
   response: SearchResponse;
   candidates: VideoCatalogCandidate[];
+}
+
+export async function lookupYouTubeVideoById(videoId: string, apiKey: string) {
+  const params = new URLSearchParams({
+    part: "contentDetails,snippet,status",
+    id: videoId,
+    key: apiKey,
+  });
+  const response = await fetch(`${YOUTUBE_VIDEOS_URL}?${params.toString()}`);
+
+  if (!response.ok) {
+    throw new Error(`YouTube video details failed with status ${response.status}.`);
+  }
+
+  const body = (await response.json()) as YouTubeVideosListResponse;
+  const item = body.items?.find((candidate) => candidate.id === videoId);
+  const title = item?.snippet?.title;
+
+  if (!item || !title || item.status?.embeddable === false) {
+    return null;
+  }
+
+  const durationSeconds = item.contentDetails?.duration
+    ? parseIso8601DurationSeconds(item.contentDetails.duration)
+    : undefined;
+  const thumbnails = item.snippet?.thumbnails;
+
+  return {
+    videoId,
+    title: decodeHtmlEntities(title),
+    channelTitle: item.snippet?.channelTitle,
+    thumbnailUrl:
+      thumbnails?.high?.url ?? thumbnails?.medium?.url ?? thumbnails?.default?.url,
+    durationSeconds,
+    publishedAt: item.snippet?.publishedAt,
+    categoryId: item.snippet?.categoryId,
+    tags: (item.snippet?.tags ?? []).slice(0, 20),
+    score: 0,
+    reasons: ["youtube-direct-url"],
+  } satisfies VideoSearchResult;
 }
 
 export async function searchYouTubeVideos({

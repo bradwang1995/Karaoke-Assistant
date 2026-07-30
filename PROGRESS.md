@@ -12,14 +12,14 @@ Last updated: 2026-07-30
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
-| YouTube search | MVP complete | Live API、同文字四选项 family cache、严格歌名/歌手相关性门槛、KTV/原唱 intent ranking、Music/7 分钟资格过滤、推荐、rate limit、quota 已完成。 |
+| YouTube search | MVP complete | Live API、同文字四选项 family cache、严格歌名/歌手相关性门槛、KTV/原唱 intent ranking、Music/7 分钟资格过滤、推荐、rate limit、quota，以及不展示提示的单视频 URL 兜底已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
 | Mobile preview | MVP complete | 2–4 列、选中即激活单 IFrame Player、静音自动播放并从 30 秒显式 load/seek/play、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 23 files / 103 tests | Preview 即时 autoplay/mute/30 秒与 API load/seek/play、严格歌名/歌手相关性、Music/7 分钟过滤、同文字四选项 cache、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
+| Automated tests | 25 files / 122 tests | 单视频 URL 分类、非 YouTube URL 零 provider call、直链 metadata/fallback，以及 preview、search、Admin、quota 等现有 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -466,6 +466,7 @@ Current coverage：
 - `[x]` Room commands、WebSocket validation/runtime。
 - `[x]` KV keys/family/recommendations/size policy。
 - `[x]` Search family、ranking、rate limit、YouTube parsing。
+- `[x]` 搜索框 YouTube 单视频 URL 隐形兜底；普通文字算法不变，其他 URL 不发 search request。
 - `[x]` Pacific quota reset、本地时区显示、restart player state。
 - `[x]` Display item-key progress isolation、0-second next；Mobile dedicated 30-second preview URL。
 - `[ ]` Main Worker route integration。
@@ -514,6 +515,8 @@ Production exact-query rollback smoke room `5o3m3t27`：quota `0 → 3`。`后�
 Production song-only same-text cache smoke room `326t192b`：quota `6 → 7`。`甜甜的 + 周杰伦` song/无原唱冷查询由 external 返回 28 条；全部结果均为 YouTube Music category 10、duration 大于 0 且严格小于 420 秒。保持完整文字与 artist 不变，只改为 artist/原唱后由 repository 返回同样 28 条，`servedFromExpandedCache=true`、`externalCallAvoided=true`、`sourceQueryCount=0`，没有第二次 external call。Production D1 两条事件复核为 external `49 candidates → 28 filtered / 1 call / avoided=0` 与 repository `28 results / 0 call / avoided=1`。Production root/admin 为 200，未认证 overview 为 401 + `Cache-Control: no-store`；内置浏览器 390×844 显示实时已连接与 10/28 条缓存推荐，页面 `scrollWidth=clientWidth=390`，console 无 error/warning。
 
 Production mobile preview playback restoration smoke room `326t192b`：生产页面加载新 asset `index-Bj8oiKxj.js`；点选“凡人歌 - 李宗盛”结果后只存在一个 YouTube Player iframe，URL 参数为 `autoplay=0`、`enablejsapi=1`、`start=30`、`playsinline=1` 和 production origin。组件只有收到 `PLAYING` 才把 loading 改为 loaded；本次 spinner 确实消失、player 可见，证明显式 mute/load/seek/play 流程已进入生产播放状态。390×844 下 `scrollWidth=clientWidth=390`，console 无 error/warning。真实手机字幕清晰度和移动端浏览器差异仍由周末内测验收。
+
+Local YouTube URL fallback verification：25 files / 122 tests、typecheck、production build、Room/Main Wrangler dry-run 与 `git diff --check` 通过。内置浏览器 fresh session 在 390×844 下粘贴 `youtu.be` 单视频 URL 后只显示 1 张结果卡，点击后 iframe 指向同一 video ID 且含 `start=30`、`mute=1`、`playsinline=1`，点歌 toast 成功并标记“已在歌单”；改贴 `example.com` URL 返回 0/0 与空状态。页面 `scrollWidth=clientWidth=390`，console 无 error/warning。本地未配置 YouTube key，因此卡片使用故障兜底标题；真实 metadata 留待 production smoke。
 
 Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 

@@ -21,6 +21,7 @@ export interface SearchResponse {
   cached: boolean;
   results: VideoSearchResult[];
   cacheMeta?: {
+    queryMode?: "youtube-url" | "blocked-url";
     sourceQueryCount: number;
     cachedResultCount: number;
     servedFromExpandedCache: boolean;
