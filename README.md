@@ -234,7 +234,7 @@ Search 的目标是把用户输入文字作为主要 cache identity，同时保�
 - 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
-- 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；原唱模式优先 lyric video/lyrics/歌词、原唱、MV、official、audio 和 radio。
+- 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；原唱模式只保留标题带 lyric video/lyrics/歌词、原唱、MV、official、audio 或 radio 标记的候选。
 - 新搜索发出后立即清空上一批卡片，按钮进入灰色 disabled 状态并显示旋转图标；结果区域持续显示加载状态，直到新 response 到达。
 - Guardrails 通过 Wrangler variables 配置。
 
@@ -339,9 +339,9 @@ Original-vocal aliases：
 | Artist in title/channel | +42 / +32 |
 | KTV / 卡拉OK / karaoke | 普通 KTV intent：+30 / +30 / +24 |
 | 伴奏 / instrumental | 普通 KTV intent：+20 / +16；原唱 intent：-30 / -28 |
-| Lyric video / lyrics / 歌词 | 只在原唱 intent 中加权 |
+| Lyric video / lyrics / 歌词 | 原唱 intent 的准入标记并加权 |
 | Original / 原唱 / MV / official | 原唱 intent：+34 / +38 / +24 / +20；普通 intent 拒绝明确 original/原唱，MV/official 降权 |
-| Audio / radio | 原唱 intent：+16 / +12 |
+| Audio / radio | 原唱 intent 的准入标记：+16 / +12 |
 | Live、现场、reaction、cover | Downrank |
 | Remix、tutorial、教学、shorts | Downrank |
 | Duration < 60s | Downrank；duration ≥ 7min 在 scoring 前拒绝 |

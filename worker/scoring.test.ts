@@ -113,7 +113,7 @@ describe("search scoring", () => {
         },
       ],
       "年少有为",
-      { searchType: "song", includeOriginalVocal: true },
+      { searchType: "song", includeOriginalVocal: false },
     );
 
     expect(results.map((result) => result.videoId)).toEqual(["matching"]);
@@ -141,9 +141,7 @@ describe("search scoring", () => {
 
     expect(results[0].videoId).toBe("lyrics");
     expect(results[0].reasons).toContain("title contains lyric video");
-    expect(results[1].reasons).toContain(
-      "accompaniment conflicts with original-vocal intent",
-    );
+    expect(results).toHaveLength(1);
   });
 
   it("uses original-vocal intent to rank non-KTV results", () => {
@@ -194,7 +192,7 @@ describe("search scoring", () => {
     });
 
     expect(karaokeOrder.map((result) => result.videoId)).toEqual(["karaoke"]);
-    expect(originalOrder.map((result) => result.videoId)).toEqual(["original", "karaoke"]);
+    expect(originalOrder.map((result) => result.videoId)).toEqual(["original"]);
   });
 
   it("prioritizes artist metadata in artist search mode", () => {
@@ -241,6 +239,6 @@ describe("search scoring", () => {
       { searchType: "song", includeOriginalVocal: true },
     );
 
-    expect(results.map((result) => result.videoId)).toEqual(["radio", "karaoke"]);
+    expect(results.map((result) => result.videoId)).toEqual(["radio"]);
   });
 });

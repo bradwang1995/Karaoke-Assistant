@@ -375,7 +375,7 @@ Last updated: 2026-07-30
 | ID | P | Completed |
 | --- | --- | --- |
 | SRCH11-01 | P0 | 歌名模式只接受标题命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的候选。跨 family cache 只能补充通过当前查询门槛的候选，不能再让其他歌手或 channel-only 结果进入前列。 |
-| SRCH11-02 | P0 | 非原唱首个 YouTube source query 明确使用 focused text + `ktv`，只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱的候选；原唱首个 query 使用 focused text + `lyrics`，优先 lyrics/歌词、原唱、MV、official、audio/radio。 |
+| SRCH11-02 | P0 | 非原唱首个 YouTube source query 明确使用 focused text + `ktv`，只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱的候选；原唱首个 query 使用 focused text + `lyrics`，只保留标题带 lyrics/歌词、原唱、MV、official、audio/radio 标记的候选。 |
 | SRCH11-03 | P0 | 同文字 cache 仍稳定复用并重新按当前意图排序；若旧 family 存在但严格相关性过滤后为零，则执行一次精准 cold refill 修复坏缓存，不把无关结果永久复现。 |
 | PREV11-01 | P0 | 选中候选卡立即激活唯一 preview，移除 600ms debounce；iframe 初始化使用 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1`，ready 后继续显式 mute/load/seek/play。 |
 

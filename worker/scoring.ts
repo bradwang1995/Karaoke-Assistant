@@ -150,10 +150,19 @@ export function rankSearchResultsForQuery(
       (searchType === "artist"
         ? !result.reasons.includes("metadata does not match artist query")
         : hasSongTitleMatch(result.reasons)) &&
-      (options.includeOriginalVocal || isKaraokeIntentResult(result)),
+      (options.includeOriginalVocal
+        ? isOriginalVocalIntentResult(result)
+        : isKaraokeIntentResult(result)),
     )
     .sort((a, b) => b.result.score - a.result.score || a.index - b.index)
     .map(({ result }) => result);
+}
+
+function isOriginalVocalIntentResult(result: VideoSearchResult) {
+  const title = result.title.toLowerCase();
+
+  return [...LYRICS_VIDEO_SIGNALS, ...ORIGINAL_VOCAL_INTENT_SIGNALS]
+    .some((signal) => title.includes(signal.text));
 }
 
 function isKaraokeIntentResult(result: VideoSearchResult) {

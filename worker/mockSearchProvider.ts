@@ -1,4 +1,5 @@
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
+import type { SearchType } from "../src/types/youtube";
 import { normalizeQuery, normalizeSearchQuery } from "../src/lib/queryNormalize";
 
 const MOCK_VIDEO_IDS = [
@@ -23,7 +24,22 @@ const TITLE_PATTERNS = [
   "{query} instrumental karaoke",
 ];
 
-export function searchMockVideos(query: string, limit = 10): SearchResponse {
+const ORIGINAL_TITLE_PATTERNS = [
+  "{query} Lyrics Radio",
+  "{query} official lyric video",
+  "{query} 原唱 歌词版",
+  "{query} Official Audio",
+  "{query} lyrics",
+  "{query} original vocal",
+  "{query} 官方 MV",
+  "{query} radio edit",
+];
+
+export function searchMockVideos(
+  query: string,
+  limit = 10,
+  options: { searchType?: SearchType; includeOriginalVocal?: boolean } = {},
+): SearchResponse {
   const normalizedQuery = normalizeQuery(query);
 
   if (!normalizedQuery) {
@@ -35,7 +51,10 @@ export function searchMockVideos(query: string, limit = 10): SearchResponse {
     };
   }
 
-  const results: VideoSearchResult[] = TITLE_PATTERNS.slice(0, limit).map(
+  const titlePatterns = options.includeOriginalVocal
+    ? ORIGINAL_TITLE_PATTERNS
+    : TITLE_PATTERNS;
+  const results: VideoSearchResult[] = titlePatterns.slice(0, limit).map(
     (pattern, index) => {
       const videoId = MOCK_VIDEO_IDS[index % MOCK_VIDEO_IDS.length];
       return {
@@ -55,7 +74,7 @@ export function searchMockVideos(query: string, limit = 10): SearchResponse {
         durationSeconds: [265, 241, 304, 278, 252, 299, 286, 270][index],
         publishedAt: "2026-01-01T00:00:00Z",
         categoryId: "10",
-        tags: ["music", "karaoke"],
+        tags: ["music", options.includeOriginalVocal ? "lyrics" : "karaoke"],
         score: 32 - index * 3,
         reasons: ["mock result", "title contains KTV"],
       };
@@ -65,6 +84,8 @@ export function searchMockVideos(query: string, limit = 10): SearchResponse {
   return {
     query,
     normalizedQuery: normalizeSearchQuery(query),
+    searchType: options.searchType,
+    includeOriginalVocal: options.includeOriginalVocal,
     cached: false,
     results,
   };

@@ -142,7 +142,7 @@ export async function searchVideos({
         env,
       })
     : {
-        ...searchMockVideos(query, limit),
+        ...searchMockVideos(query, limit, { searchType, includeOriginalVocal }),
         searchType,
         includeOriginalVocal,
       };

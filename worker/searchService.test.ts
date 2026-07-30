@@ -82,10 +82,9 @@ describe("search service cache reuse", () => {
     ]);
     expect(original.results.map((result) => result.videoId)).toEqual([
       "original",
-      "karaoke",
     ]);
     expect(karaoke.cacheMeta?.servedFromExpandedCache).toBe(false);
-    expect(original.cacheMeta?.servedFromExpandedCache).toBe(true);
+    expect(original.cacheMeta?.servedFromExpandedCache).toBe(false);
     expect(karaoke.cacheMeta?.sourceQueryCount).toBe(0);
     expect(original.cacheMeta?.sourceQueryCount).toBe(0);
   });
@@ -175,7 +174,7 @@ describe("search service cache reuse", () => {
     expect(db.entryCount).toBe(2);
   });
 
-  it("reuses a same-text cache entry when only the original-vocal flag differs", async () => {
+  it("refills when the opposite-vocal cache has no original-vocal candidates", async () => {
     const kv = new MemoryKv();
     const karaokeFamily = buildSearchQueryFamily("后来");
     await writeSearchCache(
@@ -196,15 +195,21 @@ describe("search service cache reuse", () => {
       },
     });
 
-    expect(response.cached).toBe(true);
+    expect(response.cached).toBe(false);
     expect(response.cacheMeta).toMatchObject({
-      responseSource: "repository",
-      servedFromExpandedCache: true,
+      responseSource: "mock",
+      servedFromExpandedCache: false,
       catalogResultCount: 0,
-      externalCallAvoided: true,
+      externalCallAvoided: false,
       sourceQueryCount: 0,
     });
-    expect(response.results.map((result) => result.videoId)).toContain("karaoke");
+    expect(response.results.length).toBeGreaterThan(0);
+    expect(
+      response.results.every((result) =>
+        /(lyrics?|歌词|原唱|original|official|audio|radio|mv)/i.test(result.title),
+      ),
+    ).toBe(true);
+    expect(response.results.map((result) => result.videoId)).not.toContain("karaoke");
   });
 
   it("refills an artist search when same-text caches contain only unrelated artists", async () => {
