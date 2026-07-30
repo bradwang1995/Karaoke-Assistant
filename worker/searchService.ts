@@ -107,25 +107,27 @@ export async function searchVideos({
       family,
       hits: localHits,
     });
-    const backgroundTasks = kvHits
-      .filter((hit) => !repositoryByFamily.has(hit.family.hash))
-      .map((hit) => touchSearchCache(env.SEARCH_CACHE, hit.familyHash, hit.entry));
+    if (response.results.length > 0) {
+      const backgroundTasks = kvHits
+        .filter((hit) => !repositoryByFamily.has(hit.family.hash))
+        .map((hit) => touchSearchCache(env.SEARCH_CACHE, hit.familyHash, hit.entry));
 
-    if (
-      response.cacheMeta?.servedFromExpandedCache ||
-      !repositoryByFamily.has(family.hash)
-    ) {
-      backgroundTasks.push(
-        writeSearchCache(env.SEARCH_CACHE, family, response, {
-          ttlSeconds: cacheTtlSeconds,
-          maxEntryBytes: getSearchCacheMaxEntryBytes(env),
-        }).then(() => undefined),
-        safeWriteSearchRepository(env.DB, family, response).then(() => undefined),
-      );
+      if (
+        response.cacheMeta?.servedFromExpandedCache ||
+        !repositoryByFamily.has(family.hash)
+      ) {
+        backgroundTasks.push(
+          writeSearchCache(env.SEARCH_CACHE, family, response, {
+            ttlSeconds: cacheTtlSeconds,
+            maxEntryBytes: getSearchCacheMaxEntryBytes(env),
+          }).then(() => undefined),
+          safeWriteSearchRepository(env.DB, family, response).then(() => undefined),
+        );
+      }
+
+      await runBackgroundTasks(backgroundTasks, waitUntil, "search-cache-refresh-failed");
+      return limitSearchResponse(response, limit);
     }
-
-    await runBackgroundTasks(backgroundTasks, waitUntil, "search-cache-refresh-failed");
-    return limitSearchResponse(response, limit);
   }
 
   const providerResponse = env.YOUTUBE_API_KEY
@@ -253,9 +255,6 @@ function mergeLocalSearchResponses({
     artist,
     searchType,
     includeOriginalVocal,
-    allowMetadataOnlyMatches: hits.some(
-      (hit) => hit.family.searchType !== searchType,
-    ),
   }).slice(0, MAX_CACHED_SEARCH_RESULTS);
   const expandedResultCount = results.filter(
     (result) => !exactVideoIds.has(result.videoId),

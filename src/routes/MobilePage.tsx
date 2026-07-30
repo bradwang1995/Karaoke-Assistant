@@ -34,6 +34,7 @@ import {
   MOBILE_PREVIEW_START_SECONDS,
   startYouTubePreview,
   youtubeThumbnailUrl,
+  youtubePreviewPlayerVars,
 } from "../lib/youtube";
 import {
   loadYouTubeIframeApi,
@@ -51,7 +52,6 @@ import type { SearchResponse, SearchType, VideoSearchResult } from "../types/you
 const SEARCH_RESULT_PAGE_SIZE = 10;
 const SEARCH_FETCH_LIMIT = 50;
 const RECOMMENDATION_FETCH_LIMIT = 200;
-const PREVIEW_DEBOUNCE_MS = 600;
 const PREVIEW_LOAD_TIMEOUT_MS = 10_000;
 const SEARCH_STATE_TTL_MS = 1000 * 60 * 60 * 24;
 type MobileTab = "search" | "queue";
@@ -531,14 +531,8 @@ function SearchTab({
 
   const schedulePreview = (result: VideoSearchResult) => {
     setSelected(result);
-    setActivePreviewVideoId(null);
     cancelPendingPreview();
-    setPendingPreviewVideoId(result.videoId);
-    previewDebounceTimeoutRef.current = window.setTimeout(() => {
-      setPendingPreviewVideoId(null);
-      setActivePreviewVideoId(result.videoId);
-      previewDebounceTimeoutRef.current = null;
-    }, PREVIEW_DEBOUNCE_MS);
+    setActivePreviewVideoId(result.videoId);
   };
 
   const registerCardRef = (videoId: string, node: HTMLElement | null) => {
@@ -1090,18 +1084,7 @@ function CandidatePreview({
           width: "100%",
           height: "100%",
           videoId: result.videoId,
-          playerVars: {
-            autoplay: 0,
-            controls: 0,
-            disablekb: 1,
-            enablejsapi: 1,
-            fs: 0,
-            iv_load_policy: 3,
-            playsinline: 1,
-            rel: 0,
-            start: MOBILE_PREVIEW_START_SECONDS,
-            origin: window.location.origin,
-          },
+          playerVars: youtubePreviewPlayerVars(window.location.origin),
           events: {
             onReady: handleReady,
             onStateChange: handleStateChange,

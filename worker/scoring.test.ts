@@ -55,11 +55,10 @@ describe("search scoring", () => {
 
     expect(results[0].videoId).toBe("exact");
     expect(results[0].reasons).toContain("title exactly matches song query");
-    expect(results[1].reasons).toContain("channel contains query");
-    expect(results[0].score).toBeGreaterThan(results[1].score);
+    expect(results).toHaveLength(1);
   });
 
-  it("keeps partial title matches ahead of unrelated karaoke matches", () => {
+  it("removes unrelated karaoke matches instead of letting intent keywords outrank the query", () => {
     const results = rankSearchResultsForQuery(
       [
         {
@@ -82,14 +81,13 @@ describe("search scoring", () => {
         },
       ],
       "\u4f9d\u8d56",
+      { searchType: "song", includeOriginalVocal: true },
     );
 
     expect(results.map((result) => result.videoId)).toEqual([
-      "matching-lyrics",
       "matching-original",
-      "unrelated-karaoke",
+      "matching-lyrics",
     ]);
-    expect(results[2].reasons).toContain("title does not match query");
   });
 
   it("removes unrelated metadata from song-title search results", () => {
@@ -172,7 +170,7 @@ describe("search scoring", () => {
     expect(results[0].reasons).toContain("title contains 原唱");
   });
 
-  it("produces visibly different ordering for karaoke and original-vocal intent", () => {
+  it("keeps karaoke searches accompaniment-only and original searches vocal-first", () => {
     const candidates = [
       {
         videoId: "karaoke",
@@ -195,7 +193,7 @@ describe("search scoring", () => {
       includeOriginalVocal: true,
     });
 
-    expect(karaokeOrder.map((result) => result.videoId)).toEqual(["karaoke", "original"]);
+    expect(karaokeOrder.map((result) => result.videoId)).toEqual(["karaoke"]);
     expect(originalOrder.map((result) => result.videoId)).toEqual(["original", "karaoke"]);
   });
 
@@ -219,7 +217,30 @@ describe("search scoring", () => {
       { searchType: "artist" },
     );
 
-    expect(results[0].videoId).toBe("artist");
+    expect(results.map((result) => result.videoId)).toEqual(["artist"]);
     expect(results[0].reasons.join("; ")).toContain("artist query");
+  });
+
+  it("keeps lyrics, radio, and official audio ahead for original-vocal searches", () => {
+    const results = rankSearchResultsForQuery(
+      [
+        {
+          videoId: "karaoke",
+          title: "如愿 KTV 纯伴奏",
+          channelTitle: "KTV Channel",
+          durationSeconds: 280,
+        },
+        {
+          videoId: "radio",
+          title: "如愿 Lyrics Radio Official Audio",
+          channelTitle: "Music Channel",
+          durationSeconds: 280,
+        },
+      ],
+      "如愿",
+      { searchType: "song", includeOriginalVocal: true },
+    );
+
+    expect(results.map((result) => result.videoId)).toEqual(["radio", "karaoke"]);
   });
 });

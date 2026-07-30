@@ -4,6 +4,7 @@ import {
   startYouTubePreview,
   youtubeEmbedUrl,
   youtubePreviewEmbedUrl,
+  youtubePreviewPlayerVars,
 } from "./youtube";
 import type { YouTubePlayer } from "./youtubeIframeApi";
 
@@ -36,6 +37,16 @@ describe("YouTube embed URLs", () => {
       "seek:30:true",
       "play",
     ]);
+  });
+
+  it("configures selected-card previews for immediate muted autoplay from 30 seconds", () => {
+    expect(youtubePreviewPlayerVars("https://example.com")).toMatchObject({
+      autoplay: 1,
+      mute: 1,
+      start: 30,
+      playsinline: 1,
+      origin: "https://example.com",
+    });
   });
 
   it("keeps app-owned embeds free of native controls", () => {

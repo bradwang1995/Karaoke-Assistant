@@ -37,6 +37,22 @@ export function youtubePreviewEmbedUrl(videoId: string) {
   });
 }
 
+export function youtubePreviewPlayerVars(origin: string) {
+  return {
+    autoplay: 1,
+    controls: 0,
+    disablekb: 1,
+    enablejsapi: 1,
+    fs: 0,
+    iv_load_policy: 3,
+    mute: 1,
+    playsinline: 1,
+    rel: 0,
+    start: MOBILE_PREVIEW_START_SECONDS,
+    origin,
+  };
+}
+
 export function startYouTubePreview(player: YouTubePlayer, videoId: string) {
   player.mute?.();
   player.loadVideoById?.({

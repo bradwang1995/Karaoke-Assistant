@@ -60,7 +60,7 @@ describe("youtube search helpers", () => {
     expect(searchCalls).toHaveLength(1);
     expect(videosCalls).toHaveLength(1);
     expect(searchCalls[0].searchParams.get("maxResults")).toBe("50");
-    expect(searchCalls[0].searchParams.get("q")).toBe("later");
+    expect(searchCalls[0].searchParams.get("q")).toBe("later ktv");
     expect(searchCalls[0].searchParams.get("videoCategoryId")).toBe("10");
     expect(searchCalls[0].searchParams.has("pageToken")).toBe(false);
     expect(videosCalls[0].searchParams.get("part")).toBe(

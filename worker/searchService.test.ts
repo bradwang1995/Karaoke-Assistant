@@ -79,13 +79,12 @@ describe("search service cache reuse", () => {
     expect(original.cached).toBe(true);
     expect(karaoke.results.map((result) => result.videoId)).toEqual([
       "karaoke",
-      "original",
     ]);
     expect(original.results.map((result) => result.videoId)).toEqual([
       "original",
       "karaoke",
     ]);
-    expect(karaoke.cacheMeta?.servedFromExpandedCache).toBe(true);
+    expect(karaoke.cacheMeta?.servedFromExpandedCache).toBe(false);
     expect(original.cacheMeta?.servedFromExpandedCache).toBe(true);
     expect(karaoke.cacheMeta?.sourceQueryCount).toBe(0);
     expect(original.cacheMeta?.sourceQueryCount).toBe(0);
@@ -130,7 +129,6 @@ describe("search service cache reuse", () => {
     expect(response.results.map((result) => result.videoId)).toEqual([
       "song-current",
       "artist-two",
-      "artist-one",
     ]);
     expect(response.cacheMeta).toMatchObject({
       servedFromExpandedCache: true,
@@ -207,6 +205,34 @@ describe("search service cache reuse", () => {
       sourceQueryCount: 0,
     });
     expect(response.results.map((result) => result.videoId)).toContain("karaoke");
+  });
+
+  it("refills an artist search when same-text caches contain only unrelated artists", async () => {
+    const kv = new MemoryKv();
+    const artistFamily = buildSearchQueryFamily("单依纯", undefined, {
+      searchType: "artist",
+    });
+
+    await writeSearchCache(
+      kv,
+      artistFamily,
+      buildResponse("单依纯", artistFamily.normalizedQuery, [
+        buildResult("unrelated", "黄小琥 没那么简单 KTV"),
+      ]),
+    );
+
+    const response = await searchVideos({
+      query: "单依纯",
+      searchType: "artist",
+      includeOriginalVocal: false,
+      limit: 10,
+      env: { SEARCH_CACHE: kv },
+    });
+
+    expect(response.cached).toBe(false);
+    expect(response.results.length).toBeGreaterThan(0);
+    expect(response.results.every((result) => result.title.includes("单依纯"))).toBe(true);
+    expect(response.results.map((result) => result.videoId)).not.toContain("unrelated");
   });
 
   it("rejects a legacy D1 row whose original query text differs", async () => {

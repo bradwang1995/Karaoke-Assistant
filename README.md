@@ -32,7 +32,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 当前核心体验：
 
 - 第一首歌自动成为 `playing`；后续歌曲 `queued`，不会打断当前播放。
-- Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、从 30 秒开始的单个轻量 preview 和缓存内无限滚动；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
+- Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
@@ -223,7 +223,7 @@ Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。
 
 ## 6. Search technical design
 
-Search 的目标是把用户输入文字作为主要 cache identity。系统先读同一完整规范化文字与 artist 的当前歌曲/歌手、伴奏/原唱组合；若结果不足，再合并另外三个选项组合并按当前意图重排。只有四个组合都没有可用结果才执行 cold request。在线流程不会扫描历史候选目录，也不会以少量本地结果提前结束搜索。
+Search 的目标是把用户输入文字作为主要 cache identity，同时保证 cache 只稳定复现候选、绝不改变搜索相关性。系统读取同一完整规范化文字与 artist 的四个歌曲/歌手、伴奏/原唱组合，先做当前查询的严格相关性过滤，再按当前意图重排。若旧缓存经严格过滤后一条可用结果也没有，系统会执行新的精准 cold request 来修复该 family；在线流程不会扫描历史候选目录。
 
 ### 6.1 目标与约束
 
@@ -234,7 +234,7 @@ Search 的目标是把用户输入文字作为主要 cache identity。系统先�
 - 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
-- 歌名模式先过滤 title 不相关结果；其余排序先保证 title/artist 相关，再考虑 KTV、伴奏、lyrics 和原唱意图。
+- 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；原唱模式优先 lyric video/lyrics/歌词、原唱、MV、official、audio 和 radio。
 - 新搜索发出后立即清空上一批卡片，按钮进入灰色 disabled 状态并显示旋转图标；结果区域持续显示加载状态，直到新 response 到达。
 - Guardrails 通过 Wrangler variables 配置。
 
@@ -308,17 +308,17 @@ Original-vocal aliases：
 后来 original with lyrics
 ```
 
-Song mode 的第一条 source query 是精确 canonical song title，确保一次 50-result fill 建立稳定的混合 candidate pool；KTV、artist 和 broad OR aliases 只作为后续 fallback。Artist mode 保持 artist-oriented `ktv / karaoke / classic songs` 或 `lyrics / MV / official` broad query。无需在 request 中调用 LLM。
+实际只消耗一次 `search.list` 的首条 source query 会直接表达当前意图：普通模式使用 `focused text + ktv`，带原唱模式使用 `focused text + lyrics`；若歌名请求带明确 artist，则 focused text 为 `artist + song`。其余 canonical、KTV、artist 和 broad aliases 只作为未来可用的 deterministic fallback。无需在 request 中调用 LLM。
 
 ### 6.4 Live fetch pipeline
 
 1. D1 用一次查询读取同一完整规范化文字与 artist 的最多四个 option families；KV 并行读取对应四个精确 hash。当前 family 优先，缺少或不足时才合并另外三个 family。
 2. 只合并四个相同文字与 artist 的 option families；不读 normalized index、不匹配相似文字、不扫描被动候选目录。
-3. 对本地结果重新执行歌曲资格过滤、按 `videoId` 去重，再以当前 song/artist 与 vocal intent 重排；只有四个 family 全部没有可用结果才读取 quota estimate 并准备一次外部搜索。
+3. 对本地结果重新执行歌曲资格与查询相关性过滤、按 `videoId` 去重，再以当前 vocal intent 重排；四个 family 即使存在，只要严格过滤后为零，也会读取 quota estimate 并准备一次精准外部搜索，避免坏缓存永久返回空白或无关内容。
 4. `search.list` 使用 `type=video`、`videoCategoryId=10`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
 5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails,snippet,status)` 每 50 ids 一批读取 duration、category、tags 和最新 embeddable 状态。
 6. 只保留 `categoryId=10`、duration 大于 0 且严格小于 420 秒、仍可嵌入的视频；详情缺失、非音乐分类、恰好或超过 7 分钟全部 fail closed。
-7. 歌名模式过滤 title miss / channel-only hit，再针对 current user query 和 vocal intent 排序；合并歌手模式 family 时允许歌手 channel/tags metadata 命中。通过歌曲资格过滤的外部候选被动写入 D1 统计目录，但该目录不参与在线检索。
+7. 歌名模式过滤 title miss、channel-only 和 tags-only hit；歌手模式过滤 metadata 完全不含目标歌手的候选。相关候选再按当前 vocal intent 排序，其他 family 不能绕过该门槛。通过歌曲资格过滤的外部候选被动写入 D1 统计目录，但该目录不参与在线检索。
 8. 将本次过滤后的完整结果写入当前 exact repository、exact family cache 和 recommendation pool。生产请求使用 Worker lifecycle 后台刷新 cache、repository access 与搜索事件；真实候选新增计数仍在 response 前完成。
 9. 返回 requested slice，非空搜索最多 50 条；50 是上限而非保证，不存在“本地凑够 10 条就提前返回”的路径。
 
@@ -339,15 +339,16 @@ Song mode 的第一条 source query 是精确 canonical song title，确保一�
 | Artist in title/channel | +42 / +32 |
 | KTV / 卡拉OK / karaoke | 普通 KTV intent：+30 / +30 / +24 |
 | 伴奏 / instrumental | 普通 KTV intent：+20 / +16；原唱 intent：-30 / -28 |
-| Lyric video / lyrics / 歌词 | Secondary positive |
-| Original / 原唱 / MV / official | 原唱 intent：+34 / +38 / +24 / +20；普通 intent 会降权 |
+| Lyric video / lyrics / 歌词 | 只在原唱 intent 中加权 |
+| Original / 原唱 / MV / official | 原唱 intent：+34 / +38 / +24 / +20；普通 intent 拒绝明确 original/原唱，MV/official 降权 |
+| Audio / radio | 原唱 intent：+16 / +12 |
 | Live、现场、reaction、cover | Downrank |
 | Remix、tutorial、教学、shorts | Downrank |
 | Duration < 60s | Downrank；duration ≥ 7min 在 scoring 前拒绝 |
 
 带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的正负权重；当前 exact family 优先，同一文字与 artist 的相反 vocal intent family 只在结果不足时补充并重新打分。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
 
-关键 regression：搜索 `依赖` 时，`离开我的依赖` 的 KTV/lyrics/伴奏必须高于标题无关的 `唯一` KTV。
+关键 regressions：搜索 `依赖` 时只保留标题命中的 `离开我的依赖` 等候选，标题无关的 `唯一` KTV 不能进入结果；歌手模式搜索 `单依纯` 时，metadata 完全不含 `单依纯` 的其他歌手歌曲也不能进入结果。
 
 ### 6.6 KV cache
 
@@ -515,9 +516,9 @@ Mobile preview：
 
 - 手机竖屏默认两列，较宽/横屏为 3–4 列；每张 card 在视频下方显示两行以内的歌名，不显示 uploader/channel。
 - Mobile 使用与 display 连续一致的 slate/teal 深色背景，`theme-color`、`color-scheme`、HTML/body 和 safe-area 都保持深色，避免 Safari 顶部状态栏、底部地址栏或结果区露出白带。
-- 选择后 debounce 600ms；快速切换会取消旧 preview，只有 active card 挂载 iframe。
+- 选择 card 后立即激活 preview；快速切换会销毁旧 preview，只有 active card 挂载 iframe。
 - Pending/加载阶段显示 spinner；10 秒仍未加载会显示可重试提示；点击外部停止。
-- Preview 使用 IFrame Player API 显式执行播放：Player 初始化不抢跑，ready 后依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试播放。只有收到真实 `PLAYING` 状态才结束 spinner；30 秒起点与调用顺序由回归测试保护。
+- Preview 初始化即设置 `autoplay=1`、`mute=1`、`start=30` 和 `playsinline=1`；ready 后仍依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试。只有收到真实 `PLAYING` 状态才结束 spinner；选中即激活、30 秒起点与调用参数由回归测试和浏览器检查保护。
 - App 不重复显示 video title/channel/quality；YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡。
 
 Display：

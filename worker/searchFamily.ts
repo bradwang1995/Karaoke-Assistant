@@ -238,9 +238,12 @@ function buildSourceQueries(
   }
 
   const broadQuery = joinAliasesForYouTube(aliases.filter((alias) => alias !== canonicalQuery));
-  const focusedSongQuery = artist
+  const focusedQuery = artist
     ? `${artist} ${canonicalQuery}`
     : canonicalQuery;
+  const focusedIntentQuery = includeOriginalVocal
+    ? `${focusedQuery} lyrics`
+    : `${focusedQuery} ktv`;
   const fallbackQueries = searchType === "artist"
     ? [
         includeOriginalVocal
@@ -261,8 +264,8 @@ function buildSourceQueries(
   return uniqueNormalized(
     (
       searchType === "song"
-        ? [focusedSongQuery, ...fallbackQueries, broadQuery]
-        : [broadQuery, ...fallbackQueries]
+        ? [focusedIntentQuery, focusedQuery, ...fallbackQueries, broadQuery]
+        : [focusedIntentQuery, ...fallbackQueries, broadQuery]
     ).filter(Boolean),
   );
 }

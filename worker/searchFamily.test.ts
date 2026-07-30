@@ -45,7 +45,8 @@ describe("search query families", () => {
     expect(family.normalizedQuery).toBe("later ktv");
     expect(family.aliases).toContain("later ktv");
     expect(family.aliases).toContain("later karaoke");
-    expect(family.sourceQueries[0]).toBe("artist later");
+    expect(family.sourceQueries[0]).toBe("artist later ktv");
+    expect(family.sourceQueries[1]).toBe("artist later");
     expect(family.sourceQueries).toContain("artist later ktv");
     expect(family.sourceQueries.at(-1)).toContain("later ktv|later karaoke");
   });
@@ -58,7 +59,8 @@ describe("search query families", () => {
 
     expect(original.hash).not.toBe(karaoke.hash);
     expect(original.normalizedQuery).toBe("later lyric video");
-    expect(original.sourceQueries[0]).toBe("later");
+    expect(karaoke.sourceQueries[0]).toBe("later ktv");
+    expect(original.sourceQueries[0]).toBe("later lyrics");
     expect(original.sourceQueries).toContain("later ktv");
   });
 
@@ -69,7 +71,6 @@ describe("search query families", () => {
 
     expect(family.searchType).toBe("artist");
     expect(family.normalizedQuery).toBe("jay chou ktv");
-    expect(family.sourceQueries[0]).toContain("jay chou ktv");
-    expect(family.sourceQueries[0]).toContain("jay chou karaoke");
+    expect(family.sourceQueries[0]).toBe("jay chou ktv");
   });
 });

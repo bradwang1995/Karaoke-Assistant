@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-29
+Last updated: 2026-07-30
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -12,14 +12,14 @@ Last updated: 2026-07-29
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
-| YouTube search | MVP complete | Live API、同文字四选项 family cache、Music/7 分钟资格过滤、ranking、推荐、rate limit、quota 已完成。 |
+| YouTube search | MVP complete | Live API、同文字四选项 family cache、严格歌名/歌手相关性门槛、KTV/原唱 intent ranking、Music/7 分钟资格过滤、推荐、rate limit、quota 已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
-| Mobile preview | MVP complete | 2–4 列、单 IFrame Player、ready 后静音并从 30 秒显式 load/seek/play、600ms debounce、spinner/timeout fallback 已完成。 |
+| Mobile preview | MVP complete | 2–4 列、选中即激活单 IFrame Player、静音自动播放并从 30 秒显式 load/seek/play、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 23 files / 100 tests | Preview API 静音/30 秒/load/seek/play、Music/7 分钟过滤、同文字四选项 cache、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
+| Automated tests | 23 files / 103 tests | Preview 即时 autoplay/mute/30 秒与 API load/seek/play、严格歌名/歌手相关性、Music/7 分钟过滤、同文字四选项 cache、Admin Cloudflare 指标、auth/routes/repository/cleanup、quota reservation regressions 已加入；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -88,10 +88,10 @@ Last updated: 2026-07-29
 
 - `[x]` Worker-only API key、live provider、mock fallback。
 - `[x]` Song/artist 和 original-vocal intents。
-- `[x]` Deterministic aliases、歌名 focused source query、歌手 broad OR query、family hash。
+- `[x]` Deterministic aliases、当前 KTV/原唱意图 focused source query、family hash。
 - `[x]` One `search.list` page、最多 50 Music category embeddable candidates。
 - `[x]` Duration/category/tags/status enrichment、dedupe；严格拒绝 7 分钟及以上与非音乐视频。
-- `[x]` Song title relevance filter；title/artist/KTV/伴奏/lyrics/original ranking。
+- `[x]` Song title 与 artist metadata 严格相关性门槛；通过后再做 KTV/伴奏或 lyrics/original/audio/radio ranking。
 - `[x]` Partial-title regression coverage。
 - `[x]` KV v4 exact family cache、v2 recommendations、metadata、payload pruning；历史 v2 normalized index 不再读写。
 - `[x]` Recommendation pool 和 cached re-ranking。
@@ -112,7 +112,7 @@ Last updated: 2026-07-29
 - `[x]` Queue tab URL persistence。
 - `[x]` Portrait 2-column、wide/landscape 3–4-column compact previews。
 - `[x]` One active adaptive-quality preview iframe；固定从 30 秒开始，click outside stops。
-- `[x]` 600ms debounce、pending/loading spinner、10s slow-load retry hint。
+- `[x]` 选中即激活、`autoplay=1 + mute=1 + start=30`、loading spinner、10s slow-load retry hint。
 - `[x]` Overlay selection/queue tags。
 - `[x]` Page toast + add-to-queue animation。
 - `[x]` Stay on search after adding；duplicate warning。
@@ -368,6 +368,17 @@ Last updated: 2026-07-29
 | PREV10-02 | P0 | Spinner 只在收到真实 `PLAYING` 后消失，不再把 iframe `onLoad` 误当作已播放；error/autoplay blocked/10 秒 timeout 统一进入可重试状态。 |
 | PREV10-03 | P1 | 保留 600ms 防误触、单 active preview、点击外部停止、无 native controls 与 adaptive quality；新增调用顺序 regression test。 |
 
+### 2026-07-30 search relevance and immediate preview pass 11
+
+本轮修复 pass 9 跨 family 补充造成的相关性回归，并以用户当前要求取代 pass 10 的 600ms preview debounce。
+
+| ID | P | Completed |
+| --- | --- | --- |
+| SRCH11-01 | P0 | 歌名模式只接受标题命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的候选。跨 family cache 只能补充通过当前查询门槛的候选，不能再让其他歌手或 channel-only 结果进入前列。 |
+| SRCH11-02 | P0 | 非原唱首个 YouTube source query 明确使用 focused text + `ktv`，只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱的候选；原唱首个 query 使用 focused text + `lyrics`，优先 lyrics/歌词、原唱、MV、official、audio/radio。 |
+| SRCH11-03 | P0 | 同文字 cache 仍稳定复用并重新按当前意图排序；若旧 family 存在但严格相关性过滤后为零，则执行一次精准 cold refill 修复坏缓存，不把无关结果永久复现。 |
+| PREV11-01 | P0 | 选中候选卡立即激活唯一 preview，移除 600ms debounce；iframe 初始化使用 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1`，ready 后继续显式 mute/load/seek/play。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -412,6 +423,7 @@ Last updated: 2026-07-29
 | 2026-07-29 song-only same-text cache production release | Production migration 复核为无待应用项；Wrangler 4.105 按 Room → Main 顺序以 `--keep-vars` 发布，Room `4d1dfa72-9a84-48b8-9a1e-538075dc0108`、Main `ae0f1f0e-1c4c-4672-a1ef-667cdff1b644` 均为 100%。Production root/admin 为 200，未认证 overview 为 401 + `no-store`。`甜甜的 + 周杰伦` 冷查询由 external 返回 28 条，全部 category 10 且 `0 < duration < 420`；改为 artist + 原唱后由 repository 返回 28 条，`servedFromExpandedCache=true`、`sourceQueryCount=0`、`externalCallAvoided=true`，quota 仅 `6 → 7`。生产内置浏览器 390×844 显示实时已连接、10/28 条推荐，无横向 overflow，console 无 error/warning。 |
 | 2026-07-29 mobile preview playback restoration local | Focused YouTube helper 1 file / 4 tests、full 23 files / 100 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed。内置浏览器 390×844 实际点选卡片后只创建一个 `enablejsapi=1` iframe，参数为 `autoplay=0`、`start=30`、`playsinline=1` 和正确 origin；API helper 回归测试确认 ready 后调用顺序为 mute → load at 30 → seek 30 → play。本地 mock 视频在自动化环境返回既有 error 150，因此本地记录没有虚报真实 PLAYING；生产真实结果另行通过。 |
 | 2026-07-29 mobile preview playback restoration production release | Production migration 无待应用项；Wrangler 4.105 按 Room → Main、`--keep-vars` 发布，Room `fe4cf8b8-bdcb-4bcd-8837-0a7e8e1dccad`、Main `1777984c-d2e9-4ed1-9891-93136c86ab18` 均为 100%。生产内置浏览器 390×844 加载 `index-Bj8oiKxj.js`，实际点选后恰有一个 iframe，参数包含 `autoplay=0`、`enablejsapi=1`、`start=30`、`playsinline=1` 与正确 production origin；spinner 随真实 `PLAYING` 消失且 player 保持可见，页面无横向 overflow，console 无 error/warning。 |
+| 2026-07-30 search relevance/immediate preview local | Focused 4 files / 26 tests 与 full 23 files / 103 tests passed；typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run、`git diff --check` passed。全新内置浏览器本地房间实际搜索 `后来` 并点选第二张卡，选中项立即切换且只创建 1 个 iframe；参数为 `autoplay=1`、`mute=1`、`start=30`、正确 autoplay allow。Mock video id 按预期不可真实播放，因此本记录只确认即时激活和播放器参数，不虚报真实 `PLAYING`。 |
 
 ### Admin console design QA（2026-07-21）
 
