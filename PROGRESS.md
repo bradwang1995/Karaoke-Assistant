@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-30
+Last updated: 2026-07-31
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -103,6 +103,7 @@ Last updated: 2026-07-30
 - `[x]` 20/min rate limit。
 - `[x]` Project quota 100/day、1/fill、Pacific reset、status API 和 room WebSocket 即时额度推送。
 - `[x]` Real YouTube result + repeat-query cache hit verified。
+- `[x]` 不展示提示的 YouTube 单视频 URL 兜底；严格拦截其他 URL，绕过原搜索 family、资料库、ranking 与 `search.list` quota ledger。
 
 ### Phase 5 — Mobile search and preview
 
@@ -493,6 +494,7 @@ Current coverage：
 | 2026-07-29 exact-query rollback release | Main `8326d942-3a08-4253-84c5-eee8c696442a`（100%）；Room `8317ea66-8de7-4177-80ad-bed8622ece20`（100%）。 |
 | 2026-07-29 song-only same-text cache release | Main `ae0f1f0e-1c4c-4672-a1ef-667cdff1b644`（100%）；Room `4d1dfa72-9a84-48b8-9a1e-538075dc0108`（100%）。 |
 | 2026-07-29 mobile preview playback restoration release | Main `1777984c-d2e9-4ed1-9891-93136c86ab18`（100%）；Room `fe4cf8b8-bdcb-4bcd-8837-0a7e8e1dccad`（100%）。 |
+| 2026-07-31 YouTube direct URL fallback release | 源码 `e007236` 已推送；Main `860a101e-a1e4-4d89-b884-f48d64595972`（100%）；Room `bf78c9d5-09e8-4a06-a62b-f9e455a1bc2b`（100%）。 |
 
 Last local pass-4 smoke room `3r512238`：create CTA、mock search、单 iframe preview `start=30`、两首点歌、restart 保持当前 item、next 推进第二首且 progress value 为 `0`。Create 已确认 390×844 无横向 overflow、1280×720 无页面滚动；Display 已确认 dark 140px QR、无画质 selector、三键 panel。
 
@@ -518,7 +520,9 @@ Production mobile preview playback restoration smoke room `326t192b`：生产页
 
 Local YouTube URL fallback verification：25 files / 122 tests、typecheck、production build、Room/Main Wrangler dry-run 与 `git diff --check` 通过。内置浏览器 fresh session 在 390×844 下粘贴 `youtu.be` 单视频 URL 后只显示 1 张结果卡，点击后 iframe 指向同一 video ID 且含 `start=30`、`mute=1`、`playsinline=1`，点歌 toast 成功并标记“已在歌单”；改贴 `example.com` URL 返回 0/0 与空状态。页面 `scrollWidth=clientWidth=390`，console 无 error/warning。本地未配置 YouTube key，因此卡片使用故障兜底标题；真实 metadata 留待 production smoke。
 
-Known limitation：本轮已在本地浏览器完成 responsive smoke，但测试视频在自动化环境返回 YouTube error 150；失败 iframe 已隐藏，仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
+Production YouTube direct URL fallback smoke room `3y1e002u`：production root/admin 均 HTTP 200，线上 bundle 为本地 production build 的 `index-CMvPwRfc.js`。API 与全新内置浏览器均确认 `youtu.be/dQw4w9WgXcQ` 只返回真实 metadata 卡片“Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)”，`queryMode=youtube-url`、`sourceQueryCount=0`、`videosListCalls=1`；`example.com` 返回 `queryMode=blocked-url`、0 results、0 videos calls。390×844 preview iframe 指向同一 video id，含 `start=30`、`mute=1`、`playsinline=1` 且无横向 overflow；点歌 toast 成功、卡片标记“已在歌单”，snapshot 确认 current video 为 `dQw4w9WgXcQ`。全过程 project search quota 保持 `0/100`，最终 fresh page console 无 error/warning。
+
+Known limitation：本轮已在本地与生产内置浏览器完成 responsive smoke，但仍不替代真实设备 autoplay/playsinline/pause-resume QA。YouTube 原生 title/avatar/branding 可能按官方策略出现，app 不遮挡或伪装。
 
 ## 5. Remaining work
 
