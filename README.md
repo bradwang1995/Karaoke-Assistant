@@ -240,7 +240,7 @@ YouTube 单视频 URL 是独立于上述算法的隐形兜底路径。服务端�
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
 - 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；歌曲原唱模式优先且只保留 lyric video/lyrics/歌词、原唱、MV、official、audio 或 radio，歌手原唱模式还可接收明确匹配歌手且不带 KTV/伴奏/cover 冲突的普通歌曲。
-- 新搜索期间保留上一批卡片、选中项和 preview，按钮进入 disabled/loading 状态；成功结果到达后一次性替换。超时、应用节流或 YouTube 限流没有新结果时继续保留当前卡片。
+- 新搜索期间保留上一批卡片和选中项，按钮进入 disabled/loading 状态；成功结果到达后一次性替换。沿用既有“点击卡片外停止 preview”规则，因此按搜索按钮会停止当前 preview。超时、应用节流或 YouTube 限流没有新结果时继续保留当前卡片。
 - Guardrails 通过 Wrangler variables 配置。
 
 Google `search.list` 当前 `maxResults` 是 0–50；`q` 支持 OR `|` 和 NOT `-`。额外 page request 会消耗新的 search call，因此默认只取第一页。
