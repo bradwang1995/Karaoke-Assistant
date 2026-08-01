@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
 
@@ -438,7 +438,8 @@ Last updated: 2026-07-31
 | 2026-07-29 mobile preview playback restoration production release | Production migration 无待应用项；Wrangler 4.105 按 Room → Main、`--keep-vars` 发布，Room `fe4cf8b8-bdcb-4bcd-8837-0a7e8e1dccad`、Main `1777984c-d2e9-4ed1-9891-93136c86ab18` 均为 100%。生产内置浏览器 390×844 加载 `index-Bj8oiKxj.js`，实际点选后恰有一个 iframe，参数包含 `autoplay=0`、`enablejsapi=1`、`start=30`、`playsinline=1` 与正确 production origin；spinner 随真实 `PLAYING` 消失且 player 保持可见，页面无横向 overflow，console 无 error/warning。 |
 | 2026-07-30 search relevance/immediate preview local | Focused 4 files / 26 tests 与 full 23 files / 103 tests passed；typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run、`git diff --check` passed。全新内置浏览器本地房间实际搜索 `后来` 并点选第二张卡，选中项立即切换且只创建 1 个 iframe；参数为 `autoplay=1`、`mute=1`、`start=30`、正确 autoplay allow。Mock video id 按预期不可真实播放，因此本记录只确认即时激活和播放器参数，不虚报真实 `PLAYING`。 |
 | 2026-07-30 search relevance/immediate preview production release | 源码提交 `5c874f1`、`5174a7c` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布并复核活动部署为 Room `07acd0da-0406-4a91-9836-3cd8c6dfb05a`、Main `0521d5c3-f17f-4f6e-9fe7-7967566748d1`，流量均为 100%。生产 API 房间 `2w002z6x`：`单依纯` 非原唱仅返回本人相关 KTV 结果且无黄小琥；`后来` 非原唱 3 条全部为 KTV/karaoke；原唱冷查询以 `后来 lyrics` 返回 11 条有声/歌词候选，前四条均为目标歌曲，完全相同查询随后命中 repository、结果 ID 顺序一致且 `sourceQueryCount=0`。全新生产内置浏览器 390×844 选择首条刘若英歌词结果后仅有 1 个 iframe，参数含 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1` 和 autoplay allow；真实 `PLAYING` 后 loading 消失，无预览错误、横向 overflow 或 console error/warning。 |
-| 2026-08-01 quality-first search/verified preview local | 用户截图推翻 pass 11 production acceptance 后重新实现。Focused 5 files / 36 tests、full 25 files / 125 tests、typecheck、production build 和 `git diff --check` passed。Provider regressions 同时证明同一精确 intent 会优先使用 `nextPageToken` 翻页补满、无下一页时会继续后续 intent query；preview regression 证明 current time 未达到 29 秒不会视为成功。Wrangler 4.105 Room/Main 均生成完整 dry-run bundle 和 bindings summary，确认 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL="12"`；用户级 Wrangler debug log 因沙箱 EPERM 无法写入，但两次 dry-run 均正常退出 0。全新内置浏览器 390×844 本地房间 `6v0s502o` 实际点选后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin，页面无横向溢出且 console 无 error/warning；mock video 不作为真实播放证据。commit、push、deploy 和 production acceptance 仍待本轮后续完成。 |
+| 2026-08-01 quality-first search/verified preview local | 用户截图推翻 pass 11 production acceptance 后重新实现。Focused 5 files / 37 tests、full 25 files / 126 tests、typecheck、production build 和 `git diff --check` passed。Provider regressions 同时证明同一精确 intent 会优先使用 `nextPageToken` 翻页补满、无下一页时会继续后续 intent query，D1 regression 证明旧算法 `family_hash` row 不会复用；preview regression 证明 current time 未达到 29 秒不会视为成功。Wrangler 4.105 Room/Main 均生成完整 dry-run bundle 和 bindings summary，确认 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL="12"`；用户级 Wrangler debug log 因沙箱 EPERM 无法写入，但两次 dry-run 均正常退出 0。全新内置浏览器 390×844 本地房间 `6v0s502o` 实际点选后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin，页面无横向溢出且 console 无 error/warning；mock video 不作为真实播放证据。 |
+| 2026-08-01 quality-first search/verified preview production release | 源码提交 `af2ac6a` 后首次 smoke 在同一生产请求重现旧 D1 8/8，随即定位并以 `faf0559` 修复 D1 读取未校验算法版本化 `family_hash`；两次提交均已推送 `origin/main`。最终按 Room → Main、`--keep-vars` 重新发布并复核活动流量为 Room `d430bdf5-8b93-4944-8c6c-733958e577b8`、Main `dab4441d-efda-4ba4-879f-6368e9116a60`，均为 100%。生产房间 `27205g6r`：林俊杰、周杰伦、邓紫棋的歌手普通与原唱模式六组均返回 50/50；普通模式前排为本人 KTV/karaoke/伴奏，原唱前排为本人歌词/原唱内容。林俊杰普通模式完全相同请求第二次由 repository 返回相同 50 个 ID、`sourceQueryCount=0`；全部 smoke 共用 29/100 calls。全新生产内置浏览器 390×844 点选“江南 KTV / 林俊杰”后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 production origin；真实 current time 为 `30.022` 秒后 loading 才消失，刷新恢复仍为单 iframe，页面无横向 overflow，console 无 error/warning。 |
 
 ### Admin console design QA（2026-07-21）
 
@@ -543,11 +544,11 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 
 - `[x]` 完成 exact-only versioned cache、最多 12 轮翻页/多 intent 质量补量和 30 秒真实 current-time gate 实现。
 - `[x]` 完成 focused/full tests、typecheck、production build、双 Worker dry-run bundle/binding 检查和 `git diff --check`。
-- `[ ]` 在全新内置浏览器完成本地移动端交互 smoke；当前因 Codex 使用额度限制被系统拒绝 localhost 导航。
-- `[ ]` Commit/push 当前私有源码到 `origin/main`；当前 `.git` 写入所需外部批准受同一使用额度限制。
-- `[ ]` 按 Room → Main、`--keep-vars` 发布并复核两个活动版本。
-- `[ ]` 生产冷查询逐项确认 `林俊杰`、`周杰伦`、`邓紫棋` 的歌手普通/原唱结果数量和质量；完全相同请求再次返回相同 ID 顺序且 `sourceQueryCount=0`。
-- `[ ]` 生产真实 preview 确认唯一 iframe、自动静音播放，loading 只在 IFrame API `getCurrentTime() >= 29` 后结束。
+- `[x]` 在全新内置浏览器完成本地 390×844 移动端交互 smoke，并明确不把 mock video 当作真实播放证据。
+- `[x]` Commit/push 私有源码到 `origin/main`；生产 smoke 发现的 D1 根因修复也另行提交并推送。
+- `[x]` 按 Room → Main、`--keep-vars` 发布并复核两个最终活动版本为 100%。
+- `[x]` 生产冷查询逐项确认 `林俊杰`、`周杰伦`、`邓紫棋` 的歌手普通/原唱六组均为 50/50；完全相同林俊杰普通请求再次返回相同 ID 顺序且 `sourceQueryCount=0`。
+- `[x]` 生产真实 preview 确认唯一 iframe、自动静音播放，loading 只在 IFrame API 实际记录 `30.022` 秒后结束。
 
 ### P0 — Admin baseline release
 
