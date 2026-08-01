@@ -274,6 +274,34 @@ describe("search service cache reuse", () => {
     );
     expect(db.accessUpdates).toBe(0);
   });
+
+  it("refills a D1 repository row written by an older search algorithm", async () => {
+    const db = new MemorySearchRepositoryD1();
+    db.seedLegacyEntry({
+      normalizedQuery: "林俊杰",
+      originalQuery: "林俊杰",
+      searchType: "artist",
+      familyHash: "quality-fill-older-version",
+      response: buildResponse("林俊杰", "林俊杰", [
+        buildResult("stale-eight-result-cache", "林俊杰 江南 KTV 旧结果"),
+      ]),
+    });
+
+    const response = await searchVideos({
+      query: "林俊杰",
+      searchType: "artist",
+      includeOriginalVocal: false,
+      limit: 50,
+      env: { DB: db.database },
+    });
+
+    expect(response.cached).toBe(false);
+    expect(response.cacheMeta?.responseSource).toBe("mock");
+    expect(response.results.map((result) => result.videoId)).not.toContain(
+      "stale-eight-result-cache",
+    );
+    expect(db.accessUpdates).toBe(0);
+  });
 });
 
 class MemorySearchRepositoryD1 {
@@ -281,6 +309,7 @@ class MemorySearchRepositoryD1 {
     string,
     {
       id: string;
+      familyHash: string;
       originalQuery: string;
       normalizedQuery: string;
       normalizedArtist: string;
@@ -308,17 +337,22 @@ class MemorySearchRepositoryD1 {
     normalizedQuery,
     originalQuery,
     response,
+    familyHash,
+    searchType = "song",
   }: {
     normalizedQuery: string;
     originalQuery: string;
     response: SearchResponse;
+    familyHash?: string;
+    searchType?: "song" | "artist";
   }) {
-    this.entries.set(repositoryKey(normalizedQuery, "", "song", 0), {
+    this.entries.set(repositoryKey(normalizedQuery, "", searchType, 0), {
       id: "legacy-entry",
+      familyHash: familyHash ?? buildSearchQueryFamily(normalizedQuery, undefined, { searchType }).hash,
       originalQuery,
       normalizedQuery,
       normalizedArtist: "",
-      searchType: "song",
+      searchType,
       includeOriginalVocal: 0,
       responseJson: JSON.stringify(response),
       accessCount: 0,
@@ -342,6 +376,7 @@ class MemorySearchRepositoryD1 {
     const current = this.entries.get(key);
     this.entries.set(key, {
       id: current?.id ?? String(bindings[0]),
+      familyHash: String(bindings[1]),
       originalQuery: String(bindings[2]),
       normalizedQuery: String(bindings[3]),
       normalizedArtist: String(bindings[5]),
@@ -400,10 +435,11 @@ class MemorySearchRepositoryStatement {
   }
 
   async all<T = Record<string, unknown>>(): Promise<D1Result<T>> {
-    if (this.sql.includes("SELECT id, original_query, search_type")) {
+    if (this.sql.includes("SELECT id, family_hash, original_query, search_type")) {
       return d1Result<T>(
         this.db.findVariants(this.bindings).map((entry) => ({
           id: entry.id,
+          family_hash: entry.familyHash,
           original_query: entry.originalQuery,
           search_type: entry.searchType,
           include_original_vocal: entry.includeOriginalVocal,

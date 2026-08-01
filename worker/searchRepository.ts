@@ -59,7 +59,7 @@ export async function readSearchRepositories(
 
   const rows = await db
     .prepare(
-      `SELECT id, original_query, search_type, include_original_vocal, response_json
+      `SELECT id, family_hash, original_query, search_type, include_original_vocal, response_json
        FROM search_repository_entries
        WHERE normalized_query = ?1
          AND normalized_artist = ?2
@@ -71,17 +71,13 @@ export async function readSearchRepositories(
     )
     .all<{
       id: string;
+      family_hash: string;
       original_query: string;
       search_type: SearchType;
       include_original_vocal: number;
       response_json: string;
     }>();
-  const familyByOptions = new Map(
-    families.map((family) => [
-      repositoryOptionsKey(family.searchType, family.includeOriginalVocal),
-      family,
-    ]),
-  );
+  const familyByHash = new Map(families.map((family) => [family.hash, family]));
   const hits: Array<{
     id: string;
     family: SearchQueryFamily;
@@ -89,11 +85,14 @@ export async function readSearchRepositories(
   }> = [];
 
   for (const row of rows.results ?? []) {
-    const family = familyByOptions.get(
-      repositoryOptionsKey(row.search_type, row.include_original_vocal === 1),
-    );
+    const family = familyByHash.get(row.family_hash);
 
-    if (!family || normalizeQuery(row.original_query) !== family.canonicalQuery) {
+    if (
+      !family ||
+      row.search_type !== family.searchType ||
+      (row.include_original_vocal === 1) !== family.includeOriginalVocal ||
+      normalizeQuery(row.original_query) !== family.canonicalQuery
+    ) {
       continue;
     }
 
@@ -229,10 +228,6 @@ export async function writeSearchRepository(
       family.includeOriginalVocal ? 1 : 0,
     )
     .first<{ id: string }>();
-}
-
-function repositoryOptionsKey(searchType: SearchType, includeOriginalVocal: boolean) {
-  return `${searchType}:${includeOriginalVocal ? "1" : "0"}`;
 }
 
 async function touchSearchRepositoryEntries(db: D1Database, ids: string[]) {

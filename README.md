@@ -349,7 +349,7 @@ Original-vocal aliases：
 | Remix、tutorial、教学、shorts | Downrank |
 | Duration < 60s | Downrank；duration ≥ 7min 在 scoring 前拒绝 |
 
-带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的正负权重；当前 exact family 优先，同一文字与 artist 的相反 vocal intent family 只在结果不足时补充并重新打分。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
+带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的准入门槛与正负权重；每种 song/artist × vocal intent 都只读自己的 exact family，绝不拿相反 intent 的缓存补量。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
 
 关键 regressions：搜索 `依赖` 时只保留标题命中的 `离开我的依赖` 等候选，标题无关的 `唯一` KTV 不能进入结果；歌手模式搜索 `单依纯` 时，metadata 完全不含 `单依纯` 的其他歌手歌曲也不能进入结果。
 
@@ -371,7 +371,7 @@ Family entry 保存：
 - Search/videos call counts、payload bytes、pruned count。
 - Hit count 和 last accessed time。
 
-每个 KV read 只查精确 family hash，并再次验证完整规范化文字、type、vocal intent 和 artist scope；一次用户搜索会并行读取同一文字与 artist 的四个精确 option hashes。不会 fallback 到 normalized index、不同文字或全局候选目录；命中的 family 增加 hit count，但不延长原 expiry。历史 `yt-search:v3`、`yt-search-recommendations:v1` 与 `yt-search-index:v2` key 可自然过期，新搜索不再读取或写入。
+每次用户搜索只读当前算法版本、完整规范化文字、type、vocal intent 和 artist scope 生成的一个精确 KV family hash；不会读取其他三个 option family，也不会 fallback 到 normalized index、不同文字或全局候选目录。命中的 family 增加 hit count，但不延长原 expiry。历史 `yt-search:v3`、`yt-search-recommendations:v1` 与 `yt-search-index:v2` key 可自然过期，新搜索不再读取或写入。
 
 写入先限制 50 条，再测 UTF-8 JSON bytes；超过 512 KiB 时从尾部裁剪。默认 TTL 365 天。KV 可重建；D1 exact repository 与视频目录是持久资料源。
 
@@ -393,7 +393,7 @@ Family entry 保存：
 - 每次成功写 family 时只把该搜索排名最高的前 8 条提升到 recommendation pool 顶部，其余尾部结果排在已有高质量候选之后；按 video id 去重并保留最多 200 条。
 - Cache hit 会重新提升该 family 的头部结果；真实 `ADD_QUEUE_ITEM` 会把被点歌曲置顶，因此近期搜索、近期点歌和历史高命中 family 都会形成可解释的推荐信号。
 - Recommendation key 不存在或不足时，会按“最近访问时间 + hit count”排列 family，再按名次轮转合并，而不是让单个最新 family 的随机尾部垄断列表。
-- Project guardrail：100 `search.list` calls/day、1 call/cold fill；单次结果上限仍是 50。
+- Project guardrail：100 `search.list` calls/day、最多 12 calls/cold fill；每个 outbound call 前独立预留额度，达到 50 条高质量结果即停止。
 - Quota day 按 `America/Los_Angeles`，PT 午夜重置。
 - `GET /api/youtube/quota` 返回 remaining/reset；cold search 写入后直接使用刚记录的 status，并通过 room WebSocket `YOUTUBE_QUOTA_UPDATED` 即时更新 display。60 秒 query poll 只作断线兜底。
 - Display 只显示简洁的本地相对倒计时（`本地重置还有 N 小时`），不暴露 GMT 或 IANA 时区文本。
@@ -456,9 +456,9 @@ Family entry 保存：
 
 用户搜索顺序：
 
-1. 用完整规范化文字与 artist 一次查询 D1 的四个 song/artist × original-vocal option families，并行读取 KV 的四个精确 hash。
-2. 当前 family 优先；如其他 family 提供了额外歌曲，按当前意图合并、去重和重排，`responseSource=repository`、`externalCallAvoided=true`，不调用 YouTube。
-3. 四个 family 都没有可用结果才调用 YouTube（或 local mock）。不会读取 normalized index、相似 query 或候选目录。Live path 在发出 `search.list` 前先通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
+1. 用算法版本、完整规范化文字、artist、song/artist 与 original-vocal 生成唯一 family hash；D1 row 的 `family_hash` 和 KV key 都必须与它完全相同。
+2. Exact family 命中后稳定返回同一排序，`responseSource=repository`、`externalCallAvoided=true`，不调用 YouTube；旧算法 row 即使文字/options 相同也会因 hash 不同而被忽略。
+3. Exact miss 才调用 YouTube（或 local mock）。不会读取其他 option family、normalized index、相似 query 或候选目录。Live path 在每个 `search.list` outbound call 前通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
 4. 外部结果必须有可验证的 Music category、严格短于 7 分钟的 duration 和可嵌入状态；过滤后的完整结果写入当前 exact repository、KV family 与 recommendations。
 5. KV search key 已升到 `yt-search:v4`、recommendation key 已升到 `yt-search-recommendations:v2`，避免旧的未验证 metadata 继续返回。D1 旧 row 若缺少 category/duration 也会被忽略，直到 live search 刷新。
 6. 命中的 repository access、KV touch、cache/repository refresh、human search event 与 quota broadcast 在生产使用 `ctx.waitUntil` 完成；API route 仍记录真实 response source、候选/过滤/新增与复用指标。

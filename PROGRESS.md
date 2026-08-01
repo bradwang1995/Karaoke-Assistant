@@ -12,14 +12,14 @@ Last updated: 2026-07-31
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
-| YouTube search | MVP complete | Live API、同文字四选项 family cache、严格歌名/歌手相关性门槛、KTV/原唱 intent ranking、Music/7 分钟资格过滤、推荐、rate limit、quota，以及不展示提示的单视频 URL 兜底已完成。 |
+| YouTube search | MVP complete | Live API、算法版本化 exact family cache、严格歌名/歌手相关性门槛、KTV/原唱 intent ranking、质量优先补满 50、Music/7 分钟资格过滤、推荐、rate limit、quota，以及不展示提示的单视频 URL 兜底已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
 | Mobile preview | MVP complete | 2–4 列、选中即激活单 IFrame Player、静音自动播放并从 30 秒显式 load/seek/play、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 25 files / 125 tests | 单视频 URL 分类、非 YouTube URL 零 provider call、直链 metadata/fallback，以及 preview、search、Admin、quota 等现有 regressions 全部通过；DO storage 和端到端测试待补。 |
+| Automated tests | 25 files / 126 tests | 单视频 URL 分类、非 YouTube URL 零 provider call、直链 metadata/fallback，以及 preview、search、Admin、quota 等现有 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -89,19 +89,19 @@ Last updated: 2026-07-31
 - `[x]` Worker-only API key、live provider、mock fallback。
 - `[x]` Song/artist 和 original-vocal intents。
 - `[x]` Deterministic aliases、当前 KTV/原唱意图 focused source query、family hash。
-- `[x]` One `search.list` page、最多 50 Music category embeddable candidates。
+- `[x]` 优先翻同一精准 intent 的 `nextPageToken`，再尝试其他同意图 query；每轮补 metadata/过滤/重排，最多 12 个 `search.list` calls 补满 50 条高质量结果。
 - `[x]` Duration/category/tags/status enrichment、dedupe；严格拒绝 7 分钟及以上与非音乐视频。
 - `[x]` Song title 与 artist metadata 严格相关性门槛；通过后再做 KTV/伴奏或 lyrics/original/audio/radio ranking。
 - `[x]` Partial-title regression coverage。
 - `[x]` KV v4 exact family cache、v2 recommendations、metadata、payload pruning；历史 v2 normalized index 不再读写。
 - `[x]` Recommendation pool 和 cached re-ranking。
 - `[x]` 原始 embeddable candidates 与用户可见结果分离；D1 候选目录只被动统计，不参与在线搜索。
-- `[x]` 只在完整规范化文字与 artist 相同时复用；当前 song/artist × original-vocal family 优先，其余三个选项 family 可补充并重排，不读取不同文字或全局目录。
+- `[x]` 只复用算法版本、完整规范化文字、artist、song/artist 和 original-vocal 全部相同的唯一 family；不再用其余三个选项 family 补充，也不读取不同文字或全局目录。
 - `[x]` API 50 results；mobile 10-at-a-time expansion。
 - `[x]` Recommendation pool 200 results；缓存耗尽前自动无限滚动。
-- `[x]` 显式提交时原唱使用对立权重；各选项保持独立 exact family，同文字与 artist 的其他选项 cache 只用于补充。
+- `[x]` 显式提交时原唱使用独立 intent queries、准入门槛与权重；各选项保持完全隔离的 exact family。
 - `[x]` 20/min rate limit。
-- `[x]` Project quota 100/day、1/fill、Pacific reset、status API 和 room WebSocket 即时额度推送。
+- `[x]` Project quota 100/day、最多 12 calls/fill、每次 outbound call 前预留、Pacific reset、status API 和 room WebSocket 即时额度推送。
 - `[x]` Real YouTube result + repeat-query cache hit verified。
 - `[x]` 不展示提示的 YouTube 单视频 URL 兜底；严格拦截其他 URL，绕过原搜索 family、资料库、ranking 与 `search.list` quota ledger。
 
@@ -380,7 +380,7 @@ Last updated: 2026-07-31
 | SRCH11-03 | P0 | 同文字 cache 仍稳定复用并重新按当前意图排序；若旧 family 存在但严格相关性过滤后为零，则执行一次精准 cold refill 修复坏缓存，不把无关结果永久复现。 |
 | PREV11-01 | P0 | 选中候选卡立即激活唯一 preview，移除 600ms debounce；iframe 初始化使用 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1`，ready 后继续显式 mute/load/seek/play。 |
 
-### 2026-07-31 quality-first 50-result search and verified 30-second preview pass 12
+### 2026-08-01 quality-first 50-result search and verified 30-second preview pass 12
 
 2026-07-30 的 production acceptance 被用户真实使用推翻：`林俊杰` 歌手查询仍被旧缓存固定为 8/8，preview 虽带 `start=30` 参数却仍可能从 0 秒开始。本轮不沿用 pass 11 的完成结论，重新以实际结果数量和播放器真实 current time 为验收依据。
 
@@ -389,6 +389,7 @@ Last updated: 2026-07-31
 | SRCH12-01 | P0 | Exact cache identity 加入搜索算法版本，只读取相同文字、artist、模式和原唱开关的唯一 family；不再跨四个 option family 混合，旧算法的 8 条缓存不会命中新版。 |
 | SRCH12-02 | P0 | Cold fill 从“一次 search 后直接缓存”改为优先沿精准 intent query 的 `nextPageToken` 翻页、再按其他 intent source query 继续补量；每轮执行 metadata/资格/相关性过滤，过滤后达到 50 条才停止，默认质量补量上限从 1 次提高到 12 次。 |
 | SRCH12-03 | P0 | 歌手普通模式扩充 KTV/karaoke/伴奏/卡拉OK/pinyin/instrumental 查询；歌手原唱模式扩充 lyrics/歌词/MV/official audio/radio，并允许明确匹配歌手且无 KTV/伴奏/cover 冲突的普通原唱歌曲。 |
+| SRCH12-04 | P0 | 首次生产 smoke 揭示 D1 repository 读取虽构建了新版 hash，却只按文字/artist/options 找旧 row；读取路径现强制 `family_hash` 与当前算法版本化 hash 完全相同，旧 8 条 row 会 cold refill 并由现有唯一键原位升级。 |
 | PREV12-01 | P0 | IFrame 初始化恢复 `autoplay=0`，阻止视频在 ready 前从 0 秒抢先播放；ready 后显式 mute → load at 30 → seek 30 → play，收到 `PLAYING` 时还必须确认 `getCurrentTime() >= 29`，否则继续 seek，不能提前结束 loading。 |
 
 ### Admin storage discovery（2026-07-25）
