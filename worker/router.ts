@@ -308,17 +308,26 @@ async function searchRoomVideos(
   if (!rateLimit.allowed) {
     return jsonResponse(
       {
-        error: {
-          code: "SEARCH_RATE_LIMITED",
-          message: "Too many searches. Please wait a moment and try again.",
+        query,
+        normalizedQuery: query.toLocaleLowerCase(),
+        searchType,
+        includeOriginalVocal,
+        cached: true,
+        results: [],
+        cacheMeta: {
+          sourceQueryCount: 0,
+          cachedResultCount: 0,
+          servedFromExpandedCache: false,
+          sourceQueries: [],
+          candidateResultCount: 0,
+          filteredResultCount: 0,
+          catalogResultCount: 0,
+          uniqueCatalogVideosAdded: 0,
+          externalCallAvoided: true,
+          throttled: true,
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
         },
-      },
-      {
-        status: 429,
-        headers: {
-          "retry-after": String(rateLimit.retryAfterSeconds),
-        },
-      },
+      } satisfies SearchResponse,
     );
   }
 

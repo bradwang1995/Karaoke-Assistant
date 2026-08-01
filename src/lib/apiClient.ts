@@ -3,6 +3,7 @@ import type { RoomSnapshot } from "../types/room";
 import type { SearchResponse, SearchType, YouTubeQuotaStatus } from "../types/youtube";
 
 export const youtubeQuotaQueryKey = ["youtube-quota-status"] as const;
+export const SEARCH_REQUEST_TIMEOUT_MS = 2_000;
 
 export class ApiClientError extends Error {
   status: number;
@@ -13,6 +14,13 @@ export class ApiClientError extends Error {
     this.name = "ApiClientError";
     this.status = status;
     this.code = code;
+  }
+}
+
+export class SearchRequestTimeoutError extends Error {
+  constructor() {
+    super("搜索已在 2 秒截止，当前结果已保留。");
+    this.name = "SearchRequestTimeoutError";
   }
 }
 
@@ -56,22 +64,41 @@ export async function searchVideosViaApi(
   limit = 10,
   options: { cacheFill?: boolean; searchType?: SearchType; includeOriginalVocal?: boolean } = {},
 ) {
-  const response = await fetch(`/api/rooms/${roomId}/search`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      query,
-      limit,
-      ...(typeof options.cacheFill === "boolean" ? { cacheFill: options.cacheFill } : {}),
-      ...(options.searchType ? { searchType: options.searchType } : {}),
-      ...(typeof options.includeOriginalVocal === "boolean"
-        ? { includeOriginalVocal: options.includeOriginalVocal }
-        : {}),
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = query.trim()
+    ? setTimeout(() => controller.abort(), SEARCH_REQUEST_TIMEOUT_MS)
+    : undefined;
+  let response: Response;
+
+  try {
+    response = await fetch(`/api/rooms/${roomId}/search`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        query,
+        limit,
+        ...(typeof options.cacheFill === "boolean" ? { cacheFill: options.cacheFill } : {}),
+        ...(options.searchType ? { searchType: options.searchType } : {}),
+        ...(typeof options.includeOriginalVocal === "boolean"
+          ? { includeOriginalVocal: options.includeOriginalVocal }
+          : {}),
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new SearchRequestTimeoutError();
+    }
+
+    throw error;
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
+  }
 
   return parseJsonResponse<SearchResponse>(response);
 }

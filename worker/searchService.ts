@@ -34,7 +34,8 @@ import {
 } from "./youtubeQuota";
 
 const DEFAULT_YOUTUBE_DAILY_SEARCH_LIMIT = 100;
-const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 12;
+const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 1;
+const DEFAULT_YOUTUBE_SEARCH_TIMEOUT_MS = 1_600;
 
 type SearchServiceEnv = Omit<Env, "SEARCH_CACHE"> & {
   SEARCH_CACHE?: SearchCacheNamespace;
@@ -597,6 +598,7 @@ async function searchLiveVideos({
     apiKey: env.YOUTUBE_API_KEY ?? "",
     maxSearchCalls,
     targetResultCount,
+    deadlineAt: Date.now() + getYouTubeSearchTimeoutMs(env),
     beforeSearchCall: async () => {
       const reservation = await reserveYouTubeSearchCallsForEnv(env, 1, dailyLimit);
       quotaAfter = reservation.status;
@@ -611,11 +613,21 @@ async function searchLiveVideos({
     throw new Error("YouTube search quota ledger reservation failed.");
   }
 
-  const catalogWrite = await safeUpsertVideoCatalog(
+  const catalogWritePromise = safeUpsertVideoCatalog(
     env.DB,
     providerResult.candidates,
     query,
   );
+  const catalogWrite = waitUntil
+    ? {
+        candidateCount: providerResult.candidates.length,
+        uniqueVideosAdded: 0,
+      }
+    : await catalogWritePromise;
+
+  if (waitUntil) {
+    waitUntil(catalogWritePromise.then(() => undefined));
+  }
   const remainingAfter = quotaAfter.remaining;
 
   return {
@@ -664,6 +676,13 @@ function getYouTubeSearchCallsPerFill(env: SearchServiceEnv) {
   return Math.min(
     parsePositiveInteger(env.YOUTUBE_SEARCH_MAX_CALLS_PER_FILL, DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL),
     getYouTubeDailySearchLimit(env),
+  );
+}
+
+export function getYouTubeSearchTimeoutMs(env: SearchServiceEnv) {
+  return Math.min(
+    parsePositiveInteger(env.YOUTUBE_SEARCH_TIMEOUT_MS, DEFAULT_YOUTUBE_SEARCH_TIMEOUT_MS),
+    1_900,
   );
 }
 

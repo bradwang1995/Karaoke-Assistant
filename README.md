@@ -148,7 +148,8 @@ Runtime variables：
 | Variable | Value | 作用 |
 | --- | ---: | --- |
 | `YOUTUBE_SEARCH_DAILY_LIMIT` | `100` | Project `search.list` call guardrail。 |
-| `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` | `12` | 每个 cold family 为补满高质量结果可翻页并尝试不同 intent search 的上限。 |
+| `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` | `1` | 每个 cold family 最多一次 `search.list`，避免长等待和 provider 限流。 |
+| `YOUTUBE_SEARCH_TIMEOUT_MS` | `1600` | Worker 外部搜索预算；浏览器仍以 2000ms 为用户可见硬上限。 |
 | `SEARCH_CACHE_TTL_DAYS` | `365` | KV cache TTL。 |
 | `SEARCH_CACHE_MAX_ENTRY_BYTES` | `524288` | Family payload 上限约 512 KiB。 |
 | `SEARCH_RATE_LIMIT_PER_MINUTE` | `20` | Room + identity search rate limit。 |
@@ -224,21 +225,22 @@ Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。
 
 ## 6. Search technical design
 
-Search 的目标是质量优先，并让 cache 只稳定复现已经完成的精确请求。完整规范化文字、artist、歌曲/歌手模式、伴奏/原唱意图和搜索算法版本共同形成唯一 identity；任何一项不同都不会混用结果。Cold search 会从最精准的意图查询开始，在有下一页时继续翻页，再尝试其他明确表达当前意图的 YouTube 查询；每轮补充 metadata、严格过滤并重排，达到 50 条高质量结果才提前停止，最多使用配置的 12 次 search。在线流程不会扫描历史候选目录。
+Search 的首要目标是两秒内可用，其次才是在该预算内提高质量。完整规范化文字、artist、歌曲/歌手模式、伴奏/原唱意图和搜索算法版本共同形成唯一 cache identity；任何一项不同都不会混用结果。Exact cache 命中立即返回；cold search 只发一次最精准 intent 的 `search.list`，Worker 最多等待 1600ms，浏览器在 2000ms 硬截止。到时直接返回已经取得的当前结果，不翻页、不换 query，也不为补满 50 继续阻塞。
 
 YouTube 单视频 URL 是独立于上述算法的隐形兜底路径。服务端先做严格 host、route 与 11 位 video ID 解析；命中后跳过 family、D1/KV 搜索资料、ranking、歌曲资格过滤、`search.list` 配额 ledger 和搜索事件，只调用一次低成本 `videos.list` 获取标题与缩略图。元数据临时失败时仍返回基于 video ID 的兜底卡片；视频不存在或明确不可嵌入时返回空结果。非 YouTube HTTP(S) URL、YouTube playlist/channel URL 和无效 video URL 均不调用 YouTube。
 
 ### 6.1 目标与约束
 
 - API key 只存在于 Worker secret。
-- Cold search family 为质量补量最多发送 12 次 `search.list`；优先沿精准 intent query 的 `nextPageToken` 翻页，当前查询耗尽后再换下一种 intent，每轮最多取得 50 个候选，严格过滤后达到 50 条即停止。
+- Cold search family 最多发送一次 `search.list`，每次最多取得 50 个候选；不再翻 `nextPageToken` 或继续其他 intent query。
+- Worker 外部请求预算为 1600ms，浏览器请求为 2000ms 硬截止。详情在预算内返回时继续执行 Music/时长/嵌入资格过滤；若详情恰好超时，则立即按已经取得的标题与当前 KTV/原唱意图返回部分结果，不把等待延伸到 2 秒以后。
 - 每轮候选去重后补 duration/category/tags/status，只保留 Music category、可嵌入且严格短于 7 分钟的歌曲，再按当前查询与意图过滤；恰好 7 分钟也会被拒绝。
 - 原始 embeddable candidates 与用户可见结果分开：候选只被动写入 D1 供统计，在线搜索不会查询该目录；界面只接收本次外部结果中通过相关性过滤的内容。
 - 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
 - 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；歌曲原唱模式优先且只保留 lyric video/lyrics/歌词、原唱、MV、official、audio 或 radio，歌手原唱模式还可接收明确匹配歌手且不带 KTV/伴奏/cover 冲突的普通歌曲。
-- 新搜索发出后立即清空上一批卡片，按钮进入灰色 disabled 状态并显示旋转图标；结果区域持续显示加载状态，直到新 response 到达。
+- 新搜索期间保留上一批卡片、选中项和 preview，按钮进入 disabled/loading 状态；成功结果到达后一次性替换。超时、应用节流或 YouTube 限流没有新结果时继续保留当前卡片。
 - Guardrails 通过 Wrangler variables 配置。
 
 Google `search.list` 当前 `maxResults` 是 0–50；`q` 支持 OR `|` 和 NOT `-`。额外 page request 会消耗新的 search call，因此默认只取第一页。
@@ -311,19 +313,19 @@ Original-vocal aliases：
 后来 original with lyrics
 ```
 
-首条 source query 直接表达当前意图：普通模式使用 `focused text + ktv`，带原唱模式使用 `focused text + lyrics`；若歌名请求带明确 artist，则 focused text 为 `artist + song`。若严格过滤后的结果不足 50，系统先沿当前精准查询的 `nextPageToken` 继续翻页，再尝试 karaoke、伴奏、卡拉 OK、pinyin、instrumental 或 lyrics、歌词、official audio、radio 等确定性查询，直到补满或达到 12 次上限。无需在 request 中调用 LLM。
+唯一 source query 直接表达当前意图：普通模式使用 `focused text + ktv`，带原唱模式使用 `focused text + lyrics`；若歌名请求带明确 artist，则 focused text 为 `artist + song`。系统不翻页、不继续其他 query，也不在 request 中调用 LLM。
 
 ### 6.4 Live fetch pipeline
 
 1. D1 与 KV 只读取当前完整规范化文字、artist、模式、原唱开关和算法版本对应的 exact family；命中后稳定返回相同排序。
 2. 不读取其他 option family、不匹配相似文字、不扫描被动候选目录。旧算法 hash 与新算法隔离，不会继续把历史 8 条结果当作完整答案。
-3. Exact miss 时读取 quota estimate并开始质量补量；每个 source query 都先取得 metadata、执行歌曲资格与当前查询相关性过滤，只有过滤后的结果达到 50 才停止后续 query。
+3. Exact miss 时读取 quota estimate，只为一个精准 source query 预留一次额度并发出一次 `search.list`。
 4. `search.list` 使用 `type=video`、`videoCategoryId=10`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
 5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails,snippet,status)` 每 50 ids 一批读取 duration、category、tags 和最新 embeddable 状态。
-6. 只保留 `categoryId=10`、duration 大于 0 且严格小于 420 秒、仍可嵌入的视频；详情缺失、非音乐分类、恰好或超过 7 分钟全部 fail closed。
-7. 歌名模式过滤 title miss、channel-only 和 tags-only hit；歌手模式过滤 metadata 完全不含目标歌手的候选。相关候选再按当前 vocal intent 排序，其他 family 不能绕过该门槛。通过歌曲资格过滤的外部候选被动写入 D1 统计目录，但该目录不参与在线检索。
-8. 将最多 50 条最终排序结果写入当前 exact repository、exact family cache 和 recommendation pool。生产请求使用 Worker lifecycle 后台刷新 cache、repository access 与搜索事件；真实候选新增计数仍在 response 前完成。
-9. 返回 requested slice，非空搜索最多 50 条；热门歌手查询以补满 50 为完成目标，不再因为首轮过滤只剩 8 条就提前缓存返回。
+6. 详情在 1600ms Worker 预算内返回时，只保留 `categoryId=10`、duration 大于 0 且严格小于 420 秒、仍可嵌入的视频；若详情请求触及 deadline，则用 `search.list` 已返回的 Music/embeddable 约束结果做标题与意图过滤并立刻返回，但不把这些未完成详情验证的结果写入 exact cache/repository。
+7. 歌名模式过滤 title miss、channel-only 和 tags-only hit；歌手模式过滤 metadata 完全不含目标歌手的候选。相关候选再按当前 vocal intent 排序，其他 family 不能绕过该门槛。完成详情验证的候选通过 Worker lifecycle 在 response 后写入 D1 统计目录。
+8. 只有完成 Music/时长/嵌入资格验证的结果才写入当前 exact repository、exact family cache 和 recommendation pool；cache/repository、目录、访问统计与搜索事件都不阻塞公开响应。
+9. 返回预算内取得的 requested slice，可能少于 50。客户端 2000ms 到点会主动中止等待并保留当前页面结果。
 
 没有 `YOUTUBE_API_KEY` 时使用 mock provider。Quota exhausted 且 cache miss 时返回空 results 和 quota metadata；已有 cache 仍可使用。
 
@@ -393,13 +395,13 @@ Family entry 保存：
 - 每次成功写 family 时只把该搜索排名最高的前 8 条提升到 recommendation pool 顶部，其余尾部结果排在已有高质量候选之后；按 video id 去重并保留最多 200 条。
 - Cache hit 会重新提升该 family 的头部结果；真实 `ADD_QUEUE_ITEM` 会把被点歌曲置顶，因此近期搜索、近期点歌和历史高命中 family 都会形成可解释的推荐信号。
 - Recommendation key 不存在或不足时，会按“最近访问时间 + hit count”排列 family，再按名次轮转合并，而不是让单个最新 family 的随机尾部垄断列表。
-- Project guardrail：100 `search.list` calls/day、最多 12 calls/cold fill；每个 outbound call 前独立预留额度，达到 50 条高质量结果即停止。
+- Project guardrail：100 `search.list` calls/day、最多 1 call/cold fill；每个 outbound call 前独立预留额度。
 - Quota day 按 `America/Los_Angeles`，PT 午夜重置。
 - `GET /api/youtube/quota` 返回 remaining/reset；cold search 写入后直接使用刚记录的 status，并通过 room WebSocket `YOUTUBE_QUOTA_UPDATED` 即时更新 display。60 秒 query poll 只作断线兜底。
 - Display 只显示简洁的本地相对倒计时（`本地重置还有 N 小时`），不暴露 GMT 或 IANA 时区文本。
 - Estimate 不替代 Google Cloud Console，失败/无效请求可能造成 drift。
 - 非空搜索默认同 room + IP identity 每分钟 20 次。
-- 超限：HTTP 429、`SEARCH_RATE_LIMITED`、`retry-after`。
+- 应用节流时搜索 API 返回带 `throttled=true` 和 `retryAfterSeconds` 的正常部分响应，Mobile 保留当前结果并显示轻提示，不再用 HTTP 429 清空搜索体验。
 
 ### 6.9 Mobile search state
 
@@ -750,7 +752,7 @@ ws.onmessage = (event) => console.log(JSON.parse(event.data));
 
 Debug page 应能 refresh snapshot、复制链接、删除 completed/removed items。关闭所有 display/mobile/debug 页面至少 5 分钟后，snapshot 应显示 inactive、empty queue、idle playback。
 
-Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返回 HTTP 429、`SEARCH_RATE_LIMITED` 和 `retry-after`。
+Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返回 `throttled=true`、`retryAfterSeconds`、0 个新结果和 0 个 provider calls；Mobile 必须保留当前结果。
 
 | Device | 重点 |
 | --- | --- |

@@ -12,14 +12,14 @@ Last updated: 2026-08-01
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
-| YouTube search | MVP complete | Live API、算法版本化 exact family cache、严格歌名/歌手相关性门槛、KTV/原唱 intent ranking、质量优先补满 50、Music/7 分钟资格过滤、推荐、rate limit、quota，以及不展示提示的单视频 URL 兜底已完成。 |
+| YouTube search | MVP complete | Live API、算法版本化 exact family cache、2 秒 UX 硬截止、单次 cold provider call、部分结果返回、KTV/原唱 intent ranking、推荐、rate limit、quota，以及不展示提示的单视频 URL 兜底已完成。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
 | Mobile preview | MVP complete | 2–4 列、选中即激活单 IFrame Player、静音自动播放并从 30 秒显式 load/seek/play、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 25 files / 126 tests | 单视频 URL 分类、非 YouTube URL 零 provider call、直链 metadata/fallback，以及 preview、search、Admin、quota 等现有 regressions 全部通过；DO storage 和端到端测试待补。 |
+| Automated tests | 26 files / 129 tests | 两秒客户端截止、Worker 部分结果、provider 限流降级、单视频 URL、preview、search、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -89,7 +89,7 @@ Last updated: 2026-08-01
 - `[x]` Worker-only API key、live provider、mock fallback。
 - `[x]` Song/artist 和 original-vocal intents。
 - `[x]` Deterministic aliases、当前 KTV/原唱意图 focused source query、family hash。
-- `[x]` 优先翻同一精准 intent 的 `nextPageToken`，再尝试其他同意图 query；每轮补 metadata/过滤/重排，最多 12 个 `search.list` calls 补满 50 条高质量结果。
+- `[x]` Cold search 只发一个精准 intent `search.list`；Worker 1600ms、浏览器 2000ms 截止，到时返回当前部分结果。
 - `[x]` Duration/category/tags/status enrichment、dedupe；严格拒绝 7 分钟及以上与非音乐视频。
 - `[x]` Song title 与 artist metadata 严格相关性门槛；通过后再做 KTV/伴奏或 lyrics/original/audio/radio ranking。
 - `[x]` Partial-title regression coverage。
@@ -100,8 +100,8 @@ Last updated: 2026-08-01
 - `[x]` API 50 results；mobile 10-at-a-time expansion。
 - `[x]` Recommendation pool 200 results；缓存耗尽前自动无限滚动。
 - `[x]` 显式提交时原唱使用独立 intent queries、准入门槛与权重；各选项保持完全隔离的 exact family。
-- `[x]` 20/min rate limit。
-- `[x]` Project quota 100/day、最多 12 calls/fill、每次 outbound call 前预留、Pacific reset、status API 和 room WebSocket 即时额度推送。
+- `[x]` 20/min 节流；超限返回正常 `throttled` partial response，Mobile 保留当前结果，不再暴露搜索 HTTP 429。
+- `[x]` Project quota 100/day、最多 1 call/fill、每次 outbound call 前预留、Pacific reset、status API 和 room WebSocket 即时额度推送。
 - `[x]` Real YouTube result + repeat-query cache hit verified。
 - `[x]` 不展示提示的 YouTube 单视频 URL 兜底；严格拦截其他 URL，绕过原搜索 family、资料库、ranking 与 `search.list` quota ledger。
 
@@ -392,6 +392,17 @@ Last updated: 2026-08-01
 | SRCH12-04 | P0 | 首次生产 smoke 揭示 D1 repository 读取虽构建了新版 hash，却只按文字/artist/options 找旧 row；读取路径现强制 `family_hash` 与当前算法版本化 hash 完全相同，旧 8 条 row 会 cold refill 并由现有唯一键原位升级。 |
 | PREV12-01 | P0 | IFrame 初始化恢复 `autoplay=0`，阻止视频在 ready 前从 0 秒抢先播放；ready 后显式 mute → load at 30 → seek 30 → play，收到 `PLAYING` 时还必须确认 `getCurrentTime() >= 29`，否则继续 seek，不能提前结束 loading。 |
 
+### 2026-08-01 two-second search UX and graceful throttling pass 13
+
+用户实际使用确认 pass 12 为补满 50 进行最多 12 次顺序外部调用，搜索时间过长并开始出现 429。本轮以用户体验取代“必须补满 50”：两秒是硬上限，到点返回当前结果，不能为了数量继续等待。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| SRCH13-01 | P0 | Cold family 从最多 12 次降为 1 次精准 `search.list`；新增 `YOUTUBE_SEARCH_TIMEOUT_MS=1600`，所有 YouTube search/details fetch 共享 deadline 和 AbortController。 |
+| SRCH13-02 | P0 | 详情在 deadline 前完成则保持 Music/时长/embeddable 严格验证；详情超时时立即用已发现标题做 query/intent 过滤并返回，但未验证结果不持久化。 |
+| SRCH13-03 | P0 | 浏览器 fetch 在 2000ms 主动 abort；搜索期间保留当前卡片、选择和 preview，超时、应用节流或 provider 429 没有新结果时继续显示当前结果。 |
+| SRCH13-04 | P0 | 应用 20/min guard 不再返回破坏 UI 的 HTTP 429，改为 `throttled` partial response；YouTube 429 也转换为可解释的部分响应，且单次 cold call 显著降低 provider 压力。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -440,6 +451,7 @@ Last updated: 2026-08-01
 | 2026-07-30 search relevance/immediate preview production release | 源码提交 `5c874f1`、`5174a7c` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布并复核活动部署为 Room `07acd0da-0406-4a91-9836-3cd8c6dfb05a`、Main `0521d5c3-f17f-4f6e-9fe7-7967566748d1`，流量均为 100%。生产 API 房间 `2w002z6x`：`单依纯` 非原唱仅返回本人相关 KTV 结果且无黄小琥；`后来` 非原唱 3 条全部为 KTV/karaoke；原唱冷查询以 `后来 lyrics` 返回 11 条有声/歌词候选，前四条均为目标歌曲，完全相同查询随后命中 repository、结果 ID 顺序一致且 `sourceQueryCount=0`。全新生产内置浏览器 390×844 选择首条刘若英歌词结果后仅有 1 个 iframe，参数含 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1` 和 autoplay allow；真实 `PLAYING` 后 loading 消失，无预览错误、横向 overflow 或 console error/warning。 |
 | 2026-08-01 quality-first search/verified preview local | 用户截图推翻 pass 11 production acceptance 后重新实现。Focused 5 files / 37 tests、full 25 files / 126 tests、typecheck、production build 和 `git diff --check` passed。Provider regressions 同时证明同一精确 intent 会优先使用 `nextPageToken` 翻页补满、无下一页时会继续后续 intent query，D1 regression 证明旧算法 `family_hash` row 不会复用；preview regression 证明 current time 未达到 29 秒不会视为成功。Wrangler 4.105 Room/Main 均生成完整 dry-run bundle 和 bindings summary，确认 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL="12"`；用户级 Wrangler debug log 因沙箱 EPERM 无法写入，但两次 dry-run 均正常退出 0。全新内置浏览器 390×844 本地房间 `6v0s502o` 实际点选后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin，页面无横向溢出且 console 无 error/warning；mock video 不作为真实播放证据。 |
 | 2026-08-01 quality-first search/verified preview production release | 源码提交 `af2ac6a` 后首次 smoke 在同一生产请求重现旧 D1 8/8，随即定位并以 `faf0559` 修复 D1 读取未校验算法版本化 `family_hash`；两次提交均已推送 `origin/main`。最终按 Room → Main、`--keep-vars` 重新发布并复核活动流量为 Room `d430bdf5-8b93-4944-8c6c-733958e577b8`、Main `dab4441d-efda-4ba4-879f-6368e9116a60`，均为 100%。生产房间 `27205g6r`：林俊杰、周杰伦、邓紫棋的歌手普通与原唱模式六组均返回 50/50；普通模式前排为本人 KTV/karaoke/伴奏，原唱前排为本人歌词/原唱内容。林俊杰普通模式完全相同请求第二次由 repository 返回相同 50 个 ID、`sourceQueryCount=0`；全部 smoke 共用 29/100 calls。全新生产内置浏览器 390×844 点选“江南 KTV / 林俊杰”后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 production origin；真实 current time 为 `30.022` 秒后 loading 才消失，刷新恢复仍为单 iframe，页面无横向 overflow，console 无 error/warning。 |
+| 2026-08-01 two-second search UX local | Focused 5 files / 28 tests、full 26 files / 129 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed；bindings 确认为单次 cold call 与 `YOUTUBE_SEARCH_TIMEOUT_MS="1600"`。全新内置浏览器 390×844 本地房间 `674r4u00` 完成搜索和结果切换，preview 始终只有一个 iframe 且 URL 含 `start=30`、`enablejsapi=1` 和正确 localhost origin；页面 `scrollWidth=clientWidth=390`，console 无 error/warning。Mock video 不作为真实 `PLAYING` 证据。 |
 
 ### Admin console design QA（2026-07-21）
 

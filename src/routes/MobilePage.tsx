@@ -18,7 +18,11 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusMessage } from "../components/StatusMessage";
 import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
-import { ApiClientError, searchVideosViaApi } from "../lib/apiClient";
+import {
+  ApiClientError,
+  SearchRequestTimeoutError,
+  searchVideosViaApi,
+} from "../lib/apiClient";
 import { searchMockVideos } from "../lib/mockSearch";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { visibleRoomDisplayName } from "../lib/roomName";
@@ -331,26 +335,49 @@ function SearchTab({
         return;
       }
 
+      const partialWithoutResults =
+        response.results.length === 0 &&
+        (response.cacheMeta?.timedOut ||
+          response.cacheMeta?.providerRateLimited ||
+          response.cacheMeta?.throttled);
+
+      if (partialWithoutResults && searchResponse?.results.length) {
+        setToast({
+          id: Date.now(),
+          tone: "warning",
+          message: searchPartialMessage(response),
+        });
+        return;
+      }
+
       setSearchResponse(response);
       setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
       setActivePreviewVideoId(null);
       setPendingPreviewVideoId(null);
       setSelected(response.results[0] ?? null);
+
+      if (
+        response.cacheMeta?.timedOut ||
+        response.cacheMeta?.providerRateLimited ||
+        response.cacheMeta?.throttled
+      ) {
+        setToast({
+          id: Date.now(),
+          tone: "warning",
+          message: searchPartialMessage(response),
+        });
+      }
     },
   });
 
   const isSearching = searchMutation.isPending;
-  const showingRecommendations =
-    !searchResponse && !isSearching && !searchMutation.isError;
+  const showingRecommendations = !searchResponse && !searchMutation.isError;
   const activeResults = useMemo(
     () =>
-      isSearching
-        ? []
-        : searchResponse?.results ??
-          (showingRecommendations ? recommendationsQuery.data?.results : []) ??
-          [],
+      searchResponse?.results ??
+      (showingRecommendations ? recommendationsQuery.data?.results : []) ??
+      [],
     [
-      isSearching,
       recommendationsQuery.data?.results,
       searchResponse?.results,
       showingRecommendations,
@@ -590,13 +617,7 @@ function SearchTab({
     latestSearchRequestRef.current = requestId;
     setToast(null);
     setDuplicateCandidate(null);
-    setSearchResponse(null);
-    setSelected(null);
-    setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
     setIsLoadingMore(false);
-    setActivePreviewVideoId(null);
-    cancelPendingPreview();
-    scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     searchMutation.mutate({
       query: trimmedQuery,
       searchType: nextSearchType,
@@ -739,7 +760,16 @@ function SearchTab({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[radial-gradient(circle_at_18%_8%,rgba(20,184,166,0.10),transparent_34%),radial-gradient(circle_at_88%_82%,rgba(251,113,133,0.08),transparent_32%)] px-4 pb-3 scrollbar-soft-dark"
       >
         {searchMutation.isError ? (
-          <StatusMessage tone="error" title="搜索失败" appearance="dark" className="mt-4">
+          <StatusMessage
+            tone={searchMutation.error instanceof SearchRequestTimeoutError ? "warning" : "error"}
+            title={
+              searchMutation.error instanceof SearchRequestTimeoutError
+                ? "已停止搜索"
+                : "搜索失败"
+            }
+            appearance="dark"
+            className="mt-4"
+          >
             {searchErrorMessage(searchMutation.error)}
           </StatusMessage>
         ) : null}
@@ -750,7 +780,7 @@ function SearchTab({
           </StatusMessage>
         ) : null}
 
-        {isSearching ? (
+        {isSearching && activeResults.length === 0 ? (
           <div
             className="grid min-h-64 place-items-center py-12 text-center"
             role="status"
@@ -759,9 +789,15 @@ function SearchTab({
             <div>
               <LoaderCircle className="mx-auto animate-spin text-teal-300" size={36} />
               <p className="mt-4 text-base font-semibold text-slate-100">正在搜索歌曲…</p>
-              <p className="mt-1 text-sm text-slate-400">正在筛选音乐分类和合适时长</p>
+              <p className="mt-1 text-sm text-slate-400">最多等待 2 秒，到时立即返回</p>
             </div>
           </div>
+        ) : null}
+
+        {isSearching && activeResults.length > 0 ? (
+          <StatusMessage tone="loading" appearance="dark" className="mt-4">
+            正在搜索，最多等待 2 秒；当前结果继续可用。
+          </StatusMessage>
         ) : null}
 
         {isLoadingRecommendations ? (
@@ -784,7 +820,7 @@ function SearchTab({
           </StatusMessage>
         ) : null}
 
-        {!isSearching && !isLoadingRecommendations && activeResults.length > 0 ? (
+        {!isLoadingRecommendations && activeResults.length > 0 ? (
           <>
           <div
             ref={resultsGridRef}
@@ -1554,8 +1590,12 @@ function runPlaybackControl({
 }
 
 function searchErrorMessage(error: unknown) {
+  if (error instanceof SearchRequestTimeoutError) {
+    return error.message;
+  }
+
   if (error instanceof ApiClientError && error.status === 429) {
-    return "搜索太频繁了，请稍等一下再试。";
+    return "搜索太频繁，当前结果已保留，请稍等一下再试。";
   }
 
   if (error instanceof ApiClientError) {
@@ -1563,6 +1603,22 @@ function searchErrorMessage(error: unknown) {
   }
 
   return "请稍后再试。";
+}
+
+function searchPartialMessage(response: SearchResponse) {
+  if (response.cacheMeta?.throttled) {
+    return "搜索太频繁，已保留当前结果，请稍等一下再试。";
+  }
+
+  if (response.cacheMeta?.providerRateLimited) {
+    return response.results.length > 0
+      ? "YouTube 暂时限流，已返回当前找到的结果。"
+      : "YouTube 暂时限流，已保留当前结果。";
+  }
+
+  return response.results.length > 0
+    ? "已在 2 秒内返回当前找到的结果。"
+    : "搜索已在 2 秒停止，已保留当前结果。";
 }
 
 interface PersistedSearchState {

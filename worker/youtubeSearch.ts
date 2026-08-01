@@ -16,6 +16,20 @@ const VIDEO_DETAILS_CHUNK_SIZE = 50;
 const DEFAULT_TARGET_CACHE_RESULTS = 50;
 const DEFAULT_MAX_SEARCH_CALLS = 1;
 
+class YouTubeSearchDeadlineError extends Error {
+  constructor() {
+    super("YouTube search deadline reached.");
+    this.name = "YouTubeSearchDeadlineError";
+  }
+}
+
+class YouTubeHttpError extends Error {
+  constructor(readonly status: number, operation: string) {
+    super(`YouTube ${operation} failed with status ${status}.`);
+    this.name = "YouTubeHttpError";
+  }
+}
+
 interface YouTubeSearchListResponse {
   nextPageToken?: string;
   items?: Array<{
@@ -68,6 +82,7 @@ export interface YouTubeSearchOptions {
   maxSearchCalls?: number;
   targetResultCount?: number;
   beforeSearchCall?: () => Promise<boolean>;
+  deadlineAt?: number;
 }
 
 export interface YouTubeSearchProviderResult {
@@ -124,20 +139,29 @@ export async function searchYouTubeVideos({
   maxSearchCalls = DEFAULT_MAX_SEARCH_CALLS,
   targetResultCount = DEFAULT_TARGET_CACHE_RESULTS,
   beforeSearchCall,
+  deadlineAt,
 }: YouTubeSearchOptions): Promise<YouTubeSearchProviderResult> {
+  const startedAt = Date.now();
   const family = buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal });
   const dedupedResults = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
   const candidatesById = new Map<string, VideoCatalogCandidate>();
   const usedSourceQueries: string[] = [];
   let searchCallCount = 0;
   let videosListCalls = 0;
+  let timedOut = false;
+  let providerRateLimited = false;
 
   sourceQueries:
   for (const sourceQuery of family.sourceQueries) {
     let pageToken: string | undefined;
 
     do {
-      if (searchCallCount >= maxSearchCalls || targetResultCount <= 0) {
+      if (
+        searchCallCount >= maxSearchCalls ||
+        targetResultCount <= 0 ||
+        deadlineReached(deadlineAt)
+      ) {
+        timedOut = deadlineReached(deadlineAt);
         break sourceQueries;
       }
 
@@ -147,9 +171,26 @@ export async function searchYouTubeVideos({
         break sourceQueries;
       }
 
-      const searchBody = await fetchSearchPage({ apiKey, sourceQuery, pageToken });
       searchCallCount += 1;
       usedSourceQueries.push(sourceQuery);
+      let searchBody: YouTubeSearchListResponse;
+
+      try {
+        searchBody = await fetchSearchPage({ apiKey, sourceQuery, pageToken, deadlineAt });
+      } catch (error) {
+        if (error instanceof YouTubeSearchDeadlineError) {
+          timedOut = true;
+          break sourceQueries;
+        }
+
+        if (error instanceof YouTubeHttpError && error.status === 429) {
+          providerRateLimited = true;
+          break sourceQueries;
+        }
+
+        throw error;
+      }
+
       const newBaseResults: Array<Omit<VideoSearchResult, "score" | "reasons">> = [];
 
       for (const item of searchBody.items ?? []) {
@@ -161,10 +202,27 @@ export async function searchYouTubeVideos({
         }
       }
 
-      const detailsResult = await fetchVideoDetails(
-        apiKey,
-        newBaseResults.map((result) => result.videoId),
-      );
+      let detailsResult: Awaited<ReturnType<typeof fetchVideoDetails>>;
+
+      try {
+        detailsResult = await fetchVideoDetails(
+          apiKey,
+          newBaseResults.map((result) => result.videoId),
+          deadlineAt,
+        );
+      } catch (error) {
+        if (error instanceof YouTubeSearchDeadlineError) {
+          timedOut = true;
+          break sourceQueries;
+        }
+
+        if (error instanceof YouTubeHttpError && error.status === 429) {
+          providerRateLimited = true;
+          break sourceQueries;
+        }
+
+        throw error;
+      }
       videosListCalls += detailsResult.callCount;
 
       for (const result of newBaseResults) {
@@ -201,8 +259,14 @@ export async function searchYouTubeVideos({
   }
 
   const candidates = [...candidatesById.values()];
+  const rankableResults =
+    candidates.length > 0
+      ? candidates
+      : timedOut || providerRateLimited
+        ? uniqueRankableResults(candidates, [...dedupedResults.values()])
+        : candidates;
   const results = rankSearchResultsForQuery(
-    candidates,
+    rankableResults,
     query,
     { searchType, includeOriginalVocal, artist },
   ).slice(0, targetResultCount);
@@ -223,6 +287,9 @@ export async function searchYouTubeVideos({
         sourceQueries: usedSourceQueries,
         candidateResultCount: candidates.length,
         filteredResultCount: results.length,
+        timedOut,
+        providerRateLimited,
+        elapsedMs: Date.now() - startedAt,
       },
     },
     candidates,
@@ -233,10 +300,12 @@ async function fetchSearchPage({
   apiKey,
   sourceQuery,
   pageToken,
+  deadlineAt,
 }: {
   apiKey: string;
   sourceQuery: string;
   pageToken?: string;
+  deadlineAt?: number;
 }) {
   const searchParams = new URLSearchParams({
     part: "snippet",
@@ -255,10 +324,13 @@ async function fetchSearchPage({
     searchParams.set("pageToken", pageToken);
   }
 
-  const searchResponse = await fetch(`${YOUTUBE_SEARCH_URL}?${searchParams.toString()}`);
+  const searchResponse = await fetchBeforeDeadline(
+    `${YOUTUBE_SEARCH_URL}?${searchParams.toString()}`,
+    deadlineAt,
+  );
 
   if (!searchResponse.ok) {
-    throw new Error(`YouTube search failed with status ${searchResponse.status}.`);
+    throw new YouTubeHttpError(searchResponse.status, "search");
   }
 
   return (await searchResponse.json()) as YouTubeSearchListResponse;
@@ -285,7 +357,7 @@ function toBaseResult(
   };
 }
 
-async function fetchVideoDetails(apiKey: string, videoIds: string[]) {
+async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?: number) {
   const details = new Map<
     string,
     {
@@ -310,11 +382,14 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[]) {
       key: apiKey,
     });
 
-    const response = await fetch(`${YOUTUBE_VIDEOS_URL}?${params.toString()}`);
+    const response = await fetchBeforeDeadline(
+      `${YOUTUBE_VIDEOS_URL}?${params.toString()}`,
+      deadlineAt,
+    );
     callCount += 1;
 
     if (!response.ok) {
-      throw new Error(`YouTube video details failed with status ${response.status}.`);
+      throw new YouTubeHttpError(response.status, "video details");
     }
 
     const body = (await response.json()) as YouTubeVideosListResponse;
@@ -338,6 +413,54 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[]) {
   }
 
   return { details, callCount };
+}
+
+async function fetchBeforeDeadline(url: string, deadlineAt?: number) {
+  if (deadlineAt === undefined) {
+    return fetch(url);
+  }
+
+  const remainingMs = deadlineAt - Date.now();
+
+  if (remainingMs <= 0) {
+    throw new YouTubeSearchDeadlineError();
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), remainingMs);
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new YouTubeSearchDeadlineError();
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function deadlineReached(deadlineAt?: number) {
+  return deadlineAt !== undefined && Date.now() >= deadlineAt;
+}
+
+function uniqueRankableResults(
+  verified: VideoCatalogCandidate[],
+  discovered: Array<Omit<VideoSearchResult, "score" | "reasons">>,
+) {
+  const results = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
+
+  for (const result of discovered) {
+    results.set(result.videoId, result);
+  }
+
+  for (const result of verified) {
+    results.set(result.videoId, result);
+  }
+
+  return [...results.values()];
 }
 
 export function parseIso8601DurationSeconds(duration: string) {

@@ -177,6 +177,63 @@ describe("youtube search helpers", () => {
     ]);
   });
 
+  it("returns the current search-page results when video details exceed the deadline", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(String(input));
+
+        if (url.pathname.endsWith("/search")) {
+          return jsonResponse({ items: buildSearchItems(0, 50) });
+        }
+
+        if (url.pathname.endsWith("/videos")) {
+          return new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("Aborted", "AbortError"));
+            });
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url.toString()}`);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerResult = await searchYouTubeVideos({
+      query: "Later",
+      apiKey: "test-key",
+      maxSearchCalls: 1,
+      targetResultCount: 50,
+      deadlineAt: Date.now() + 25,
+    });
+
+    expect(providerResult.response.results).toHaveLength(50);
+    expect(providerResult.candidates).toHaveLength(0);
+    expect(providerResult.response.cacheMeta).toMatchObject({
+      sourceQueryCount: 1,
+      timedOut: true,
+      providerRateLimited: false,
+    });
+  });
+
+  it("returns a graceful partial response when YouTube rate limits the provider call", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("limited", { status: 429 })));
+
+    const providerResult = await searchYouTubeVideos({
+      query: "Later",
+      apiKey: "test-key",
+      maxSearchCalls: 1,
+      targetResultCount: 50,
+    });
+
+    expect(providerResult.response.results).toEqual([]);
+    expect(providerResult.response.cacheMeta).toMatchObject({
+      sourceQueryCount: 1,
+      timedOut: false,
+      providerRateLimited: true,
+    });
+  });
+
   it("rejects seven-minute, non-music, and non-embeddable videos", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
