@@ -17,6 +17,7 @@ const DEFAULT_TARGET_CACHE_RESULTS = 50;
 const DEFAULT_MAX_SEARCH_CALLS = 1;
 
 interface YouTubeSearchListResponse {
+  nextPageToken?: string;
   items?: Array<{
     id?: {
       videoId?: string;
@@ -126,57 +127,85 @@ export async function searchYouTubeVideos({
 }: YouTubeSearchOptions): Promise<YouTubeSearchProviderResult> {
   const family = buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal });
   const dedupedResults = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
+  const candidatesById = new Map<string, VideoCatalogCandidate>();
   const usedSourceQueries: string[] = [];
   let searchCallCount = 0;
-  const sourceQuery = family.sourceQueries[0];
+  let videosListCalls = 0;
 
-  if (sourceQuery && maxSearchCalls > 0 && targetResultCount > 0) {
-    const allowed = beforeSearchCall ? await beforeSearchCall() : true;
+  sourceQueries:
+  for (const sourceQuery of family.sourceQueries) {
+    let pageToken: string | undefined;
 
-    if (allowed) {
-      const searchBody = await fetchSearchPage({
-        apiKey,
-        sourceQuery,
-      });
-      searchCallCount = 1;
+    do {
+      if (searchCallCount >= maxSearchCalls || targetResultCount <= 0) {
+        break sourceQueries;
+      }
+
+      const allowed = beforeSearchCall ? await beforeSearchCall() : true;
+
+      if (!allowed) {
+        break sourceQueries;
+      }
+
+      const searchBody = await fetchSearchPage({ apiKey, sourceQuery, pageToken });
+      searchCallCount += 1;
       usedSourceQueries.push(sourceQuery);
+      const newBaseResults: Array<Omit<VideoSearchResult, "score" | "reasons">> = [];
 
       for (const item of searchBody.items ?? []) {
         const result = toBaseResult(item);
 
         if (result && !dedupedResults.has(result.videoId)) {
           dedupedResults.set(result.videoId, result);
+          newBaseResults.push(result);
         }
       }
-    }
+
+      const detailsResult = await fetchVideoDetails(
+        apiKey,
+        newBaseResults.map((result) => result.videoId),
+      );
+      videosListCalls += detailsResult.callCount;
+
+      for (const result of newBaseResults) {
+        const videoDetails = detailsResult.details.get(result.videoId);
+
+        if (!videoDetails || videoDetails.embeddable === false) {
+          continue;
+        }
+
+        const candidate = {
+          ...result,
+          durationSeconds: videoDetails.durationSeconds,
+          categoryId: videoDetails.categoryId,
+          ...(videoDetails.tags.length > 0 ? { tags: videoDetails.tags } : {}),
+        };
+
+        if (isEligibleSongResult(candidate)) {
+          candidatesById.set(candidate.videoId, candidate);
+        }
+      }
+
+      const rankedCount = rankSearchResultsForQuery(
+        [...candidatesById.values()],
+        query,
+        { searchType, includeOriginalVocal, artist },
+      ).length;
+
+      if (rankedCount >= targetResultCount) {
+        break sourceQueries;
+      }
+
+      pageToken = searchBody.nextPageToken;
+    } while (pageToken);
   }
 
-  const baseResults = [...dedupedResults.values()].slice(0, targetResultCount);
-  const { details, callCount: videosListCalls } = await fetchVideoDetails(
-    apiKey,
-    baseResults.map((result) => result.videoId),
-  );
-  const candidates = baseResults.flatMap((result) => {
-    const videoDetails = details.get(result.videoId);
-
-    if (!videoDetails || videoDetails.embeddable === false) {
-      return [];
-    }
-
-    const candidate = {
-      ...result,
-      durationSeconds: videoDetails.durationSeconds,
-      categoryId: videoDetails.categoryId,
-      ...(videoDetails.tags.length > 0 ? { tags: videoDetails.tags } : {}),
-    };
-
-    return isEligibleSongResult(candidate) ? [candidate] : [];
-  });
+  const candidates = [...candidatesById.values()];
   const results = rankSearchResultsForQuery(
     candidates,
     query,
     { searchType, includeOriginalVocal, artist },
-  );
+  ).slice(0, targetResultCount);
 
   return {
     response: {
@@ -203,9 +232,11 @@ export async function searchYouTubeVideos({
 async function fetchSearchPage({
   apiKey,
   sourceQuery,
+  pageToken,
 }: {
   apiKey: string;
   sourceQuery: string;
+  pageToken?: string;
 }) {
   const searchParams = new URLSearchParams({
     part: "snippet",
@@ -219,6 +250,10 @@ async function fetchSearchPage({
     relevanceLanguage: RELEVANCE_LANGUAGE,
     key: apiKey,
   });
+
+  if (pageToken) {
+    searchParams.set("pageToken", pageToken);
+  }
 
   const searchResponse = await fetch(`${YOUTUBE_SEARCH_URL}?${searchParams.toString()}`);
 

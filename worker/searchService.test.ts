@@ -34,7 +34,7 @@ class MemoryKv {
 }
 
 describe("search service cache reuse", () => {
-  it("uses the current option cache first and supplements it from the other same-text option cache", async () => {
+  it("uses only the cache for the exact text and search options", async () => {
     const kv = new MemoryKv();
     const karaokeFamily = buildSearchQueryFamily("年少有为");
     const originalFamily = buildSearchQueryFamily("年少有为", undefined, {
@@ -89,17 +89,11 @@ describe("search service cache reuse", () => {
     expect(original.cacheMeta?.sourceQueryCount).toBe(0);
   });
 
-  it("supplements a mistaken song-mode search from same-text artist-mode caches", async () => {
+  it("does not mix a same-text song cache into an artist search", async () => {
     const kv = new MemoryKv();
     const songFamily = buildSearchQueryFamily("周杰伦", undefined, {
       searchType: "song",
     });
-    const artistFamily = buildSearchQueryFamily("周杰伦", undefined, {
-      searchType: "artist",
-    });
-    const channelOnlyArtistResult = buildResult("artist-one", "晴天 KTV");
-    channelOnlyArtistResult.channelTitle = "周杰伦";
-
     await writeSearchCache(
       kv,
       songFamily,
@@ -107,32 +101,21 @@ describe("search service cache reuse", () => {
         buildResult("song-current", "周杰伦 KTV 精选"),
       ]),
     );
-    await writeSearchCache(
-      kv,
-      artistFamily,
-      buildResponse("周杰伦", artistFamily.normalizedQuery, [
-        channelOnlyArtistResult,
-        buildResult("artist-two", "周杰伦 夜曲 KTV"),
-      ]),
-    );
-
     const response = await searchVideos({
       query: "周杰伦",
-      searchType: "song",
+      searchType: "artist",
       includeOriginalVocal: false,
       limit: 50,
       env: { SEARCH_CACHE: kv },
     });
 
-    expect(response.cached).toBe(true);
-    expect(response.results.map((result) => result.videoId)).toEqual([
-      "song-current",
-      "artist-two",
-    ]);
+    expect(response.cached).toBe(false);
+    expect(response.results.map((result) => result.videoId)).not.toContain("song-current");
     expect(response.cacheMeta).toMatchObject({
-      servedFromExpandedCache: true,
+      responseSource: "mock",
+      servedFromExpandedCache: false,
       sourceQueryCount: 0,
-      externalCallAvoided: true,
+      externalCallAvoided: false,
     });
   });
 

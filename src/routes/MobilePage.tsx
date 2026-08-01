@@ -31,7 +31,8 @@ import {
   useRoomSnapshot,
 } from "../lib/roomState";
 import {
-  MOBILE_PREVIEW_START_SECONDS,
+  enforceYouTubePreviewStart,
+  hasYouTubePreviewReachedStart,
   startYouTubePreview,
   youtubeThumbnailUrl,
   youtubePreviewPlayerVars,
@@ -1032,6 +1033,7 @@ function CandidatePreview({
   const [loadStatus, setLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">(
     "idle",
   );
+  const [verifiedStartTime, setVerifiedStartTime] = useState<number | null>(null);
 
   useEffect(() => {
     const shell = playerShellRef.current;
@@ -1056,6 +1058,7 @@ function CandidatePreview({
       playingRef.current = false;
       destroyPlayer();
       setLoadStatus("idle");
+      setVerifiedStartTime(null);
       return;
     }
 
@@ -1067,6 +1070,7 @@ function CandidatePreview({
     playingRef.current = false;
     destroyPlayer();
     setLoadStatus("loading");
+    setVerifiedStartTime(null);
     const timeoutId = window.setTimeout(() => {
       setLoadStatus((current) => (current === "loading" ? "error" : current));
     }, PREVIEW_LOAD_TIMEOUT_MS);
@@ -1117,9 +1121,8 @@ function CandidatePreview({
 
       for (const delay of [250, 900]) {
         const retryId = window.setTimeout(() => {
-          if (!playingRef.current) {
-            event.target.mute?.();
-            event.target.playVideo?.();
+          if (!playingRef.current && enforceYouTubePreviewStart(event.target)) {
+            markPreviewPlaying(event.target);
           }
         }, delay);
 
@@ -1129,16 +1132,17 @@ function CandidatePreview({
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
-        playingRef.current = true;
-        clearPlayRetries();
-        setLoadStatus("loaded");
+        if (!hasYouTubePreviewReachedStart(event.target)) {
+          enforceYouTubePreviewStart(event.target);
+          return;
+        }
+
+        markPreviewPlaying(event.target);
         return;
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.CUED) {
-        event.target.mute?.();
-        event.target.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
-        event.target.playVideo?.();
+        enforceYouTubePreviewStart(event.target);
       }
     }
 
@@ -1151,10 +1155,26 @@ function CandidatePreview({
       clearPlayRetries();
       setLoadStatus("error");
     }
+
+    function markPreviewPlaying(player: YouTubePlayer) {
+      const currentTime = player.getCurrentTime?.();
+
+      playingRef.current = true;
+      clearPlayRetries();
+      setVerifiedStartTime(
+        typeof currentTime === "number" && Number.isFinite(currentTime)
+          ? Math.round(currentTime * 1_000) / 1_000
+          : null,
+      );
+      setLoadStatus("loaded");
+    }
   }, [active, result.videoId]);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-950">
+    <div
+      className="relative h-full w-full overflow-hidden bg-slate-950"
+      data-preview-current-time={verifiedStartTime ?? undefined}
+    >
       <img
         src={result.thumbnailUrl ?? youtubeThumbnailUrl(result.videoId)}
         alt=""

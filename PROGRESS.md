@@ -19,7 +19,7 @@ Last updated: 2026-07-31
 | Mobile preview | MVP complete | 2–4 列、选中即激活单 IFrame Player、静音自动播放并从 30 秒显式 load/seek/play、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 25 files / 122 tests | 单视频 URL 分类、非 YouTube URL 零 provider call、直链 metadata/fallback，以及 preview、search、Admin、quota 等现有 regressions 全部通过；DO storage 和端到端测试待补。 |
+| Automated tests | 25 files / 125 tests | 单视频 URL 分类、非 YouTube URL 零 provider call、直链 metadata/fallback，以及 preview、search、Admin、quota 等现有 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -380,6 +380,17 @@ Last updated: 2026-07-31
 | SRCH11-03 | P0 | 同文字 cache 仍稳定复用并重新按当前意图排序；若旧 family 存在但严格相关性过滤后为零，则执行一次精准 cold refill 修复坏缓存，不把无关结果永久复现。 |
 | PREV11-01 | P0 | 选中候选卡立即激活唯一 preview，移除 600ms debounce；iframe 初始化使用 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1`，ready 后继续显式 mute/load/seek/play。 |
 
+### 2026-07-31 quality-first 50-result search and verified 30-second preview pass 12
+
+2026-07-30 的 production acceptance 被用户真实使用推翻：`林俊杰` 歌手查询仍被旧缓存固定为 8/8，preview 虽带 `start=30` 参数却仍可能从 0 秒开始。本轮不沿用 pass 11 的完成结论，重新以实际结果数量和播放器真实 current time 为验收依据。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| SRCH12-01 | P0 | Exact cache identity 加入搜索算法版本，只读取相同文字、artist、模式和原唱开关的唯一 family；不再跨四个 option family 混合，旧算法的 8 条缓存不会命中新版。 |
+| SRCH12-02 | P0 | Cold fill 从“一次 search 后直接缓存”改为优先沿精准 intent query 的 `nextPageToken` 翻页、再按其他 intent source query 继续补量；每轮执行 metadata/资格/相关性过滤，过滤后达到 50 条才停止，默认质量补量上限从 1 次提高到 12 次。 |
+| SRCH12-03 | P0 | 歌手普通模式扩充 KTV/karaoke/伴奏/卡拉OK/pinyin/instrumental 查询；歌手原唱模式扩充 lyrics/歌词/MV/official audio/radio，并允许明确匹配歌手且无 KTV/伴奏/cover 冲突的普通原唱歌曲。 |
+| PREV12-01 | P0 | IFrame 初始化恢复 `autoplay=0`，阻止视频在 ready 前从 0 秒抢先播放；ready 后显式 mute → load at 30 → seek 30 → play，收到 `PLAYING` 时还必须确认 `getCurrentTime() >= 29`，否则继续 seek，不能提前结束 loading。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -426,6 +437,7 @@ Last updated: 2026-07-31
 | 2026-07-29 mobile preview playback restoration production release | Production migration 无待应用项；Wrangler 4.105 按 Room → Main、`--keep-vars` 发布，Room `fe4cf8b8-bdcb-4bcd-8837-0a7e8e1dccad`、Main `1777984c-d2e9-4ed1-9891-93136c86ab18` 均为 100%。生产内置浏览器 390×844 加载 `index-Bj8oiKxj.js`，实际点选后恰有一个 iframe，参数包含 `autoplay=0`、`enablejsapi=1`、`start=30`、`playsinline=1` 与正确 production origin；spinner 随真实 `PLAYING` 消失且 player 保持可见，页面无横向 overflow，console 无 error/warning。 |
 | 2026-07-30 search relevance/immediate preview local | Focused 4 files / 26 tests 与 full 23 files / 103 tests passed；typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run、`git diff --check` passed。全新内置浏览器本地房间实际搜索 `后来` 并点选第二张卡，选中项立即切换且只创建 1 个 iframe；参数为 `autoplay=1`、`mute=1`、`start=30`、正确 autoplay allow。Mock video id 按预期不可真实播放，因此本记录只确认即时激活和播放器参数，不虚报真实 `PLAYING`。 |
 | 2026-07-30 search relevance/immediate preview production release | 源码提交 `5c874f1`、`5174a7c` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布并复核活动部署为 Room `07acd0da-0406-4a91-9836-3cd8c6dfb05a`、Main `0521d5c3-f17f-4f6e-9fe7-7967566748d1`，流量均为 100%。生产 API 房间 `2w002z6x`：`单依纯` 非原唱仅返回本人相关 KTV 结果且无黄小琥；`后来` 非原唱 3 条全部为 KTV/karaoke；原唱冷查询以 `后来 lyrics` 返回 11 条有声/歌词候选，前四条均为目标歌曲，完全相同查询随后命中 repository、结果 ID 顺序一致且 `sourceQueryCount=0`。全新生产内置浏览器 390×844 选择首条刘若英歌词结果后仅有 1 个 iframe，参数含 `autoplay=1`、`mute=1`、`start=30`、`playsinline=1` 和 autoplay allow；真实 `PLAYING` 后 loading 消失，无预览错误、横向 overflow 或 console error/warning。 |
+| 2026-08-01 quality-first search/verified preview local | 用户截图推翻 pass 11 production acceptance 后重新实现。Focused 5 files / 36 tests、full 25 files / 125 tests、typecheck、production build 和 `git diff --check` passed。Provider regressions 同时证明同一精确 intent 会优先使用 `nextPageToken` 翻页补满、无下一页时会继续后续 intent query；preview regression 证明 current time 未达到 29 秒不会视为成功。Wrangler 4.105 Room/Main 均生成完整 dry-run bundle 和 bindings summary，确认 `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL="12"`；用户级 Wrangler debug log 因沙箱 EPERM 无法写入，但两次 dry-run 均正常退出 0。全新内置浏览器 390×844 本地房间 `6v0s502o` 实际点选后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin，页面无横向溢出且 console 无 error/warning；mock video 不作为真实播放证据。commit、push、deploy 和 production acceptance 仍待本轮后续完成。 |
 
 ### Admin console design QA（2026-07-21）
 
@@ -526,6 +538,16 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 
 ## 5. Remaining work
 
+### P0 — Pass 12 production acceptance
+
+- `[x]` 完成 exact-only versioned cache、最多 12 轮翻页/多 intent 质量补量和 30 秒真实 current-time gate 实现。
+- `[x]` 完成 focused/full tests、typecheck、production build、双 Worker dry-run bundle/binding 检查和 `git diff --check`。
+- `[ ]` 在全新内置浏览器完成本地移动端交互 smoke；当前因 Codex 使用额度限制被系统拒绝 localhost 导航。
+- `[ ]` Commit/push 当前私有源码到 `origin/main`；当前 `.git` 写入所需外部批准受同一使用额度限制。
+- `[ ]` 按 Room → Main、`--keep-vars` 发布并复核两个活动版本。
+- `[ ]` 生产冷查询逐项确认 `林俊杰`、`周杰伦`、`邓紫棋` 的歌手普通/原唱结果数量和质量；完全相同请求再次返回相同 ID 顺序且 `sourceQueryCount=0`。
+- `[ ]` 生产真实 preview 确认唯一 iframe、自动静音播放，loading 只在 IFrame API `getCurrentTime() >= 29` 后结束。
+
 ### P0 — Admin baseline release
 
 - `[x]` 完成 1440×1024 reference/implementation 同屏视觉对照并关闭 P0/P1/P2 finding。
@@ -570,7 +592,7 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 - `[ ]` Curated Chinese/pinyin/English aliases and typos。
 - `[ ]` Optional cache inspection/prewarm tooling。
 - `[ ]` Real KV cost-based eviction。
-- `[ ]` Multi-source query only under daily/per-fill caps。
+- `[x]` Multi-source quality fill under daily/per-fill caps；production acceptance 尚列在 Pass 12 P0。
 - `[ ]` 自动搜索/自动补库：在明确触发、quota budget、去重、审计和停止策略后再设计实施。
 - `[x]` 资料库清理预览和保留策略；不会按估算容量静默删除。
 - `[ ]` 无人值守自动清理：只有在长期观察手动批次、D1 容量延迟与保留质量后，才考虑单独启用。

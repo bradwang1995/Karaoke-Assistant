@@ -16,7 +16,6 @@ import {
 import { searchMockVideos } from "./mockSearchProvider";
 import {
   buildSearchQueryFamily,
-  buildSearchQueryFamilyVariants,
   type SearchQueryFamily,
 } from "./searchFamily";
 import { rankSearchResultsForQuery } from "./scoring";
@@ -35,7 +34,7 @@ import {
 } from "./youtubeQuota";
 
 const DEFAULT_YOUTUBE_DAILY_SEARCH_LIMIT = 100;
-const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 1;
+const DEFAULT_YOUTUBE_SEARCH_CALLS_PER_FILL = 12;
 
 type SearchServiceEnv = Omit<Env, "SEARCH_CACHE"> & {
   SEARCH_CACHE?: SearchCacheNamespace;
@@ -112,11 +111,11 @@ export async function searchVideos({
     return directQueryResponse(query, "youtube-url", [result], videosListCalls);
   }
 
-  const families = buildSearchQueryFamilyVariants(query, artist, {
+  const family = buildSearchQueryFamily(query, artist, {
     searchType,
     includeOriginalVocal,
   });
-  const family = families[0]!;
+  const families = [family];
   const [repositoryHits, kvHits] = await Promise.all([
     safeReadSearchRepositories(env.DB, families, waitUntil),
     readSearchCacheVariants(env.SEARCH_CACHE, families),

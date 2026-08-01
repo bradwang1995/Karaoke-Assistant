@@ -1,6 +1,7 @@
 import type { YouTubePlayer } from "./youtubeIframeApi";
 
 export const MOBILE_PREVIEW_START_SECONDS = 30;
+export const MOBILE_PREVIEW_START_TOLERANCE_SECONDS = 1;
 
 export function youtubeThumbnailUrl(videoId: string) {
   return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
@@ -39,7 +40,7 @@ export function youtubePreviewEmbedUrl(videoId: string) {
 
 export function youtubePreviewPlayerVars(origin: string) {
   return {
-    autoplay: 1,
+    autoplay: 0,
     controls: 0,
     disablekb: 1,
     enablejsapi: 1,
@@ -61,4 +62,23 @@ export function startYouTubePreview(player: YouTubePlayer, videoId: string) {
   });
   player.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
   player.playVideo?.();
+}
+
+export function hasYouTubePreviewReachedStart(player: YouTubePlayer) {
+  const currentTime = player.getCurrentTime?.();
+
+  return typeof currentTime === "number" &&
+    Number.isFinite(currentTime) &&
+    currentTime >= MOBILE_PREVIEW_START_SECONDS - MOBILE_PREVIEW_START_TOLERANCE_SECONDS;
+}
+
+export function enforceYouTubePreviewStart(player: YouTubePlayer) {
+  player.mute?.();
+
+  if (!hasYouTubePreviewReachedStart(player)) {
+    player.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
+  }
+
+  player.playVideo?.();
+  return hasYouTubePreviewReachedStart(player);
 }

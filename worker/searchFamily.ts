@@ -2,6 +2,7 @@ import { normalizeQuery, normalizeSearchQuery } from "../src/lib/queryNormalize"
 import type { SearchType } from "../src/types/youtube";
 
 const MAX_SOURCE_QUERY_LENGTH = 450;
+const SEARCH_ALGORITHM_VERSION = "quality-fill-50-v1";
 
 const KARAOKE_SUFFIX_PATTERNS = [
   /\s+ktv$/i,
@@ -62,32 +63,6 @@ export function buildSearchQueryFamily(
   };
 }
 
-export function buildSearchQueryFamilyVariants(
-  query: string,
-  artist?: string,
-  options: { searchType?: SearchType; includeOriginalVocal?: boolean } = {},
-) {
-  const searchType = options.searchType ?? "song";
-  const includeOriginalVocal = options.includeOriginalVocal ?? false;
-  const alternateSearchType: SearchType = searchType === "song" ? "artist" : "song";
-
-  return [
-    buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal }),
-    buildSearchQueryFamily(query, artist, {
-      searchType,
-      includeOriginalVocal: !includeOriginalVocal,
-    }),
-    buildSearchQueryFamily(query, artist, {
-      searchType: alternateSearchType,
-      includeOriginalVocal,
-    }),
-    buildSearchQueryFamily(query, artist, {
-      searchType: alternateSearchType,
-      includeOriginalVocal: !includeOriginalVocal,
-    }),
-  ];
-}
-
 export function normalizeSearchFamilyQuery(query: string) {
   let normalized = normalizeQuery(query);
   let next = stripKaraokeSuffix(normalized);
@@ -106,7 +81,7 @@ export function searchFamilyHash(
   searchType: SearchType = "song",
   includeOriginalVocal = false,
 ) {
-  const input = `${normalizeQuery(canonicalQuery)}|${normalizeOptionalText(artist) ?? ""}|${searchType}|${includeOriginalVocal ? "original" : "karaoke"}`;
+  const input = `${SEARCH_ALGORITHM_VERSION}|${normalizeQuery(canonicalQuery)}|${normalizeOptionalText(artist) ?? ""}|${searchType}|${includeOriginalVocal ? "original" : "karaoke"}`;
   let hash = 0x811c9dc5;
 
   for (let index = 0; index < input.length; index += 1) {
@@ -171,10 +146,19 @@ function buildFamilyAliases(
 
   if (artist && searchType === "song") {
     aliases.push(
-      `${artist} ${canonicalQuery} ktv`,
-      `${artist} ${canonicalQuery} karaoke`,
-      `${artist} karaoke`,
-      `${artist} classic songs ktv`,
+      ...(includeOriginalVocal
+        ? [
+            `${artist} ${canonicalQuery} lyrics`,
+            `${artist} ${canonicalQuery} lyric video`,
+            `${artist} ${canonicalQuery} official audio`,
+            `${artist} songs lyrics`,
+          ]
+        : [
+            `${artist} ${canonicalQuery} ktv`,
+            `${artist} ${canonicalQuery} karaoke`,
+            `${artist} karaoke`,
+            `${artist} classic songs ktv`,
+          ]),
     );
   }
 
@@ -189,6 +173,8 @@ function buildSongAliases(canonicalQuery: string, includeOriginalVocal: boolean)
       `${canonicalQuery} lyrics`,
       `${canonicalQuery} \u6b4c\u8bcd`,
       `${canonicalQuery} MV`,
+      `${canonicalQuery} official audio`,
+      `${canonicalQuery} radio`,
       `${canonicalQuery} original with lyrics`,
     ];
   }
@@ -201,6 +187,9 @@ function buildSongAliases(canonicalQuery: string, includeOriginalVocal: boolean)
     `${canonicalQuery} \u5361\u62c9OK`,
     `${canonicalQuery} pinyin karaoke`,
     `${canonicalQuery} instrumental`,
+    `${canonicalQuery} karaoke version`,
+    `${canonicalQuery} ktv 字幕`,
+    `${canonicalQuery} instrumental karaoke`,
   ];
 }
 
@@ -212,7 +201,10 @@ function buildArtistAliases(canonicalQuery: string, includeOriginalVocal: boolea
       `${canonicalQuery} \u6b4c\u8bcd`,
       `${canonicalQuery} MV`,
       `${canonicalQuery} official`,
+      `${canonicalQuery} official audio`,
+      `${canonicalQuery} radio`,
       `${canonicalQuery} songs with lyrics`,
+      `${canonicalQuery} original songs`,
     ];
   }
 
@@ -223,6 +215,9 @@ function buildArtistAliases(canonicalQuery: string, includeOriginalVocal: boolea
     `${canonicalQuery} \u5361\u62c9OK`,
     `${canonicalQuery} pinyin karaoke`,
     `${canonicalQuery} classic songs ktv`,
+    `${canonicalQuery} instrumental`,
+    `${canonicalQuery} karaoke songs`,
+    `${canonicalQuery} ktv 字幕`,
   ];
 }
 
@@ -238,35 +233,15 @@ function buildSourceQueries(
   }
 
   const broadQuery = joinAliasesForYouTube(aliases.filter((alias) => alias !== canonicalQuery));
-  const focusedQuery = artist
-    ? `${artist} ${canonicalQuery}`
-    : canonicalQuery;
+  const focusedQuery = artist ? `${artist} ${canonicalQuery}` : canonicalQuery;
   const focusedIntentQuery = includeOriginalVocal
     ? `${focusedQuery} lyrics`
     : `${focusedQuery} ktv`;
-  const fallbackQueries = searchType === "artist"
-    ? [
-        includeOriginalVocal
-          ? `${canonicalQuery} lyric video`
-          : `${canonicalQuery} ktv`,
-        includeOriginalVocal
-          ? `${canonicalQuery} songs lyrics`
-          : `${canonicalQuery} karaoke songs`,
-      ]
-    : artist
-    ? [
-        `${artist} ${canonicalQuery} ktv`,
-        `${artist} karaoke`,
-        normalizeSearchQuery(canonicalQuery),
-      ]
-    : [normalizeSearchQuery(canonicalQuery), `${canonicalQuery} karaoke`];
+  const intentAliases = aliases.filter((alias) => alias !== canonicalQuery);
+  const plainQueryFallback = includeOriginalVocal ? [focusedQuery] : [];
 
   return uniqueNormalized(
-    (
-      searchType === "song"
-        ? [focusedIntentQuery, focusedQuery, ...fallbackQueries, broadQuery]
-        : [focusedIntentQuery, ...fallbackQueries, broadQuery]
-    ).filter(Boolean),
+    [focusedIntentQuery, ...intentAliases, ...plainQueryFallback, broadQuery].filter(Boolean),
   );
 }
 

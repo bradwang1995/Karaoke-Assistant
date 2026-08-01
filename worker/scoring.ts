@@ -151,18 +151,31 @@ export function rankSearchResultsForQuery(
         ? !result.reasons.includes("metadata does not match artist query")
         : hasSongTitleMatch(result.reasons)) &&
       (options.includeOriginalVocal
-        ? isOriginalVocalIntentResult(result)
+        ? isOriginalVocalIntentResult(result, searchType)
         : isKaraokeIntentResult(result)),
     )
     .sort((a, b) => b.result.score - a.result.score || a.index - b.index)
     .map(({ result }) => result);
 }
 
-function isOriginalVocalIntentResult(result: VideoSearchResult) {
+function isOriginalVocalIntentResult(result: VideoSearchResult, searchType: SearchType) {
   const title = result.title.toLowerCase();
-
-  return [...LYRICS_VIDEO_SIGNALS, ...ORIGINAL_VOCAL_INTENT_SIGNALS]
+  const text = `${result.title} ${result.tags?.join(" ") ?? ""}`.toLowerCase();
+  const hasExplicitOriginalSignal = [...LYRICS_VIDEO_SIGNALS, ...ORIGINAL_VOCAL_INTENT_SIGNALS]
     .some((signal) => title.includes(signal.text));
+
+  if (hasExplicitOriginalSignal) {
+    return true;
+  }
+
+  if (searchType !== "artist") {
+    return false;
+  }
+
+  const conflictsWithOriginalVocal = [...KTV_PRIMARY_SIGNALS, ...ACCOMPANIMENT_SIGNALS]
+    .some((signal) => text.includes(signal.text)) || /\bcover\b/i.test(text);
+
+  return !conflictsWithOriginalVocal;
 }
 
 function isKaraokeIntentResult(result: VideoSearchResult) {

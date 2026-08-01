@@ -73,6 +73,110 @@ describe("youtube search helpers", () => {
     });
   });
 
+  it("follows the focused query page token until 50 quality results survive filtering", async () => {
+    let searchCall = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/search")) {
+        const currentCall = searchCall;
+        searchCall += 1;
+        return jsonResponse({
+          ...(currentCall === 0 ? { nextPageToken: "focused-page-2" } : {}),
+          items: currentCall === 0
+            ? [
+                ...buildSearchItems(0, 8),
+                ...buildSearchItemsWithTitle(8, 42, (index) => `Later Official Audio ${index}`),
+              ]
+            : buildSearchItems(50, 42),
+        });
+      }
+
+      if (url.pathname.endsWith("/videos")) {
+        const ids = url.searchParams.get("id")?.split(",") ?? [];
+        return jsonResponse({
+          items: ids.map((id) => ({
+            id,
+            contentDetails: { duration: "PT4M" },
+            snippet: { categoryId: "10", tags: ["music"] },
+            status: { embeddable: true },
+          })),
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerResult = await searchYouTubeVideos({
+      query: "Later",
+      apiKey: "test-key",
+      maxSearchCalls: 12,
+      targetResultCount: 50,
+    });
+
+    expect(providerResult.response.results).toHaveLength(50);
+    expect(providerResult.response.cacheMeta).toMatchObject({
+      sourceQueryCount: 2,
+      videosListCalls: 2,
+      filteredResultCount: 50,
+    });
+    expect(providerResult.response.cacheMeta?.sourceQueries).toEqual([
+      "later ktv",
+      "later ktv",
+    ]);
+    const searchUrls = fetchMock.mock.calls
+      .map(([input]) => new URL(String(input)))
+      .filter((url) => url.pathname.endsWith("/search"));
+    expect(searchUrls[0].searchParams.has("pageToken")).toBe(false);
+    expect(searchUrls[1].searchParams.get("pageToken")).toBe("focused-page-2");
+  });
+
+  it("moves to the next intent query when the focused query has no next page", async () => {
+    let searchCall = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/search")) {
+        const currentCall = searchCall;
+        searchCall += 1;
+        return jsonResponse({
+          items: currentCall === 0
+            ? buildSearchItems(0, 4)
+            : buildSearchItems(50, 6),
+        });
+      }
+
+      if (url.pathname.endsWith("/videos")) {
+        const ids = url.searchParams.get("id")?.split(",") ?? [];
+        return jsonResponse({
+          items: ids.map((id) => ({
+            id,
+            contentDetails: { duration: "PT4M" },
+            snippet: { categoryId: "10", tags: ["music"] },
+            status: { embeddable: true },
+          })),
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url.toString()}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerResult = await searchYouTubeVideos({
+      query: "Later",
+      apiKey: "test-key",
+      maxSearchCalls: 12,
+      targetResultCount: 10,
+    });
+
+    expect(providerResult.response.results).toHaveLength(10);
+    expect(providerResult.response.cacheMeta?.sourceQueries).toEqual([
+      "later ktv",
+      "later karaoke",
+    ]);
+  });
+
   it("rejects seven-minute, non-music, and non-embeddable videos", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -163,13 +267,21 @@ describe("youtube search helpers", () => {
 });
 
 function buildSearchItems(start: number, count: number) {
+  return buildSearchItemsWithTitle(start, count, (index) => `Later KTV ${index}`);
+}
+
+function buildSearchItemsWithTitle(
+  start: number,
+  count: number,
+  title: (index: number) => string,
+) {
   return Array.from({ length: count }, (_, index) => {
     const id = `video-${start + index}`;
 
     return {
       id: { videoId: id },
       snippet: {
-        title: `Later KTV ${start + index}`,
+        title: title(start + index),
         channelTitle: "Karaoke Studio",
         publishedAt: "2026-01-01T00:00:00Z",
         thumbnails: {

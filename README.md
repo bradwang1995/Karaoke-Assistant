@@ -148,7 +148,7 @@ Runtime variables：
 | Variable | Value | 作用 |
 | --- | ---: | --- |
 | `YOUTUBE_SEARCH_DAILY_LIMIT` | `100` | Project `search.list` call guardrail。 |
-| `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` | `1` | 每个 cold family 最多一次 search。 |
+| `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` | `12` | 每个 cold family 为补满高质量结果可翻页并尝试不同 intent search 的上限。 |
 | `SEARCH_CACHE_TTL_DAYS` | `365` | KV cache TTL。 |
 | `SEARCH_CACHE_MAX_ENTRY_BYTES` | `524288` | Family payload 上限约 512 KiB。 |
 | `SEARCH_RATE_LIMIT_PER_MINUTE` | `20` | Room + identity search rate limit。 |
@@ -224,20 +224,20 @@ Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。
 
 ## 6. Search technical design
 
-Search 的目标是把用户输入文字作为主要 cache identity，同时保证 cache 只稳定复现候选、绝不改变搜索相关性。系统读取同一完整规范化文字与 artist 的四个歌曲/歌手、伴奏/原唱组合，先做当前查询的严格相关性过滤，再按当前意图重排。若旧缓存经严格过滤后一条可用结果也没有，系统会执行新的精准 cold request 来修复该 family；在线流程不会扫描历史候选目录。
+Search 的目标是质量优先，并让 cache 只稳定复现已经完成的精确请求。完整规范化文字、artist、歌曲/歌手模式、伴奏/原唱意图和搜索算法版本共同形成唯一 identity；任何一项不同都不会混用结果。Cold search 会从最精准的意图查询开始，在有下一页时继续翻页，再尝试其他明确表达当前意图的 YouTube 查询；每轮补充 metadata、严格过滤并重排，达到 50 条高质量结果才提前停止，最多使用配置的 12 次 search。在线流程不会扫描历史候选目录。
 
 YouTube 单视频 URL 是独立于上述算法的隐形兜底路径。服务端先做严格 host、route 与 11 位 video ID 解析；命中后跳过 family、D1/KV 搜索资料、ranking、歌曲资格过滤、`search.list` 配额 ledger 和搜索事件，只调用一次低成本 `videos.list` 获取标题与缩略图。元数据临时失败时仍返回基于 video ID 的兜底卡片；视频不存在或明确不可嵌入时返回空结果。非 YouTube HTTP(S) URL、YouTube playlist/channel URL 和无效 video URL 均不调用 YouTube。
 
 ### 6.1 目标与约束
 
 - API key 只存在于 Worker secret。
-- Cold search family 默认只发一次 `search.list`。
-- 一次最多取 50 个 Music category embeddable candidates，去重、补 duration/category/tags/status，只保留严格短于 7 分钟的歌曲，再打分和缓存；恰好 7 分钟也会被拒绝。
+- Cold search family 为质量补量最多发送 12 次 `search.list`；优先沿精准 intent query 的 `nextPageToken` 翻页，当前查询耗尽后再换下一种 intent，每轮最多取得 50 个候选，严格过滤后达到 50 条即停止。
+- 每轮候选去重后补 duration/category/tags/status，只保留 Music category、可嵌入且严格短于 7 分钟的歌曲，再按当前查询与意图过滤；恰好 7 分钟也会被拒绝。
 - 原始 embeddable candidates 与用户可见结果分开：候选只被动写入 D1 供统计，在线搜索不会查询该目录；界面只接收本次外部结果中通过相关性过滤的内容。
 - 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
 - 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
 - Cache hit、空查询推荐和 client-side load-more 不增加 search call。
-- 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；原唱模式只保留标题带 lyric video/lyrics/歌词、原唱、MV、official、audio 或 radio 标记的候选。
+- 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；歌曲原唱模式优先且只保留 lyric video/lyrics/歌词、原唱、MV、official、audio 或 radio，歌手原唱模式还可接收明确匹配歌手且不带 KTV/伴奏/cover 冲突的普通歌曲。
 - 新搜索发出后立即清空上一批卡片，按钮进入灰色 disabled 状态并显示旋转图标；结果区域持续显示加载状态，直到新 response 到达。
 - Guardrails 通过 Wrangler variables 配置。
 
@@ -276,17 +276,17 @@ Response 保留：
 `buildSearchQueryFamily`：
 
 1. 对用户实际输入只做 trim、连续空格折叠和小写规范化；该完整文字作为 cache identity。
-2. 用完整规范化文字、artist、type 和 vocal intent 生成稳定 hash。
+2. 用搜索算法版本、完整规范化文字、artist、type 和 vocal intent 生成稳定 hash；算法升级会自动隔离旧的低质量缓存。
 3. 只有在构造 YouTube provider query 时，才移除末尾 `ktv`、`karaoke`、`instrumental`、`pinyin`、`伴奏`、`卡拉OK`，避免重复后缀；这不会改变 cache identity。
 4. 生成 provider aliases、normalized query 和 source queries。
 
 Hash input：
 
 ```txt
-canonicalQuery | artist | searchType | original-or-karaoke
+algorithm-version | canonicalQuery | artist | searchType | original-or-karaoke
 ```
 
-单个 family 仍要求完整规范化文字、song/artist、伴奏/原唱和明确 artist 全部相同。一次本地读取会以当前 family 为首，再按“同模式另一原唱开关 → 另一模式同原唱开关 → 另一模式另一原唱开关”检查同一文字与 artist 的其余三个 family。`后来` 与 `后来 KTV` 仍完全隔离；系统绝不会用不同文字或全局候选目录补结果。
+单个 family 要求完整规范化文字、song/artist、伴奏/原唱和明确 artist 全部相同；本地只读取这个 exact family。`后来` 与 `后来 KTV`、歌曲与歌手、伴奏与原唱全部隔离；系统绝不会用其他模式、不同文字或全局候选目录补结果。
 
 Song/KTV aliases：
 
@@ -311,19 +311,19 @@ Original-vocal aliases：
 后来 original with lyrics
 ```
 
-实际只消耗一次 `search.list` 的首条 source query 会直接表达当前意图：普通模式使用 `focused text + ktv`，带原唱模式使用 `focused text + lyrics`；若歌名请求带明确 artist，则 focused text 为 `artist + song`。其余 canonical、KTV、artist 和 broad aliases 只作为未来可用的 deterministic fallback。无需在 request 中调用 LLM。
+首条 source query 直接表达当前意图：普通模式使用 `focused text + ktv`，带原唱模式使用 `focused text + lyrics`；若歌名请求带明确 artist，则 focused text 为 `artist + song`。若严格过滤后的结果不足 50，系统先沿当前精准查询的 `nextPageToken` 继续翻页，再尝试 karaoke、伴奏、卡拉 OK、pinyin、instrumental 或 lyrics、歌词、official audio、radio 等确定性查询，直到补满或达到 12 次上限。无需在 request 中调用 LLM。
 
 ### 6.4 Live fetch pipeline
 
-1. D1 用一次查询读取同一完整规范化文字与 artist 的最多四个 option families；KV 并行读取对应四个精确 hash。当前 family 优先，缺少或不足时才合并另外三个 family。
-2. 只合并四个相同文字与 artist 的 option families；不读 normalized index、不匹配相似文字、不扫描被动候选目录。
-3. 对本地结果重新执行歌曲资格与查询相关性过滤、按 `videoId` 去重，再以当前 vocal intent 重排；四个 family 即使存在，只要严格过滤后为零，也会读取 quota estimate 并准备一次精准外部搜索，避免坏缓存永久返回空白或无关内容。
+1. D1 与 KV 只读取当前完整规范化文字、artist、模式、原唱开关和算法版本对应的 exact family；命中后稳定返回相同排序。
+2. 不读取其他 option family、不匹配相似文字、不扫描被动候选目录。旧算法 hash 与新算法隔离，不会继续把历史 8 条结果当作完整答案。
+3. Exact miss 时读取 quota estimate并开始质量补量；每个 source query 都先取得 metadata、执行歌曲资格与当前查询相关性过滤，只有过滤后的结果达到 50 才停止后续 query。
 4. `search.list` 使用 `type=video`、`videoCategoryId=10`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
 5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails,snippet,status)` 每 50 ids 一批读取 duration、category、tags 和最新 embeddable 状态。
 6. 只保留 `categoryId=10`、duration 大于 0 且严格小于 420 秒、仍可嵌入的视频；详情缺失、非音乐分类、恰好或超过 7 分钟全部 fail closed。
 7. 歌名模式过滤 title miss、channel-only 和 tags-only hit；歌手模式过滤 metadata 完全不含目标歌手的候选。相关候选再按当前 vocal intent 排序，其他 family 不能绕过该门槛。通过歌曲资格过滤的外部候选被动写入 D1 统计目录，但该目录不参与在线检索。
-8. 将本次过滤后的完整结果写入当前 exact repository、exact family cache 和 recommendation pool。生产请求使用 Worker lifecycle 后台刷新 cache、repository access 与搜索事件；真实候选新增计数仍在 response 前完成。
-9. 返回 requested slice，非空搜索最多 50 条；50 是上限而非保证，不存在“本地凑够 10 条就提前返回”的路径。
+8. 将最多 50 条最终排序结果写入当前 exact repository、exact family cache 和 recommendation pool。生产请求使用 Worker lifecycle 后台刷新 cache、repository access 与搜索事件；真实候选新增计数仍在 response 前完成。
+9. 返回 requested slice，非空搜索最多 50 条；热门歌手查询以补满 50 为完成目标，不再因为首轮过滤只剩 8 条就提前缓存返回。
 
 没有 `YOUTUBE_API_KEY` 时使用 mock provider。Quota exhausted 且 cache miss 时返回空 results 和 quota metadata；已有 cache 仍可使用。
 
@@ -521,7 +521,7 @@ Mobile preview：
 - Mobile 使用与 display 连续一致的 slate/teal 深色背景，`theme-color`、`color-scheme`、HTML/body 和 safe-area 都保持深色，避免 Safari 顶部状态栏、底部地址栏或结果区露出白带。
 - 选择 card 后立即激活 preview；快速切换会销毁旧 preview，只有 active card 挂载 iframe。
 - Pending/加载阶段显示 spinner；10 秒仍未加载会显示可重试提示；点击外部停止。
-- Preview 初始化即设置 `autoplay=1`、`mute=1`、`start=30` 和 `playsinline=1`；ready 后仍依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试。只有收到真实 `PLAYING` 状态才结束 spinner；选中即激活、30 秒起点与调用参数由回归测试和浏览器检查保护。
+- Preview 初始化先设置 `autoplay=0`、`mute=1`、`start=30` 和 `playsinline=1`，避免构造阶段从 0 秒抢跑；ready 后依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试。只有真实 current time 达到 29 秒后才结束 spinner，并把实际时间写入 preview 容器的 `data-preview-current-time` 供生产验收读取。
 - App 不重复显示 video title/channel/quality；YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡。
 
 Display：

@@ -1,32 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSearchQueryFamily,
-  buildSearchQueryFamilyVariants,
   normalizeSearchFamilyQuery,
 } from "./searchFamily";
 
 describe("search query families", () => {
-  it("builds the current option family first and the other three combinations after it", () => {
-    const variants = buildSearchQueryFamilyVariants("周杰伦", undefined, {
-      searchType: "song",
-      includeOriginalVocal: false,
-    });
-
-    expect(
-      variants.map((family) => [
-        family.searchType,
-        family.includeOriginalVocal,
-        family.canonicalQuery,
-      ]),
-    ).toEqual([
-      ["song", false, "周杰伦"],
-      ["song", true, "周杰伦"],
-      ["artist", false, "周杰伦"],
-      ["artist", true, "周杰伦"],
-    ]);
-    expect(new Set(variants.map((family) => family.hash)).size).toBe(4);
-  });
-
   it("keeps different query text in separate cache families", () => {
     expect(normalizeSearchFamilyQuery("Later ktv")).toBe("later");
     expect(normalizeSearchFamilyQuery("Later karaoke")).toBe("later");
@@ -46,7 +24,7 @@ describe("search query families", () => {
     expect(family.aliases).toContain("later ktv");
     expect(family.aliases).toContain("later karaoke");
     expect(family.sourceQueries[0]).toBe("artist later ktv");
-    expect(family.sourceQueries[1]).toBe("artist later");
+    expect(family.sourceQueries[1]).toBe("later ktv");
     expect(family.sourceQueries).toContain("artist later ktv");
     expect(family.sourceQueries.at(-1)).toContain("later ktv|later karaoke");
   });
@@ -61,7 +39,8 @@ describe("search query families", () => {
     expect(original.normalizedQuery).toBe("later lyric video");
     expect(karaoke.sourceQueries[0]).toBe("later ktv");
     expect(original.sourceQueries[0]).toBe("later lyrics");
-    expect(original.sourceQueries).toContain("later ktv");
+    expect(original.sourceQueries).not.toContain("later ktv");
+    expect(original.sourceQueries).toContain("later official audio");
   });
 
   it("builds artist-mode source queries", () => {
@@ -72,5 +51,7 @@ describe("search query families", () => {
     expect(family.searchType).toBe("artist");
     expect(family.normalizedQuery).toBe("jay chou ktv");
     expect(family.sourceQueries[0]).toBe("jay chou ktv");
+    expect(family.sourceQueries).toContain("jay chou instrumental");
+    expect(family.sourceQueries.length).toBeGreaterThanOrEqual(8);
   });
 });

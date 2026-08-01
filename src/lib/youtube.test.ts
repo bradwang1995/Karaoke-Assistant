@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  enforceYouTubePreviewStart,
+  hasYouTubePreviewReachedStart,
   MOBILE_PREVIEW_START_SECONDS,
   startYouTubePreview,
   youtubeEmbedUrl,
@@ -41,12 +43,31 @@ describe("YouTube embed URLs", () => {
 
   it("configures selected-card previews for immediate muted autoplay from 30 seconds", () => {
     expect(youtubePreviewPlayerVars("https://example.com")).toMatchObject({
-      autoplay: 1,
+      autoplay: 0,
       mute: 1,
       start: 30,
       playsinline: 1,
       origin: "https://example.com",
     });
+  });
+
+  it("does not consider preview playback ready until the real player time reaches 30 seconds", () => {
+    let currentTime = 0;
+    const calls: string[] = [];
+    const player = {
+      getCurrentTime: () => currentTime,
+      mute: () => calls.push("mute"),
+      seekTo: (seconds: number) => {
+        calls.push(`seek:${seconds}`);
+        currentTime = seconds;
+      },
+      playVideo: () => calls.push("play"),
+    } satisfies YouTubePlayer;
+
+    expect(hasYouTubePreviewReachedStart(player)).toBe(false);
+    expect(enforceYouTubePreviewStart(player)).toBe(true);
+    expect(hasYouTubePreviewReachedStart(player)).toBe(true);
+    expect(calls).toEqual(["mute", "seek:30", "play"]);
   });
 
   it("keeps app-owned embeds free of native controls", () => {

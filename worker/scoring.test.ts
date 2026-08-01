@@ -241,4 +241,33 @@ describe("search scoring", () => {
 
     expect(results.map((result) => result.videoId)).toEqual(["radio"]);
   });
+
+  it("accepts artist-matching original songs without a title marker but rejects karaoke and covers", () => {
+    const results = rankSearchResultsForQuery(
+      [
+        {
+          videoId: "plain-original",
+          title: "林俊杰 修炼爱情",
+          channelTitle: "JJ Lin",
+          durationSeconds: 280,
+        },
+        {
+          videoId: "karaoke",
+          title: "林俊杰 修炼爱情 KTV 伴奏",
+          channelTitle: "KTV Channel",
+          durationSeconds: 280,
+        },
+        {
+          videoId: "cover",
+          title: "林俊杰 修炼爱情 cover",
+          channelTitle: "Fan Channel",
+          durationSeconds: 280,
+        },
+      ],
+      "林俊杰",
+      { searchType: "artist", includeOriginalVocal: true },
+    );
+
+    expect(results.map((result) => result.videoId)).toEqual(["plain-original"]);
+  });
 });
