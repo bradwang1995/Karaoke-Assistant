@@ -45,6 +45,7 @@ export interface SearchResponse {
     catalogResultCount?: number;
     uniqueCatalogVideosAdded?: number;
     externalCallAvoided?: boolean;
+    cacheOnly?: boolean;
     timedOut?: boolean;
     providerRateLimited?: boolean;
     throttled?: boolean;

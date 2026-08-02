@@ -8,7 +8,9 @@
     "build": "tsc -b && tsc -p tsconfig.worker.json && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc -b && tsc -p tsconfig.worker.json"
+    "typecheck": "tsc -b && tsc -p tsconfig.worker.json",
+    "verify:search": "node scripts/verify-search.mjs",
+    "smoke:search:cache": "node scripts/search-cache-smoke.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.81.5",

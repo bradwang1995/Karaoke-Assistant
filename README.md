@@ -181,6 +181,8 @@ npm run dev
 | `npm run dev` | Vite dev server。 |
 | `npm run typecheck` | Frontend + Worker TypeScript。 |
 | `npm run test` | 全部 Vitest tests。 |
+| `npm run verify:search` | 零真实额度的搜索质量、两秒体验、调用预算和网络隔离回归。搜索代码改动及发布前必须通过。 |
+| `npm run smoke:search:cache -- --room-id <id> --query <文字>` | 生产 exact cache-only smoke；只使用已有结果，cache miss 也绝不请求 YouTube。 |
 | `npm run build` | TypeScript + Worker + production assets。 |
 | `npm run preview` | Preview built assets。 |
 
@@ -189,6 +191,7 @@ npm run dev
 ```bash
 npm run typecheck
 npm run test
+npm run verify:search
 npm run build
 ```
 
@@ -253,7 +256,8 @@ Google `search.list` 当前 `maxResults` 是 0–50；`q` 支持 OR `|` 和 NOT 
   "limit": 50,
   "searchType": "song",
   "includeOriginalVocal": false,
-  "cacheFill": true
+  "cacheFill": true,
+  "cacheOnly": false
 }
 ```
 
@@ -265,13 +269,14 @@ Request rules：
 - `searchType` 是 `song` 或 `artist`，默认 `song`。
 - `includeOriginalVocal` 默认 `false`。
 - `cacheFill` 默认 `true`。设为 `false` 会把 cold target 缩到当前 limit，但 cache miss 仍可能发一次 YouTube request。
+- `cacheOnly` 默认 `false`，仅供发布 smoke / 诊断。设为 `true` 时只允许 exact repository/KV 命中；miss 和单视频 URL 都返回空结果，`sourceQueryCount=0`，绝不调用 YouTube，也不写搜索事件或 quota ledger。
 - Empty query 直接读 recommendations，不发 live search。
 
 Response 保留：
 
 - `query`、`normalizedQuery`、`searchType`、`includeOriginalVocal`。
 - `cached` 和 scored `results`。
-- `cacheMeta`：search calls、cached count、videos calls、source queries、pruned count、quota snapshot，以及候选/过滤/目录复用和新增目录视频计数。
+- `cacheMeta`：search calls、cached count、videos calls、source queries、pruned count、quota snapshot，以及候选/过滤/目录复用和新增目录视频计数；cache-only 请求另返回 `cacheOnly=true`。
 
 ### 6.3 Query family
 
@@ -417,7 +422,18 @@ Family entry 保存：
 
 输入 query、切换歌名/歌手或打开/关闭原唱只更新草稿条件，不改变当前标题、数量和结果；按搜索按钮或键盘 Search/Enter 才提交。请求进行中保留旧结果，成功后一次性替换，避免数量在输入或 loading 中跳动。
 
-### 6.10 后续 search 方向
+### 6.10 零额度搜索防回归机制
+
+搜索算法或体验改动必须先运行 `npm run verify:search`。该命令不会读取真实 `YOUTUBE_API_KEY`，并在 Vitest 层拦截所有未显式 stub 的网络请求，因此通过结果代表消耗 0 次真实 YouTube 额度。它同时固定以下发布契约：
+
+- 四组黄金质量场景覆盖歌曲/歌手 × KTV/原唱意图；例如 `后来`、`单依纯` 和 `林俊杰`，精确断言保留与拒绝的 video IDs。算法行为需要调整时，应有意识地更新 fixture 和期望，不允许靠放宽断言让测试“自然通过”。
+- `search.list` 每个 cold family 最多 1 次、Worker deadline 1600ms、浏览器 deadline 2000ms、每日 app guardrail 100；脚本同时检查两个 Wrangler 配置和源码默认值，防止历史 12-call 补量策略意外回归。
+- exact cache hit、cache-only miss、provider 429/timeout、quota exhausted 与应用 throttle 都有独立契约；可恢复的空响应必须保留当前搜索卡片。
+- `test/searchNoNetworkSetup.ts` 默认拒绝测试进程中的真实网络；provider 测试只可使用当前 test 内声明的 deterministic fixture。
+
+生产发布后的自动 smoke 只允许使用 `cacheOnly=true`。`npm run smoke:search:cache` 会读取请求前后 quota、断言服务端确认 cache-only、`sourceQueryCount=0`、`externalCallAvoided=true`，并确认 `used` 没有变化。它仍会经过 room rate limit，但不会触达 YouTube。
+
+### 6.11 后续 search 方向
 
 - 用 curated/offline tooling 增加中文别名、拼音、英文名和 typo。
 - 决定是否提供显式 prewarm。
@@ -689,7 +705,19 @@ Display 专项：
 - Mobile Safari 的状态栏、浏览器上下栏和 safe-area 不应露白；长按正文/缩略图不出现蓝色选择层，搜索输入仍可选字。
 - Display 空状态 footer 不显示占位歌名；Space 在页面任意非输入焦点暂停/继续，点击播放器控制键后不保留焦点圈。
 
-### 11.2 API/search smoke
+### 11.2 零额度 API/search smoke
+
+日常开发与发布只运行 cache-only smoke。先使用现有 production room id；无论查询是否已有 exact cache，都不会调用 YouTube：
+
+```powershell
+npm run smoke:search:cache -- --room-id <8位roomId> --query "林俊杰" --search-type artist
+```
+
+期望：脚本显示 `sourceQueryCount=0`、quota 前后 `used` 不变；有缓存时返回相同 family 的结果，无缓存时安全返回 0 条。不要把“cache-only miss 为 0 条”当成搜索质量失败。
+
+### 11.3 人工 live search（会消耗额度）
+
+只有用户明确安排真实验收时才运行下列 cold search；它不是例行发布 smoke。每个未缓存的精确 family 最多消耗 1 次 `search.list`。建议一次验收只选 2–3 个此前未搜索的 family：歌曲 KTV、歌手 KTV，必要时再加一组原唱；先后读取 quota，并用完全相同的 query/options 重试一次确认 exact cache 不再增加 `used`。
 
 ```powershell
 $base = "https://ktv-assistant.bradwang1995.workers.dev"
@@ -720,7 +748,7 @@ Invoke-RestMethod `
 - 非空 results 最多 50，UI 每次展开 10 条。
 - Empty query 最多返回 200 条去重 recommendations，UI 按 10 条无限滚动，且不增加 search estimate。
 
-### 11.3 Admin 存储指标
+### 11.4 Admin 存储指标
 
 1. 登录 production `/admin`，点击“刷新数据”。
 2. 运行 `npx wrangler d1 info ktv-assistant-db --config wrangler.toml`，对照页面 `ktv-assistant-db` 的 bytes；允许格式单位与请求时间造成少量显示差异。
@@ -729,7 +757,7 @@ Invoke-RestMethod `
 5. 未配置 `D1_CAPACITY_LIMIT_BYTES` / `KV_CAPACITY_LIMIT_BYTES` 时，页面不得显示百分比或推断 plan。
 6. 未认证访问 `/api/admin/storage` 必须返回 `401` 和 `Cache-Control: no-store`。
 
-### 11.4 WebSocket smoke
+### 11.5 WebSocket smoke
 
 ```js
 const roomId = "<roomId>";
@@ -749,7 +777,7 @@ ws.onmessage = (event) => console.log(JSON.parse(event.data));
 
 期望 `ROOM_SNAPSHOT`、`PONG`；第二个 client 连接时 connected count 变化。再发送两次 `ADD_QUEUE_ITEM`：第一首 playing、第二首 queued；`PLAYER_ENDED` 推进；`RESTART_CURRENT_ITEM` 保持当前 item 并回到 loading。
 
-### 11.5 Cleanup、rate limit、devices
+### 11.6 Cleanup、rate limit、devices
 
 Debug page 应能 refresh snapshot、复制链接、删除 completed/removed items。关闭所有 display/mobile/debug 页面至少 5 分钟后，snapshot 应显示 inactive、empty queue、idle playback。
 
@@ -784,7 +812,7 @@ Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返�
 7. Sync 检查 `ROOM_OBJECT`、Room Worker、D1。
 8. Autoplay/restart/pause/seek/next 必须在目标浏览器复现；YouTube 画质只验证 adaptive，不验证已废弃的强制 quality API 或已移除的手动模式。
 
-### 11.5 Admin smoke
+### 11.7 Admin smoke
 
 - 未登录 `GET /api/admin/overview` 必须返回 `401 ADMIN_UNAUTHORIZED`，且不返回任何 metrics。
 - `/admin` 未登录只显示登录表单；登录后显示三段导航和真实 D1 数据。

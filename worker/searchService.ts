@@ -48,6 +48,7 @@ interface SearchVideosOptions {
   includeOriginalVocal?: boolean;
   limit?: number;
   cacheFill?: boolean;
+  cacheOnly?: boolean;
   waitUntil?: (promise: Promise<unknown>) => void;
   env: SearchServiceEnv;
 }
@@ -65,13 +66,14 @@ export async function searchVideos({
   includeOriginalVocal = false,
   limit = 10,
   cacheFill = true,
+  cacheOnly = false,
   waitUntil,
   env,
 }: SearchVideosOptions): Promise<SearchResponse> {
   const queryClassification = classifySearchQuery(query);
 
   if (queryClassification.kind === "blocked-url") {
-    return directQueryResponse(query, "blocked-url", []);
+    return directQueryResponse(query, "blocked-url", [], 0, cacheOnly);
   }
 
   if (queryClassification.kind === "youtube-video-url") {
@@ -85,7 +87,7 @@ export async function searchVideos({
     let result = fallbackResult;
     let videosListCalls = 0;
 
-    if (env.YOUTUBE_API_KEY) {
+    if (env.YOUTUBE_API_KEY && !cacheOnly) {
       try {
         videosListCalls = 1;
         const video = await lookupYouTubeVideoById(
@@ -109,7 +111,13 @@ export async function searchVideos({
       }
     }
 
-    return directQueryResponse(query, "youtube-url", [result], videosListCalls);
+    return directQueryResponse(
+      query,
+      "youtube-url",
+      cacheOnly ? [] : [result],
+      videosListCalls,
+      cacheOnly,
+    );
   }
 
   const family = buildSearchQueryFamily(query, artist, {
@@ -175,8 +183,31 @@ export async function searchVideos({
       }
 
       await runBackgroundTasks(backgroundTasks, waitUntil, "search-cache-refresh-failed");
-      return limitSearchResponse(response, limit);
+      return markCacheOnlyResponse(limitSearchResponse(response, limit), cacheOnly);
     }
+  }
+
+  if (cacheOnly) {
+    return {
+      query,
+      normalizedQuery: family.normalizedQuery,
+      searchType,
+      includeOriginalVocal,
+      cached: false,
+      results: [],
+      cacheMeta: {
+        sourceQueryCount: 0,
+        cachedResultCount: 0,
+        servedFromExpandedCache: false,
+        sourceQueries: [],
+        candidateResultCount: 0,
+        filteredResultCount: 0,
+        catalogResultCount: 0,
+        uniqueCatalogVideosAdded: 0,
+        externalCallAvoided: true,
+        cacheOnly: true,
+      },
+    };
   }
 
   const providerResponse = env.YOUTUBE_API_KEY
@@ -226,6 +257,7 @@ function directQueryResponse(
   queryMode: "youtube-url" | "blocked-url",
   results: SearchResponse["results"],
   videosListCalls = 0,
+  cacheOnly = false,
 ): SearchResponse {
   return {
     query,
@@ -244,6 +276,25 @@ function directQueryResponse(
       catalogResultCount: 0,
       uniqueCatalogVideosAdded: 0,
       externalCallAvoided: true,
+      cacheOnly,
+    },
+  };
+}
+
+function markCacheOnlyResponse(response: SearchResponse, cacheOnly: boolean) {
+  if (!cacheOnly) {
+    return response;
+  }
+
+  return {
+    ...response,
+    cacheMeta: {
+      ...response.cacheMeta,
+      sourceQueryCount: 0,
+      cachedResultCount: response.results.length,
+      servedFromExpandedCache: response.cacheMeta?.servedFromExpandedCache ?? false,
+      externalCallAvoided: true,
+      cacheOnly: true,
     },
   };
 }

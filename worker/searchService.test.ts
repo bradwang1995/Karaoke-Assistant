@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { searchVideos } from "./searchService";
@@ -34,6 +34,10 @@ class MemoryKv {
 }
 
 describe("search service cache reuse", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("uses only the cache for the exact text and search options", async () => {
     const kv = new MemoryKv();
     const karaokeFamily = buildSearchQueryFamily("年少有为");
@@ -116,6 +120,67 @@ describe("search service cache reuse", () => {
       servedFromExpandedCache: false,
       sourceQueryCount: 0,
       externalCallAvoided: false,
+    });
+  });
+
+  it("guarantees cache-only misses never dispatch a provider request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await searchVideos({
+      query: "从未缓存的测试歌手",
+      searchType: "artist",
+      includeOriginalVocal: false,
+      limit: 50,
+      cacheOnly: true,
+      env: {
+        YOUTUBE_API_KEY: "must-not-be-used",
+        YOUTUBE_SEARCH_DAILY_LIMIT: "100",
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.results).toEqual([]);
+    expect(response.cacheMeta).toMatchObject({
+      sourceQueryCount: 0,
+      externalCallAvoided: true,
+      cacheOnly: true,
+    });
+  });
+
+  it("returns exact cached results in cache-only mode without a provider request", async () => {
+    const fetchMock = vi.fn();
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("林俊杰", undefined, {
+      searchType: "artist",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await writeSearchCache(
+      kv,
+      family,
+      buildResponse("林俊杰", family.normalizedQuery, [
+        buildResult("jj-karaoke", "林俊杰 江南 KTV"),
+      ]),
+    );
+
+    const response = await searchVideos({
+      query: "林俊杰",
+      searchType: "artist",
+      includeOriginalVocal: false,
+      limit: 50,
+      cacheOnly: true,
+      env: {
+        SEARCH_CACHE: kv,
+        YOUTUBE_API_KEY: "must-not-be-used",
+      },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.results.map((result) => result.videoId)).toEqual(["jj-karaoke"]);
+    expect(response.cacheMeta).toMatchObject({
+      sourceQueryCount: 0,
+      externalCallAvoided: true,
+      cacheOnly: true,
     });
   });
 

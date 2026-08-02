@@ -73,6 +73,27 @@ describe("direct YouTube URL search routing", () => {
     });
   });
 
+  it("keeps direct YouTube URLs zero-quota in cache-only mode", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await searchVideos({
+      query: "https://youtu.be/dQw4w9WgXcQ",
+      cacheOnly: true,
+      env: { YOUTUBE_API_KEY: "must-not-be-used" },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.results).toEqual([]);
+    expect(response.cacheMeta).toMatchObject({
+      queryMode: "youtube-url",
+      sourceQueryCount: 0,
+      videosListCalls: 0,
+      externalCallAvoided: true,
+      cacheOnly: true,
+    });
+  });
+
   it("keeps a direct add fallback when metadata lookup fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("failure", { status: 503 })));
 

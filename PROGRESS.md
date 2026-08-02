@@ -19,7 +19,7 @@ Last updated: 2026-08-01
 | Mobile preview | MVP complete | 2–4 列、选中即激活单 IFrame Player、静音自动播放并从 30 秒显式 load/seek/play、spinner/timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 26 files / 129 tests | 两秒客户端截止、Worker 部分结果、provider 限流降级、单视频 URL、preview、search、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
+| Automated tests | 28 files / 142 tests | 零网络 golden search contract、cache-only、两秒体验、provider 限流、preview、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
 
@@ -412,6 +412,18 @@ Last updated: 2026-08-01
 | SRCH14-01 | P0 | Mobile 把零结果且 `quota.exhausted=true` 视为可恢复的部分响应；已有卡片继续显示并给出重置倒计时，不再被空 response 替换。 |
 | SRCH14-02 | P0 | 没有已有卡片时显示持续可见的“今日搜索额度已用完”和恢复倒计时，并说明已缓存的相同搜索仍可用，不再显示误导性的“没有找到合适的视频”。 |
 
+### 2026-08-01 zero-quota search development and release guard pass 15
+
+本轮目标不是再次靠生产 cold search 调算法，而是建立可重复的本地事实来源：以后修改搜索相关性、意图、缓存、超时或错误体验时，先在 0 次真实 YouTube 调用下发现回归，再由用户用少量真实查询做最终验收。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| SRCH15-01 | P0 | 新增 deterministic golden provider contract，覆盖歌曲/歌手 × KTV/原唱四组搜索；固定 `后来`、`单依纯`、`林俊杰` 的允许/拒绝结果和一次 search + 一次 details 调用预算。 |
+| SRCH15-02 | P0 | 新增 Vitest 全局 no-network setup；搜索契约默认阻断未 stub 的真实 fetch，`verify:search` 会清空 API key 并一次运行质量、cache、timeout/429、UI 保留和 preview 回归。 |
+| SRCH15-03 | P0 | 发布 guard 同时检查 Room/Main variables 和源码默认值：daily=100、max calls/fill=1、Worker=1600ms、browser=2000ms，阻止多轮补量或超时漂移重新进入生产。 |
+| SRCH15-04 | P0 | Search API 增加隐藏 `cacheOnly=true` 诊断模式；exact hit 可读，miss/单视频 URL 都不触达 YouTube，且不写 human search event 或 quota ledger。 |
+| SRCH15-05 | P1 | 新增硬编码 cache-only 的生产 smoke 脚本，自动对比 quota 前后 `used` 并验证 `sourceQueryCount=0`；README 将真实 cold search 明确降级为用户授权的人工验收。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -463,6 +475,7 @@ Last updated: 2026-08-01
 | 2026-08-01 two-second search UX local | Focused 5 files / 28 tests、full 26 files / 129 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed；bindings 确认为单次 cold call 与 `YOUTUBE_SEARCH_TIMEOUT_MS="1600"`。全新内置浏览器 390×844 本地房间 `674r4u00` 完成搜索和结果切换，preview 始终只有一个 iframe 且 URL 含 `start=30`、`enablejsapi=1` 和正确 localhost origin；页面 `scrollWidth=clientWidth=390`，console 无 error/warning。Mock video 不作为真实 `PLAYING` 证据。 |
 | 2026-08-01 two-second search UX production release | 源码提交 `b5935eb` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布并复核活动流量为 Room `22573249-9b01-41d5-8ced-74f5092e97bd`、Main `15c766a6-508c-4e2d-ae2e-1735fe081d6f`，均为 100%。生产房间 `5l6a0r2m` 的 `陶喆` 歌手非原唱 cold API 搜索 1198ms 返回 12 条目标 KTV/伴奏结果，只用 1 次 `search.list`，Worker provider elapsed 847ms；完全相同请求 291ms 从 repository 返回相同 12 条、`sourceQueryCount=0`。全新生产内置浏览器 390×844：repository 搜索 412ms；cold `张震岳` 1157ms 返回 4 条目标伴奏/KTV，cold `崔健` 1251ms 返回 4 条且 pending 期间仍显示上一批张震岳卡片；`许巍` 没有新结果时仍保留上一批卡片。实际点选陶喆结果后只有一个 iframe，参数含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 production origin；iframe 显示 Pause、app loading/retry 均消失，满足只有 current time 达到 29 秒才完成的 preview guard。页面 `scrollWidth=clientWidth=390`，console 无 error/warning。 |
 | 2026-08-01 quota exhaustion clarity production release | 源码提交 `a586698` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布并复核活动流量为 Room `a8d2b811-2d73-48d9-85ef-4cf5a091bfdb`、Main `f693be88-01ca-4ddf-ad62-06feafebe5ed`，均为 100%。生产 quota 维持 `100/100` 的真实耗尽状态；全新内置浏览器 390×844 在 cold miss 空页面持续显示“今日搜索额度已用完”和“本地重置还有 6 小时”，加载已缓存 `林俊杰 / 歌手 / 非原唱` 后显示 10/50 条，再提交未缓存歌手时仍保留相同 50 条结果并显示“当前结果已保留”提示。生产加载新版 `/assets/index-C2rQf336.js`，页面无横向 overflow，console 无 error/warning。 |
+| 2026-08-01 zero-quota search guard local | `npm run verify:search` 在真实网络被禁止的环境下通过 9 files / 56 tests，并通过 typecheck；full 28 files / 142 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed。全新内置浏览器本地 room `096x1933` 搜索 `后来` 返回 8 条 mock 结果，点选第二条后只有一个 iframe，URL 含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin。本轮没有执行 production search/cache smoke，保留真实额度给用户次日上午 2–3 次人工验收。 |
 
 ### Admin console design QA（2026-07-21）
 

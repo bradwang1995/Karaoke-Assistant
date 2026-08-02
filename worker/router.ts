@@ -292,6 +292,7 @@ async function searchRoomVideos(
   const artist = typeof body.artist === "string" ? body.artist.trim() : undefined;
   const searchType = normalizeSearchType(body.searchType);
   const includeOriginalVocal = body.includeOriginalVocal === true;
+  const cacheOnly = body.cacheOnly === true;
 
   if (artist && artist.length > 100) {
     return apiError(400, "ARTIST_TOO_LONG", "Artist must be 100 characters or fewer.");
@@ -324,6 +325,7 @@ async function searchRoomVideos(
           catalogResultCount: 0,
           uniqueCatalogVideosAdded: 0,
           externalCallAvoided: true,
+          cacheOnly,
           throttled: true,
           retryAfterSeconds: rateLimit.retryAfterSeconds,
         },
@@ -339,11 +341,12 @@ async function searchRoomVideos(
       includeOriginalVocal,
       limit,
       cacheFill,
+      cacheOnly,
       waitUntil: ctx ? (promise) => ctx.waitUntil(promise) : undefined,
       env,
     });
     const responseSource = responseSourceFromSearchResponse(response, env);
-    const sideEffects: Promise<unknown>[] = response.cacheMeta?.queryMode
+    const sideEffects: Promise<unknown>[] = response.cacheMeta?.queryMode || cacheOnly
       ? []
       : [safelyRecordSearchEvent(env, {
           roomId,
@@ -854,6 +857,7 @@ function isSearchRequestBody(
   limit?: number;
   artist?: string;
   cacheFill?: boolean;
+  cacheOnly?: unknown;
   searchType?: unknown;
   includeOriginalVocal?: unknown;
 } {
