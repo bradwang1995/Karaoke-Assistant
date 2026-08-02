@@ -24,6 +24,7 @@ import {
   searchVideosViaApi,
 } from "../lib/apiClient";
 import { searchMockVideos } from "../lib/mockSearch";
+import { formatRelativeQuotaReset } from "../lib/quotaReset";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { visibleRoomDisplayName } from "../lib/roomName";
 import {
@@ -339,7 +340,8 @@ function SearchTab({
         response.results.length === 0 &&
         (response.cacheMeta?.timedOut ||
           response.cacheMeta?.providerRateLimited ||
-          response.cacheMeta?.throttled);
+          response.cacheMeta?.throttled ||
+          response.cacheMeta?.quota?.exhausted);
 
       if (partialWithoutResults && searchResponse?.results.length) {
         setToast({
@@ -359,7 +361,8 @@ function SearchTab({
       if (
         response.cacheMeta?.timedOut ||
         response.cacheMeta?.providerRateLimited ||
-        response.cacheMeta?.throttled
+        response.cacheMeta?.throttled ||
+        response.cacheMeta?.quota?.exhausted
       ) {
         setToast({
           id: Date.now(),
@@ -808,7 +811,20 @@ function SearchTab({
           </div>
         ) : null}
 
-        {!isSearching && !isLoadingRecommendations && searchResponse && activeResults.length === 0 ? (
+        {!isSearching &&
+        !isLoadingRecommendations &&
+        searchResponse?.cacheMeta?.quota?.exhausted &&
+        activeResults.length === 0 ? (
+          <StatusMessage tone="warning" title="今日搜索额度已用完" appearance="dark" className="mt-5">
+            {quotaResetMessage(searchResponse.cacheMeta.quota.resetAt)}；已缓存的相同搜索仍可使用。
+          </StatusMessage>
+        ) : null}
+
+        {!isSearching &&
+        !isLoadingRecommendations &&
+        searchResponse &&
+        !searchResponse.cacheMeta?.quota?.exhausted &&
+        activeResults.length === 0 ? (
           <StatusMessage tone="info" appearance="dark" className="mt-5">
             没有找到合适的视频。
           </StatusMessage>
@@ -1606,6 +1622,10 @@ function searchErrorMessage(error: unknown) {
 }
 
 function searchPartialMessage(response: SearchResponse) {
+  if (response.cacheMeta?.quota?.exhausted) {
+    return `今日搜索额度已用完，${quotaResetMessage(response.cacheMeta.quota.resetAt)}；当前结果已保留。`;
+  }
+
   if (response.cacheMeta?.throttled) {
     return "搜索太频繁，已保留当前结果，请稍等一下再试。";
   }
@@ -1619,6 +1639,10 @@ function searchPartialMessage(response: SearchResponse) {
   return response.results.length > 0
     ? "已在 2 秒内返回当前找到的结果。"
     : "搜索已在 2 秒停止，已保留当前结果。";
+}
+
+function quotaResetMessage(resetAt?: string) {
+  return resetAt ? formatRelativeQuotaReset(resetAt) : "本地重置时间暂不可用";
 }
 
 interface PersistedSearchState {

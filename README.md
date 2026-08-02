@@ -402,6 +402,7 @@ Family entry 保存：
 - Estimate 不替代 Google Cloud Console，失败/无效请求可能造成 drift。
 - 非空搜索默认同 room + IP identity 每分钟 20 次。
 - 应用节流时搜索 API 返回带 `throttled=true` 和 `retryAfterSeconds` 的正常部分响应，Mobile 保留当前结果并显示轻提示，不再用 HTTP 429 清空搜索体验。
+- 每日 YouTube search guardrail 耗尽时，精确 repository/KV 命中仍可正常返回；cold miss 会携带 `quota.exhausted=true`。Mobile 有当前结果时继续保留并提示恢复倒计时，没有当前结果时持续显示“今日搜索额度已用完”，不再误报成普通零结果。
 
 ### 6.9 Mobile search state
 

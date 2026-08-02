@@ -403,6 +403,15 @@ Last updated: 2026-08-01
 | SRCH13-03 | P0 | 浏览器 fetch 在 2000ms 主动 abort；搜索期间保留当前卡片和选择，超时、应用节流或 provider 429 没有新结果时继续显示当前结果。搜索按钮仍按既有 click-outside 规则停止当前 preview。 |
 | SRCH13-04 | P0 | 应用 20/min guard 不再返回破坏 UI 的 HTTP 429，改为 `throttled` partial response；YouTube 429 也转换为可解释的部分响应，且单次 cold call 显著降低 provider 压力。 |
 
+### 2026-08-01 quota exhaustion clarity pass 14
+
+生产 `/api/youtube/quota` 实测为 `100/100`、`remaining=0`、`exhausted=true`，重置时间 `2026-08-02T07:00:00Z`；这不是两秒 timeout 或房间级 429。相同生产时刻，已缓存的 `林俊杰 / 歌手 / 非原唱` 仍由 repository 返回 50 条且 `externalCallAvoided=true`，证明受影响的是 cold miss。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| SRCH14-01 | P0 | Mobile 把零结果且 `quota.exhausted=true` 视为可恢复的部分响应；已有卡片继续显示并给出重置倒计时，不再被空 response 替换。 |
+| SRCH14-02 | P0 | 没有已有卡片时显示持续可见的“今日搜索额度已用完”和恢复倒计时，并说明已缓存的相同搜索仍可用，不再显示误导性的“没有找到合适的视频”。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
