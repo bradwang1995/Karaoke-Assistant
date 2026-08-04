@@ -8,7 +8,8 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
 项目文档：
 
-- `README.md`：产品、架构、search technical design、手动配置、部署和测试。
+- `README.md`：产品、总体架构、手动配置、部署和通用测试。
+- `SEARCH.md`：搜索算法、缓存、推荐、额度、两秒体验和变更协议的唯一当前规范。
 - `PROGRESS.md`：实现状态、历史修复、验证记录和待办。
 
 ## 1. 产品与使用流程
@@ -48,7 +49,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 | Room Worker `ktv-assistant-room` | 导出 `RoomDurableObject`。 |
 | Durable Object | WebSocket clients、命令顺序、broadcast、heartbeat、alarm。 |
 | D1 `DB` | 房间、队列、playback、持久搜索资料库、搜索事件、quota ledger 和 admin audit。 |
-| KV `SEARCH_CACHE` | Search family 加速层、index、推荐和 rate limit；不是持久资料库的 source of truth。 |
+| KV `SEARCH_CACHE` | Exact search family 加速、推荐、quota fallback 和 rate limit；不是持久资料库的 source of truth。 |
 | YouTube APIs | Worker-only search 和官方 iframe playback。 |
 
 ### 2.1 房间数据流
@@ -145,14 +146,10 @@ GitHub repository 与 Cloudflare Worker 独立命名。仓库已改名为 `Karao
 
 Runtime variables：
 
+搜索相关 variables、代码默认值和机器可读契约统一维护在 `SEARCH.md`；这里不重复一份容易漂移的算法参数。
+
 | Variable | Value | 作用 |
 | --- | ---: | --- |
-| `YOUTUBE_SEARCH_DAILY_LIMIT` | `100` | Project `search.list` call guardrail。 |
-| `YOUTUBE_SEARCH_MAX_CALLS_PER_FILL` | `1` | 每个 cold family 最多一次 `search.list`，避免长等待和 provider 限流。 |
-| `YOUTUBE_SEARCH_TIMEOUT_MS` | `1600` | Worker 外部搜索预算；浏览器仍以 2000ms 为用户可见硬上限。 |
-| `SEARCH_CACHE_TTL_DAYS` | `365` | KV cache TTL。 |
-| `SEARCH_CACHE_MAX_ENTRY_BYTES` | `524288` | Family payload 上限约 512 KiB。 |
-| `SEARCH_RATE_LIMIT_PER_MINUTE` | `20` | Room + identity search rate limit。 |
 | `ADMIN_LOGIN_RATE_LIMIT_PER_MINUTE` | `5` | 单一 IP 每分钟管理员登录尝试上限。 |
 | `CLOUDFLARE_ACCOUNT_ID` | production account ID | Cloudflare 管理 API / Analytics 服务端查询范围；不会返回浏览器。 |
 | `CLOUDFLARE_D1_DATABASE_ID` | production D1 ID | D1 `file_size` 查询目标；不会返回浏览器。 |
@@ -167,7 +164,7 @@ Runtime variables：
 | `SEARCH_REPOSITORY_CLEANUP_TARGET_PERCENT` | 未设置 | 可选；必须低于预警线，定义每批清理希望达到的容量百分比。 |
 | `SEARCH_REPOSITORY_CLEANUP_BATCH_SIZE` | `25` | 每次手动存储清理最多删除的资料条数；服务端硬上限为 50。 |
 
-Google 当前文档的默认 `search.list` bucket 是 100 calls/day、每次计 1 call；本项目 guardrail 与该默认值一致。单次 `search.list` 仍最多返回 50 条，这是独立的 response-size 限制。实际平台上限以 Google Cloud Console 为准，项目变量只控制 app guardrail 和 estimate。
+YouTube search quota、response-size 和本地 ledger 的区别见 `SEARCH.md`。
 
 ## 4. 本地开发
 
@@ -226,219 +223,19 @@ Server → client：`ROOM_SNAPSHOT`、`ROOM_UPDATED`、`PONG`、`ERROR`。
 
 Client 每 30 秒 `PING`；reconnect 从 500ms 倍增到 8 秒，最多 8 次。Production socket unavailable 时不会把 command 写入本地假 snapshot。
 
-## 6. Search technical design
+## 6. 搜索系统
 
-Search 的首要目标是两秒内可用，其次才是在该预算内提高质量。完整规范化文字、artist、歌曲/歌手模式、伴奏/原唱意图和搜索算法版本共同形成唯一 cache identity；任何一项不同都不会混用结果。Exact cache 命中立即返回；cold search 只发一次最精准 intent 的 `search.list`，Worker 最多等待 1600ms，浏览器在 2000ms 硬截止。到时直接返回已经取得的当前结果，不翻页、不换 query，也不为补满 50 继续阻塞。
+搜索是独立维护的高变动子系统。当前算法、四种模式、exact family identity、D1/KV 行为、推荐、quota、timeout、已知风险和强制变更协议全部以根目录 `SEARCH.md` 为准。
 
-YouTube 单视频 URL 是独立于上述算法的隐形兜底路径。服务端先做严格 host、route 与 11 位 video ID 解析；命中后跳过 family、D1/KV 搜索资料、ranking、歌曲资格过滤、`search.list` 配额 ledger 和搜索事件，只调用一次低成本 `videos.list` 获取标题与缩略图。元数据临时失败时仍返回基于 video ID 的兜底卡片；视频不存在或明确不可嵌入时返回空结果。非 YouTube HTTP(S) URL、YouTube playlist/channel URL 和无效 video URL 均不调用 YouTube。
+README 只保留产品级不变量：
 
-### 6.1 目标与约束
+- Mobile 支持歌名/歌手与 KTV/原唱四种组合，只在用户显式提交时搜索。
+- 非空 exact family 优先复用本地结果；cold search 受严格调用预算和两秒体验上限保护。
+- 用户明确提供的 YouTube 单视频 URL 走隐藏兜底；其他 URL 不消耗搜索额度。
+- 搜索实现有零真实网络的 golden contracts；修改搜索前后必须运行 `npm run verify:search`。
+- `PROGRESS.md` 只记录历史 pass 和发布证据，不作为当前算法定义。
 
-- API key 只存在于 Worker secret。
-- Cold search family 最多发送一次 `search.list`，每次最多取得 50 个候选；不再翻 `nextPageToken` 或继续其他 intent query。
-- Worker 外部请求预算为 1600ms，浏览器请求为 2000ms 硬截止。详情在预算内返回时继续执行 Music/时长/嵌入资格过滤；若详情恰好超时，则立即按已经取得的标题与当前 KTV/原唱意图返回部分结果，不把等待延伸到 2 秒以后。
-- 每轮候选去重后补 duration/category/tags/status，只保留 Music category、可嵌入且严格短于 7 分钟的歌曲，再按当前查询与意图过滤；恰好 7 分钟也会被拒绝。
-- 原始 embeddable candidates 与用户可见结果分开：候选只被动写入 D1 供统计，在线搜索不会查询该目录；界面只接收本次外部结果中通过相关性过滤的内容。
-- 非空搜索 UI 最多取 50，先显示 10，再按 10 条从当前 response 展开。
-- 空查询 recommendation pool 聚合最多 200 条，并按 10 条自动扩展到缓存耗尽。
-- Cache hit、空查询推荐和 client-side load-more 不增加 search call。
-- 歌名模式只保留 title 命中；歌手模式拒绝 title/channel/tags 都不含目标歌手的结果。通过相关性门槛后，非原唱只保留带 KTV/卡拉OK/karaoke/伴奏/instrumental 标记且没有明确 original/原唱标记的候选；歌曲原唱模式优先且只保留 lyric video/lyrics/歌词、原唱、MV、official、audio 或 radio，歌手原唱模式还可接收明确匹配歌手且不带 KTV/伴奏/cover 冲突的普通歌曲。
-- 新搜索期间保留上一批卡片和选中项，按钮进入 disabled/loading 状态；成功结果到达后一次性替换。沿用既有“点击卡片外停止 preview”规则，因此按搜索按钮会停止当前 preview。超时、应用节流或 YouTube 限流没有新结果时继续保留当前卡片。
-- Guardrails 通过 Wrangler variables 配置。
-
-Google `search.list` 当前 `maxResults` 是 0–50；`q` 支持 OR `|` 和 NOT `-`。额外 page request 会消耗新的 search call，因此默认只取第一页。
-
-### 6.2 Request / response
-
-```json
-{
-  "query": "后来",
-  "limit": 50,
-  "searchType": "song",
-  "includeOriginalVocal": false,
-  "cacheFill": true,
-  "cacheOnly": false
-}
-```
-
-Request rules：
-
-- `query` required，trim 后最多 100 characters。
-- `limit` 默认 10；非空搜索 clamp 到 1–50，空查询推荐 clamp 到 1–200。
-- `artist` optional，最多 100 characters；API 支持，mobile UI 暂不单独发送。
-- `searchType` 是 `song` 或 `artist`，默认 `song`。
-- `includeOriginalVocal` 默认 `false`。
-- `cacheFill` 默认 `true`。设为 `false` 会把 cold target 缩到当前 limit，但 cache miss 仍可能发一次 YouTube request。
-- `cacheOnly` 默认 `false`，仅供发布 smoke / 诊断。设为 `true` 时只允许 exact repository/KV 命中；miss 和单视频 URL 都返回空结果，`sourceQueryCount=0`，绝不调用 YouTube，也不写搜索事件或 quota ledger。
-- Empty query 直接读 recommendations，不发 live search。
-
-Response 保留：
-
-- `query`、`normalizedQuery`、`searchType`、`includeOriginalVocal`。
-- `cached` 和 scored `results`。
-- `cacheMeta`：search calls、cached count、videos calls、source queries、pruned count、quota snapshot，以及候选/过滤/目录复用和新增目录视频计数；cache-only 请求另返回 `cacheOnly=true`。
-
-### 6.3 Query family
-
-`buildSearchQueryFamily`：
-
-1. 对用户实际输入只做 trim、连续空格折叠和小写规范化；该完整文字作为 cache identity。
-2. 用搜索算法版本、完整规范化文字、artist、type 和 vocal intent 生成稳定 hash；算法升级会自动隔离旧的低质量缓存。
-3. 只有在构造 YouTube provider query 时，才移除末尾 `ktv`、`karaoke`、`instrumental`、`pinyin`、`伴奏`、`卡拉OK`，避免重复后缀；这不会改变 cache identity。
-4. 生成 provider aliases、normalized query 和 source queries。
-
-Hash input：
-
-```txt
-algorithm-version | canonicalQuery | artist | searchType | original-or-karaoke
-```
-
-单个 family 要求完整规范化文字、song/artist、伴奏/原唱和明确 artist 全部相同；本地只读取这个 exact family。`后来` 与 `后来 KTV`、歌曲与歌手、伴奏与原唱全部隔离；系统绝不会用其他模式、不同文字或全局候选目录补结果。
-
-Song/KTV aliases：
-
-```txt
-后来
-后来 ktv
-后来 karaoke
-后来 伴奏
-后来 卡拉OK
-后来 pinyin karaoke
-后来 instrumental
-```
-
-Original-vocal aliases：
-
-```txt
-后来
-后来 lyric video
-后来 lyrics
-后来 歌词
-后来 MV
-后来 original with lyrics
-```
-
-唯一 source query 直接表达当前意图：普通模式使用 `focused text + ktv`，带原唱模式使用 `focused text + lyrics`；若歌名请求带明确 artist，则 focused text 为 `artist + song`。系统不翻页、不继续其他 query，也不在 request 中调用 LLM。
-
-### 6.4 Live fetch pipeline
-
-1. D1 与 KV 只读取当前完整规范化文字、artist、模式、原唱开关和算法版本对应的 exact family；命中后稳定返回相同排序。
-2. 不读取其他 option family、不匹配相似文字、不扫描被动候选目录。旧算法 hash 与新算法隔离，不会继续把历史 8 条结果当作完整答案。
-3. Exact miss 时读取 quota estimate，只为一个精准 source query 预留一次额度并发出一次 `search.list`。
-4. `search.list` 使用 `type=video`、`videoCategoryId=10`、`maxResults=50`、`videoEmbeddable=true`、`safeSearch=moderate`、`regionCode=CA`、`relevanceLanguage=zh-Hans`。
-5. Deduplicate by `videoId`，并用 `videos.list(part=contentDetails,snippet,status)` 每 50 ids 一批读取 duration、category、tags 和最新 embeddable 状态。
-6. 详情在 1600ms Worker 预算内返回时，只保留 `categoryId=10`、duration 大于 0 且严格小于 420 秒、仍可嵌入的视频；若详情请求触及 deadline，则用 `search.list` 已返回的 Music/embeddable 约束结果做标题与意图过滤并立刻返回，但不把这些未完成详情验证的结果写入 exact cache/repository。
-7. 歌名模式过滤 title miss、channel-only 和 tags-only hit；歌手模式过滤 metadata 完全不含目标歌手的候选。相关候选再按当前 vocal intent 排序，其他 family 不能绕过该门槛。完成详情验证的候选通过 Worker lifecycle 在 response 后写入 D1 统计目录。
-8. 只有完成 Music/时长/嵌入资格验证的结果才写入当前 exact repository、exact family cache 和 recommendation pool；cache/repository、目录、访问统计与搜索事件都不阻塞公开响应。
-9. 返回预算内取得的 requested slice，可能少于 50。客户端 2000ms 到点会主动中止等待并保留当前页面结果。
-
-没有 `YOUTUBE_API_KEY` 时使用 mock provider。Quota exhausted 且 cache miss 时返回空 results 和 quota metadata；已有 cache 仍可使用。
-
-### 6.5 Ranking
-
-相关性高于通用 KTV keyword，避免无关 KTV 视频压过真正的歌曲：
-
-| Signal | Score / behavior |
-| --- | --- |
-| Exact title | +60 |
-| Title prefix | +48 |
-| Title contains query | +40 |
-| Query tokens in title | +24 |
-| Channel-only match | 歌名模式过滤；其他上下文 +2 |
-| Song title miss | 歌名模式过滤；底层 score -72 |
-| Artist in title/channel | +42 / +32 |
-| KTV / 卡拉OK / karaoke | 普通 KTV intent：+30 / +30 / +24 |
-| 伴奏 / instrumental | 普通 KTV intent：+20 / +16；原唱 intent：-30 / -28 |
-| Lyric video / lyrics / 歌词 | 原唱 intent 的准入标记并加权 |
-| Original / 原唱 / MV / official | 原唱 intent：+34 / +38 / +24 / +20；普通 intent 拒绝明确 original/原唱，MV/official 降权 |
-| Audio / radio | 原唱 intent 的准入标记：+16 / +12 |
-| Live、现场、reaction、cover | Downrank |
-| Remix、tutorial、教学、shorts | Downrank |
-| Duration < 60s | Downrank；duration ≥ 7min 在 scoring 前拒绝 |
-
-带 low-priority marker 的 title 即使命中 query，也只拿较低 title score。`带原唱` 会改变下一次显式提交搜索使用的准入门槛与正负权重；每种 song/artist × vocal intent 都只读自己的 exact family，绝不拿相反 intent 的缓存补量。切换本身不请求或清空当前结果；Result 保留 `score` 和 `reasons` 供 test/debug。
-
-关键 regressions：搜索 `依赖` 时只保留标题命中的 `离开我的依赖` 等候选，标题无关的 `唯一` KTV 不能进入结果；歌手模式搜索 `单依纯` 时，metadata 完全不含 `单依纯` 的其他歌手歌曲也不能进入结果。
-
-### 6.6 KV cache
-
-Keys：
-
-```txt
-yt-search:v4:<familyHash>:CA:zh-Hans
-yt-search-recommendations:v2:CA:zh-Hans
-yt-search-quota:v1:<Pacific-date>
-```
-
-Family entry 保存：
-
-- Canonical/normalized query、artist、type、vocal intent、aliases、hash。
-- Created/expiry timestamps 和 source queries。
-- 最多 50 条 results。
-- Search/videos call counts、payload bytes、pruned count。
-- Hit count 和 last accessed time。
-
-每次用户搜索只读当前算法版本、完整规范化文字、type、vocal intent 和 artist scope 生成的一个精确 KV family hash；不会读取其他三个 option family，也不会 fallback 到 normalized index、不同文字或全局候选目录。命中的 family 增加 hit count，但不延长原 expiry。历史 `yt-search:v3`、`yt-search-recommendations:v1` 与 `yt-search-index:v2` key 可自然过期，新搜索不再读取或写入。
-
-写入先限制 50 条，再测 UTF-8 JSON bytes；超过 512 KiB 时从尾部裁剪。默认 TTL 365 天。KV 可重建；D1 exact repository 与视频目录是持久资料源。
-
-### 6.7 D1 被动候选统计目录
-
-`migrations/0005_search_video_catalog.sql` 新增：
-
-- `search_video_catalog`：按 `video_id` 去重保存标题、频道、缩略图、duration、发布时间、首次/最近来源 query、出现次数和时间。
-- `search_events` 效率列：外部候选数、过滤后数、目录结果数、新增独立候选、真实 search calls 和是否避免外部调用。
-
-目录只接收 YouTube `type=video + videoEmbeddable=true + videoCategoryId=10` 且经详情复核为 Music、严格短于 7 分钟、仍可嵌入的候选，用于统计候选增长、重复出现和过滤效率。在线搜索完全不读取该表；低相关候选不会暴露给用户，也不会被拿来补足其他 query。
-
-同一视频在并发/重复写入时使用 `INSERT ... DO NOTHING` 的真实 D1 `changes` 计算新增数量，已存在视频只更新 metadata、appearance count 和 last seen。管理台因此可以显示真实的“新增候选/额度”，而不是把重复候选当成增长。
-
-`migrations/0006_remove_cross_query_catalog_search.sql` 删除 0005 曾建立的 FTS5 表和同步 triggers，保留原始候选统计数据，避免无用索引写入成本。
-
-### 6.8 Recommendations、quota、rate limit
-
-- 每次成功写 family 时只把该搜索排名最高的前 8 条提升到 recommendation pool 顶部，其余尾部结果排在已有高质量候选之后；按 video id 去重并保留最多 200 条。
-- Cache hit 会重新提升该 family 的头部结果；真实 `ADD_QUEUE_ITEM` 会把被点歌曲置顶，因此近期搜索、近期点歌和历史高命中 family 都会形成可解释的推荐信号。
-- Recommendation key 不存在或不足时，会按“最近访问时间 + hit count”排列 family，再按名次轮转合并，而不是让单个最新 family 的随机尾部垄断列表。
-- Project guardrail：100 `search.list` calls/day、最多 1 call/cold fill；每个 outbound call 前独立预留额度。
-- Quota day 按 `America/Los_Angeles`，PT 午夜重置。
-- `GET /api/youtube/quota` 返回 remaining/reset；cold search 写入后直接使用刚记录的 status，并通过 room WebSocket `YOUTUBE_QUOTA_UPDATED` 即时更新 display。60 秒 query poll 只作断线兜底。
-- Display 只显示简洁的本地相对倒计时（`本地重置还有 N 小时`），不暴露 GMT 或 IANA 时区文本。
-- Estimate 不替代 Google Cloud Console，失败/无效请求可能造成 drift。
-- 非空搜索默认同 room + IP identity 每分钟 20 次。
-- 应用节流时搜索 API 返回带 `throttled=true` 和 `retryAfterSeconds` 的正常部分响应，Mobile 保留当前结果并显示轻提示，不再用 HTTP 429 清空搜索体验。
-- 每日 YouTube search guardrail 耗尽时，精确 repository/KV 命中仍可正常返回；cold miss 会携带 `quota.exhausted=true`。Mobile 有当前结果时继续保留并提示恢复倒计时，没有当前结果时持续显示“今日搜索额度已用完”，不再误报成普通零结果。
-
-### 6.9 Mobile search state
-
-每个 room 的 localStorage state 保留 24 小时：
-
-- Query、type、original-vocal toggle。
-- Full response cache 和 visible count（10–50）。
-- Selected result、active preview、scroll。
-- Search/queue tab URL state。
-
-继续加载只扩展当前 response。切 tab、refresh 或连续点歌都应保留上下文。
-
-输入 query、切换歌名/歌手或打开/关闭原唱只更新草稿条件，不改变当前标题、数量和结果；按搜索按钮或键盘 Search/Enter 才提交。请求进行中保留旧结果，成功后一次性替换，避免数量在输入或 loading 中跳动。
-
-### 6.10 零额度搜索防回归机制
-
-搜索算法或体验改动必须先运行 `npm run verify:search`。该命令不会读取真实 `YOUTUBE_API_KEY`，并在 Vitest 层拦截所有未显式 stub 的网络请求，因此通过结果代表消耗 0 次真实 YouTube 额度。它同时固定以下发布契约：
-
-- 四组黄金质量场景覆盖歌曲/歌手 × KTV/原唱意图；例如 `后来`、`单依纯` 和 `林俊杰`，精确断言保留与拒绝的 video IDs。算法行为需要调整时，应有意识地更新 fixture 和期望，不允许靠放宽断言让测试“自然通过”。
-- `search.list` 每个 cold family 最多 1 次、Worker deadline 1600ms、浏览器 deadline 2000ms、每日 app guardrail 100；脚本同时检查两个 Wrangler 配置和源码默认值，防止历史 12-call 补量策略意外回归。
-- exact cache hit、cache-only miss、provider 429/timeout、quota exhausted 与应用 throttle 都有独立契约；可恢复的空响应必须保留当前搜索卡片。
-- `test/searchNoNetworkSetup.ts` 默认拒绝测试进程中的真实网络；provider 测试只可使用当前 test 内声明的 deterministic fixture。
-
-生产发布后的自动 smoke 只允许使用 `cacheOnly=true`。`npm run smoke:search:cache` 会读取请求前后 quota、断言服务端确认 cache-only、`sourceQueryCount=0`、`externalCallAvoided=true`，并确认 `used` 没有变化。它仍会经过 room rate limit，但不会触达 YouTube。
-
-### 6.11 后续 search 方向
-
-- 用 curated/offline tooling 增加中文别名、拼音、英文名和 typo。
-- 决定是否提供显式 prewarm。
-- 按真实 D1/KV 增长和复用率设计目录/缓存 eviction。
-- 若增加多 source-query，仍受 daily/per-fill caps 限制。
+不要在 README 重新复制 scoring、cache keys 或 provider query；需要修改时直接更新 `SEARCH.md`。
 
 ## 7. 管理控制台与持久搜索资料库
 
@@ -473,16 +270,7 @@ Family entry 保存：
 
 `migrations/0005_search_video_catalog.sql` 新增持久视频目录和搜索效率事件列；`migrations/0006_remove_cross_query_catalog_search.sql` 删除不再使用的 FTS5 索引与 triggers。目录没有自动 TTL；实际 D1 `file_size` 继续由 Cloudflare 指标路径监控。
 
-用户搜索顺序：
-
-1. 用算法版本、完整规范化文字、artist、song/artist 与 original-vocal 生成唯一 family hash；D1 row 的 `family_hash` 和 KV key 都必须与它完全相同。
-2. Exact family 命中后稳定返回同一排序，`responseSource=repository`、`externalCallAvoided=true`，不调用 YouTube；旧算法 row 即使文字/options 相同也会因 hash 不同而被忽略。
-3. Exact miss 才调用 YouTube（或 local mock）。不会读取其他 option family、normalized index、相似 query 或候选目录。Live path 在每个 `search.list` outbound call 前通过 D1 原子预留一次额度；即使 provider 随后失败，这次可能已消耗的调用也保留在 ledger。没有可用耐久 ledger 时不会发出无法记账的外部调用。
-4. 外部结果必须有可验证的 Music category、严格短于 7 分钟的 duration 和可嵌入状态；过滤后的完整结果写入当前 exact repository、KV family 与 recommendations。
-5. KV search key 已升到 `yt-search:v4`、recommendation key 已升到 `yt-search-recommendations:v2`，避免旧的未验证 metadata 继续返回。D1 旧 row 若缺少 category/duration 也会被忽略，直到 live search 刷新。
-6. 命中的 repository access、KV touch、cache/repository refresh、human search event 与 quota broadcast 在生产使用 `ctx.waitUntil` 完成；API route 仍记录真实 response source、候选/过滤/新增与复用指标。
-
-如果 D1 暂时不可用，公开搜索会记录结构化错误并沿用 KV/live path，不因为 admin instrumentation 让用户搜索整体失败。
+D1/KV exact read order、family hash 校验、旧算法隔离、live fallback、持久化和失败策略统一见 `SEARCH.md`。Admin 继续把 repository 与 search events 作为运营数据展示；D1 暂时不可用时，公开搜索不会因为 admin instrumentation 整体失败。
 
 ### 7.3 容量与 quota 语义
 
@@ -494,7 +282,7 @@ Family entry 保存：
 - 管理页面自动读取最多每 5 分钟向 Cloudflare 重新验证一次；手动“刷新数据”会要求服务端重新验证。D1 lease 避免多个管理员页面同时重复调用 provider。
 - 清理策略要求 D1 权威实际体积可用且新鲜，并同时配置 capacity、warning threshold 和更低的 cleanup target；缺一项、指标过期、目标不低于预警线或容量未越线时，服务端都返回明确的 skipped preview，不删除资料。
 - 首版坚持 manual-first：预览和确认后才执行有限批次；自动清理仍未启用。
-- YouTube 页面值标记为 `local_estimate / search_calls`。当前 project guardrail 为 100 calls/day、一次 `search.list` 计一次；Google Cloud Console 仍是最终权威。
+- YouTube 页面值标记为 `local_estimate / search_calls`；完整 ledger、预留和真实配额边界见 `SEARCH.md`。
 
 ### 7.4 本地管理员验证
 
@@ -705,50 +493,11 @@ Display 专项：
 - Mobile Safari 的状态栏、浏览器上下栏和 safe-area 不应露白；长按正文/缩略图不出现蓝色选择层，搜索输入仍可选字。
 - Display 空状态 footer 不显示占位歌名；Space 在页面任意非输入焦点暂停/继续，点击播放器控制键后不保留焦点圈。
 
-### 11.2 零额度 API/search smoke
+### 11.2 搜索专项
 
-日常开发与发布只运行 cache-only smoke。先使用现有 production room id；无论查询是否已有 exact cache，都不会调用 YouTube：
+零额度 cache-only smoke、最多 2–3 次的人工 live search、quota before/after、四模式验收矩阵和发布完成标准统一见 `SEARCH.md` 的“搜索算法变更协议”。README 不维护第二份可能与算法脱节的搜索 smoke。
 
-```powershell
-npm run smoke:search:cache -- --room-id <8位roomId> --query "林俊杰" --search-type artist
-```
-
-期望：脚本显示 `sourceQueryCount=0`、quota 前后 `used` 不变；有缓存时返回相同 family 的结果，无缓存时安全返回 0 条。不要把“cache-only miss 为 0 条”当成搜索质量失败。
-
-### 11.3 人工 live search（会消耗额度）
-
-只有用户明确安排真实验收时才运行下列 cold search；它不是例行发布 smoke。每个未缓存的精确 family 最多消耗 1 次 `search.list`。建议一次验收只选 2–3 个此前未搜索的 family：歌曲 KTV、歌手 KTV，必要时再加一组原唱；先后读取 quota，并用完全相同的 query/options 重试一次确认 exact cache 不再增加 `used`。
-
-```powershell
-$base = "https://ktv-assistant.bradwang1995.workers.dev"
-$room = Invoke-RestMethod -Method Post -Uri "$base/api/rooms"
-$roomId = $room.roomId
-Invoke-RestMethod -Uri "$base/api/rooms/$roomId/snapshot"
-Invoke-RestMethod -Uri "$base/api/youtube/quota"
-
-$body = @{
-  query = "后来"
-  limit = 50
-  searchType = "song"
-  includeOriginalVocal = $false
-  cacheFill = $true
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri "$base/api/rooms/$roomId/search" `
-  -ContentType "application/json" `
-  -Body $body
-```
-
-期望：
-
-- New room queue empty、player idle。
-- Cold search 通常 `cached=false`；repeat family `cached=true`。
-- 非空 results 最多 50，UI 每次展开 10 条。
-- Empty query 最多返回 200 条去重 recommendations，UI 按 10 条无限滚动，且不增加 search estimate。
-
-### 11.4 Admin 存储指标
+### 11.3 Admin 存储指标
 
 1. 登录 production `/admin`，点击“刷新数据”。
 2. 运行 `npx wrangler d1 info ktv-assistant-db --config wrangler.toml`，对照页面 `ktv-assistant-db` 的 bytes；允许格式单位与请求时间造成少量显示差异。
@@ -757,7 +506,7 @@ Invoke-RestMethod `
 5. 未配置 `D1_CAPACITY_LIMIT_BYTES` / `KV_CAPACITY_LIMIT_BYTES` 时，页面不得显示百分比或推断 plan。
 6. 未认证访问 `/api/admin/storage` 必须返回 `401` 和 `Cache-Control: no-store`。
 
-### 11.5 WebSocket smoke
+### 11.4 WebSocket smoke
 
 ```js
 const roomId = "<roomId>";
@@ -777,7 +526,7 @@ ws.onmessage = (event) => console.log(JSON.parse(event.data));
 
 期望 `ROOM_SNAPSHOT`、`PONG`；第二个 client 连接时 connected count 变化。再发送两次 `ADD_QUEUE_ITEM`：第一首 playing、第二首 queued；`PLAYER_ENDED` 推进；`RESTART_CURRENT_ITEM` 保持当前 item 并回到 loading。
 
-### 11.6 Cleanup、rate limit、devices
+### 11.5 Cleanup、rate limit、devices
 
 Debug page 应能 refresh snapshot、复制链接、删除 completed/removed items。关闭所有 display/mobile/debug 页面至少 5 分钟后，snapshot 应显示 inactive、empty queue、idle playback。
 
@@ -808,11 +557,11 @@ Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返�
 3. 跑 create/snapshot API smoke。
 4. 跑 `JOIN_ROOM/PING`。
 5. 确认最新 commit 是否真正 deploy。
-6. Search 检查 secret、Google quota、KV、rate limit。
+6. Search 按 `SEARCH.md` 的诊断字段依次检查 exact family、quota ledger、provider、D1/KV 和 rate limit。
 7. Sync 检查 `ROOM_OBJECT`、Room Worker、D1。
 8. Autoplay/restart/pause/seek/next 必须在目标浏览器复现；YouTube 画质只验证 adaptive，不验证已废弃的强制 quality API 或已移除的手动模式。
 
-### 11.7 Admin smoke
+### 11.6 Admin smoke
 
 - 未登录 `GET /api/admin/overview` 必须返回 `401 ADMIN_UNAUTHORIZED`，且不返回任何 metrics。
 - `/admin` 未登录只显示登录表单；登录后显示三段导航和真实 D1 数据。

@@ -1,5 +1,6 @@
 # Repository workflow
 
+- Treat root `SEARCH.md` as the only current source of truth for search queries, relevance, intent, caching, recommendations, quota, deadlines, and search UX. Before changing those behaviors, read it and record the intended change; update it in the same batch, bump the documented/implemented algorithm or cache version when required by its matrix, and run `npm run verify:search`.
 - Treat a substantial feature batch or internal-test repair round as a release workflow unless the user explicitly says not to publish.
 - Before declaring a substantial batch complete:
   1. Update `README.md` when behavior, architecture, APIs, operation, or release guidance changed.

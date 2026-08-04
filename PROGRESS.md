@@ -1,8 +1,8 @@
 # Project Progress
 
-Last updated: 2026-08-01
+Last updated: 2026-08-04
 
-这份文件记录 implementation status、历史修复、验证结果和剩余工作。系统设计、search details、手动配置、部署和测试步骤见根目录 `README.md`。
+这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
 ## 1. 当前状态
 
@@ -12,7 +12,7 @@ Last updated: 2026-08-01
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
 | Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
-| YouTube search | MVP complete | Live API、算法版本化 exact family cache、2 秒 UX 硬截止、单次 cold provider call、部分结果返回、KTV/原唱 intent ranking、推荐、rate limit、quota，以及不展示提示的单视频 URL 兜底已完成。 |
+| YouTube search | MVP complete | 当前 executable contract、四模式规则、缓存层次、已知风险和变更协议见 `SEARCH.md`；本文件只保留历史 pass 与验证证据。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
@@ -21,7 +21,7 @@ Last updated: 2026-08-01
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
 | Automated tests | 28 files / 142 tests | 零网络 golden search contract、cache-only、两秒体验、provider 限流、preview、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
-| Documentation | Complete | `README.md`、`PROGRESS.md` 已纳入本轮功能；`DESIGN-QA.MD` 记录本轮强制视觉验收。 |
+| Documentation | Complete | `SEARCH.md` 是搜索 source of truth；`README.md` 管产品与运维，`PROGRESS.md` 管历史与证据。重复的 `DESIGN-QA.MD` 已移除。 |
 
 状态：`[x]` complete；`[~]` usable but needs further validation；`[ ]` pending。
 
@@ -424,6 +424,18 @@ Last updated: 2026-08-01
 | SRCH15-04 | P0 | Search API 增加隐藏 `cacheOnly=true` 诊断模式；exact hit 可读，miss/单视频 URL 都不触达 YouTube，且不写 human search event 或 quota ledger。 |
 | SRCH15-05 | P1 | 新增硬编码 cache-only 的生产 smoke 脚本，自动对比 quota 前后 `used` 并验证 `sourceQueryCount=0`；README 将真实 cold search 明确降级为用户授权的人工验收。 |
 
+### 2026-08-04 search source-of-truth and documentation governance pass 16
+
+本轮没有修改 production 搜索结果；目标是把散落在 README、历史 progress 和代码中的搜索事实收敛成可审计规范，并让搜索验证脚本阻止文档/config/常量漂移。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| DOC16-01 | P0 | 根目录新增 `SEARCH.md`，以当前代码重新核实 query family、四模式 hard gates/scoring、YouTube pipeline、D1/KV/recommendations/catalog、quota、两秒状态和 API 诊断。 |
+| DOC16-02 | P0 | 明确区分“当前行为”和“下一版变更提案”，建立 version bump matrix、golden fixtures、额度上限与发布完成标准。 |
+| DOC16-03 | P0 | `verify:search` 读取 `SEARCH.md` 机器契约，并与 Room/Main variables、Worker/Client constants、cache versions、region/language、结果/时长限制核对。 |
+| DOC16-04 | P1 | README 搜索技术细节和 production search smoke 移至 `SEARCH.md`，只保留产品级不变量与链接；PROGRESS 历史 pass 保留但不再定义当前算法。 |
+| DOC16-05 | P2 | 删除内容已被本文件历史 QA 摘要覆盖的 `DESIGN-QA.MD`，文档职责收敛为 README / SEARCH / PROGRESS。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -477,10 +489,11 @@ Last updated: 2026-08-01
 | 2026-08-01 quota exhaustion clarity production release | 源码提交 `a586698` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布并复核活动流量为 Room `a8d2b811-2d73-48d9-85ef-4cf5a091bfdb`、Main `f693be88-01ca-4ddf-ad62-06feafebe5ed`，均为 100%。生产 quota 维持 `100/100` 的真实耗尽状态；全新内置浏览器 390×844 在 cold miss 空页面持续显示“今日搜索额度已用完”和“本地重置还有 6 小时”，加载已缓存 `林俊杰 / 歌手 / 非原唱` 后显示 10/50 条，再提交未缓存歌手时仍保留相同 50 条结果并显示“当前结果已保留”提示。生产加载新版 `/assets/index-C2rQf336.js`，页面无横向 overflow，console 无 error/warning。 |
 | 2026-08-01 zero-quota search guard local | `npm run verify:search` 在真实网络被禁止的环境下通过 9 files / 56 tests，并通过 typecheck；full 28 files / 142 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed。全新内置浏览器本地 room `096x1933` 搜索 `后来` 返回 8 条 mock 结果，点选第二条后只有一个 iframe，URL 含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin。本轮没有执行 production search/cache smoke，保留真实额度给用户次日上午 2–3 次人工验收。 |
 | 2026-08-01 zero-quota search guard production release | 源码提交 `ef2fb17` 已推送 `origin/main`。Wrangler 4.105 先发布 Room，再以 `--keep-vars` 发布 Main；Workers Builds 在首次 Main 手动发布后完成同一 main push 的自动版本，因此又手动发布 Main 一次，最终活动流量为 Room `d7aedc20-6af5-4125-9807-008ea4889a9d`、Main `b3bb7d9d-9db0-4eda-9c77-ba3111587d7a`，均为 100%。Production root 返回 200 并加载本地 build 对应的 `index-CmOH7Wkg.js`。按用户安排，本轮没有请求 production search endpoint（包括 cache-only），也没有执行 cold search；真实搜索与 preview 终验保留到次日上午。 |
+| 2026-08-04 search source-of-truth local | 基于 `02f2e42` 逐项复核 search family、provider、scoring、D1/KV、recommendations、quota、router 与 Mobile 状态后新增 `SEARCH.md`。机器契约与源码/config 校验、零网络 focused 9 files / 56 tests、typecheck、full 28 files / 142 tests、production build 和 `git diff --check` passed。没有修改 Worker/frontend runtime，因此本轮不做浏览器或 production deploy/smoke。 |
 
 ### Admin console design QA（2026-07-21）
 
-Final result：passed；没有遗留可执行的 P0、P1 或 P2 design finding。详细中文记录见根目录 `DESIGN-QA.MD`。
+Final result：passed；没有遗留可执行的 P0、P1 或 P2 design finding。必要验收结论保留在本节，原独立 QA 文件已于 2026-08-04 删除。
 
 - Reference：用户选定的第三版深色 dashboard，并按要求进一步精简。
 - Desktop：`1440×1024` 同屏比较；深色 tokens、侧栏、状态、双指标卡、趋势图和底部信息层级与参考方向一致。
@@ -497,7 +510,7 @@ Final result：production passed；没有遗留可执行的 P0、P1 或 P2 desig
 - Failure state：没有 token 时 D1/KV 分别显示安全不可用状态，不生成假体积、容量或百分比；清理执行入口保持关闭。
 - Production data：D1 API `278,528 bytes` 与 Dashboard `279 kB` 一致；KV Analytics `1,297,755 bytes / 413 keys` 与 Dashboard `1.3 MB / 413` 一致。Admin 的 `272.0 KB / 1.2 MB` 使用二进制换算。
 - Interaction：生产登录、手动刷新、三页导航和清理预览均通过；刷新后按钮恢复可用。
-- Console：本地与生产均无 application error 或 warning。详细记录和本地截图路径见 `DESIGN-QA.MD`。
+- Console：本地与生产均无 application error 或 warning；关键数值与布局证据保留在本节。
 
 ### Fourth-round design QA（2026-07-15）
 
@@ -645,9 +658,9 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 
 ## 6. Documentation rules
 
-- README explains how the system works and how to operate it。
-- Progress records what is complete, verified, and pending。
-- 常规产品文档仍只维护 README/PROGRESS；`DESIGN-QA.MD` 仅作为本轮 Product Design 强制验收记录。
+- README explains the product, overall architecture, operation, deployment, and general testing。
+- SEARCH is the only current source of truth for search, cache, ranking, quota, and search change protocol。
+- PROGRESS records what is complete, verified, pending, and historically released；历史 pass 不覆盖 SEARCH 的当前契约。
 - 不再为小修改创建新的 Markdown logs。
 - 新修复更新现有 phase/table，不追加互相矛盾的 update notes。
 - Production version 只在真实 deploy 后更新。
