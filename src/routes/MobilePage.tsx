@@ -112,9 +112,9 @@ export default function MobilePage() {
         <header className="mobile-safe-header relative z-[60] shrink-0 overflow-hidden border-b border-white/10 bg-slate-950 px-4 pb-2 text-white">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(20,184,166,0.2),transparent_42%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.13),transparent_38%)]" />
           <div className="relative flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-normal">K歌助手</h1>
-              <p className="mt-0.5 text-sm text-slate-300">{roomDisplayName}</p>
+            <div className="flex min-w-0 flex-1 items-baseline gap-2">
+              <h1 className="shrink-0 text-xl font-semibold tracking-normal">K歌助手</h1>
+              <p className="truncate text-sm text-slate-300">{roomDisplayName}</p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-1.5">
               <button
@@ -917,16 +917,12 @@ function PillToggle({
       type="button"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
-      className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border px-2 text-base font-semibold transition focus:outline-none focus:ring-4 focus:ring-teal-300/15 ${
-        checked
-          ? "border-teal-300 bg-teal-300 text-slate-950"
-          : "border-white/15 bg-slate-800 text-slate-300"
-      }`}
+      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-slate-300 transition focus:outline-none focus:ring-4 focus:ring-teal-300/15"
     >
       <span className="whitespace-nowrap">{label}</span>
       <span
         className={`relative h-5 w-8 rounded-full transition ${
-          checked ? "bg-teal-900/30" : "bg-slate-600"
+          checked ? "bg-teal-300" : "bg-slate-600"
         }`}
       >
         <span

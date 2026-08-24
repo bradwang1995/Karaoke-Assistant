@@ -6,12 +6,12 @@ import { filterStructurallyUsableVideoResults } from "./songFilter";
 
 const SEARCH_CACHE_VERSION = "v4";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v3";
+const SEARCH_RECOMMENDATIONS_VERSION = "v4";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
 export const MAX_RECOMMENDED_SEARCH_RESULTS = 200;
-export const MAX_PROMOTED_RESULTS_PER_SEARCH = 8;
+export const MAX_PROMOTED_RESULTS_PER_SEARCH = 20;
 
 export interface SearchCacheNamespace {
   get<T>(key: string, options: { type: "json" }): Promise<T | null>;

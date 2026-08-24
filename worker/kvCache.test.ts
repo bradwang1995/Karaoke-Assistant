@@ -171,15 +171,26 @@ describe("KV search cache", () => {
       ttlSeconds: 60 * 60 * 24 * 365,
       maxEntryBytes: 100_000,
     });
-    const recommendations = await readSearchRecommendations(kv, 8);
+    const recommendations = await readSearchRecommendations(kv, 20);
 
     expect(kv.values.has(searchRecommendationsKey())).toBe(true);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v3:CA:zh-Hans");
-    expect(recommendations).toHaveLength(8);
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v4:CA:zh-Hans");
+    expect(recommendations).toHaveLength(10);
     expect(recommendations[0].videoId).toBe("video-0");
   });
 
-  it("keeps recommendations selective by using only the top eight from each family", async () => {
+  it("ignores the previous recommendation pool version", async () => {
+    const kv = new MemoryKv();
+    kv.values.set(
+      "yt-search-recommendations:v3:CA:zh-Hans",
+      JSON.stringify({ updatedAt: new Date().toISOString(), results: buildResults(20) }),
+    );
+
+    await expect(readSearchRecommendations(kv, 20)).resolves.toEqual([]);
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v4:CA:zh-Hans");
+  });
+
+  it("keeps recommendations selective by using only the top twenty from each family", async () => {
     const kv = new MemoryKv();
 
     for (let familyIndex = 0; familyIndex < 2; familyIndex += 1) {
@@ -198,13 +209,15 @@ describe("KV search cache", () => {
 
     const recommendations = await readSearchRecommendations(kv, 100);
 
-    expect(recommendations).toHaveLength(16);
-    expect(new Set(recommendations.map((result) => result.videoId)).size).toBe(16);
-    expect(recommendations.some((result) => result.videoId === "video-8")).toBe(false);
-    expect(recommendations.some((result) => result.videoId === "video-58")).toBe(false);
+    expect(recommendations).toHaveLength(40);
+    expect(new Set(recommendations.map((result) => result.videoId)).size).toBe(40);
+    expect(recommendations.some((result) => result.videoId === "video-19")).toBe(true);
+    expect(recommendations.some((result) => result.videoId === "video-20")).toBe(false);
+    expect(recommendations.some((result) => result.videoId === "video-69")).toBe(true);
+    expect(recommendations.some((result) => result.videoId === "video-70")).toBe(false);
   });
 
-  it("does not rebuild v3 recommendations from an old algorithm family entry", async () => {
+  it("does not rebuild v4 recommendations from an old algorithm family entry", async () => {
     const kv = new MemoryKv();
     const family = buildSearchQueryFamily("林俊杰", undefined, { searchType: "artist" });
     await writeSearchCache(
@@ -239,12 +252,11 @@ describe("KV search cache", () => {
 
     const recommendations = await readSearchRecommendations(kv, 24);
 
-    expect(recommendations.slice(0, 8).map((result) => result.videoId)).toEqual(
-      buildResults(8, 100).map((result) => result.videoId),
+    expect(recommendations.slice(0, 12).map((result) => result.videoId)).toEqual(
+      buildResults(12, 100).map((result) => result.videoId),
     );
-    expect(recommendations[8].videoId).toBe("video-0");
-    expect(recommendations.some((result) => result.videoId === "video-108")).toBe(false);
-    expect(recommendations).toHaveLength(16);
+    expect(recommendations[12].videoId).toBe("video-0");
+    expect(recommendations).toHaveLength(24);
   });
 
   it("moves recently reused searches and actually queued songs to the front", async () => {

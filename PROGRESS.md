@@ -19,7 +19,7 @@ Last updated: 2026-08-24
 | Mobile preview | MVP complete | 2–4 列、active card 整行扩展、IFrame API 预热、构造即从 30 秒静音 autoplay、字幕默认开启、PLAYING 后淡入与 timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
-| Automated tests | 28 files / 145 tests | 零网络 preserve-50 golden search contract、cache-only、两秒体验、provider 限流、preview、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
+| Automated tests | 28 files / 146 tests | 零网络 preserve-50 golden search contract、recommendation v4 高分头部、cache-only、两秒体验、provider 限流、preview、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
 | Real-device QA | Pending | Safari、Android、iPad、Desktop Chrome 待正式验收。 |
 | Documentation | Complete | `SEARCH.md` 是搜索 source of truth；`README.md` 管产品与运维，`PROGRESS.md` 管历史与证据。重复的 `DESIGN-QA.MD` 已移除。 |
 
@@ -484,6 +484,17 @@ Last updated: 2026-08-24
 | MUI20-01 | P0 | Active preview 移除 full-row col-span 与 200px minimum height，恢复与其他搜索结果相同的 2/3/4 列 card 尺寸。 |
 | MUI20-02 | P1 | 待播 card 的置顶/删歌从 32px 纵向按钮改为左右横排的 44px touch target；保留 aria-label/title，390px viewport 实测 card 高度为 74px。 |
 
+### 2026-08-24 mobile header/toggle and broader cache recommendations pass 21
+
+本轮保留 pass 20 已接受的 preview 与歌单布局，只收紧 Mobile 头部/原唱控件层级，并扩大现有高分 exact family 的缓存推荐数量。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| MUI21-01 | P1 | “K歌房”移到“K歌助手”同一行，长房间名可截断，头部节省一行垂直空间。 |
+| MUI21-02 | P1 | 原唱开启时外层 box 保持与关闭时一致的深色中性外观，只有内部 toggle 轨道变为 teal。 |
+| SRCH21-01 | P1 | 每个 exact search family 进入 recommendation pool 的高分头部从 8 条增至 20 条，仍按 video id 去重、最多 200 条，recently queued 仍最优先。 |
+| SRCH21-02 | P1 | Recommendation key `v3 → v4`；现有 exact KV `v4` family 可按新规则重建，旧推荐池不再读取并按 TTL 自然过期。Query、排序、准入、配额与外部调用数均不变。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -548,6 +559,7 @@ Last updated: 2026-08-24
 | 2026-08-24 full-width preview/dense queue production release | 源码提交 `58f248e` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布；GitHub Workers Build 随后生成自动 Main 版本，因此再次手动发布。最终 100% 活动版本为 Room `2a4e7ef5-1aca-4890-9e86-094a9d7156e4`、Main `0f070c4d-1017-42ac-9b37-58a79cd455db`。Production root、新 JS `/assets/index-D1oYEM9X.js`（309,183 bytes）和 CSS `/assets/index-zpoI-iHt.css`（44,521 bytes）均 HTTP 200。全新内置浏览器 390×844 的真实 YouTube preview 达到 `30.084s`，单 iframe 为 `355.5×200`，参数含 `autoplay=1`、`start=30`、`cc_load_policy=1`、`controls=0`；实际截图中歌词清晰可见，未出现 app 暂停键/已选中 badge，也无横向 overflow。内置浏览器中的临时生产房间持续显示重连，因此没有把 connected WebSocket 下的生产置顶/删歌速度虚报为通过；本地 UI 自动化与 reducer 路径已覆盖该即时反馈。本轮没有提交 production search，也未消耗真实 YouTube `search.list` quota。 |
 | 2026-08-24 preview rollback/queue controls local | `npm run verify:search` 13 files / 79 tests、full 28 files / 145 tests、typecheck、production build 与 `git diff --check` passed。全新内置浏览器 390×844：active preview card 与 sibling 均为 169px 宽，iframe 恢复为约 `167×94`，grid 保持两列且无横向 overflow；5 个待播 card 均高 74px，没有“第 N 首”，每张 card 的置顶/删歌为从左到右排列的两个 `44×44` touch target。截图确认长标题仍可两行显示，操作区没有挤出 card。Local mock video 进入既有 preview error fallback，因此本轮只验证尺寸与布局，没有虚报真实 PLAYING。 |
 | 2026-08-24 preview rollback/queue controls production release | 源码提交 `d6b0cd5` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布；GitHub Workers Build 再次在首次手动 Main 发布后生成自动版本，因此再次手动发布。最终 100% 活动版本为 Room `1d8d30e5-6da2-414b-9864-7c416ffd232c`、Main `d2cbf827-2210-4741-aeff-671b9bf643c5`。Production root、新 JS `/assets/index-DNEF8LtP.js`（309,117 bytes）和 CSS `/assets/index-Bgnd4eGg.css`（44,366 bytes）均 HTTP 200。全新内置浏览器 390×844 的真实 YouTube preview 与 sibling 均为 169px 宽，单 iframe 约 `167×94`，达到 `30.07s`，参数仍含 `autoplay=1`、`start=30`、`cc_load_policy=1`、`controls=0`，且无横向 overflow。生产截图确认整行大 preview 已撤回；YouTube 原生角标仍可能出现。本轮没有提交 production search，也未消耗真实 YouTube `search.list` quota。 |
+| 2026-08-24 mobile header/toggle and broader recommendations local | Recommendation key `v3 → v4`，每 family 高分头部 `8 → 20`。`npm run verify:search` 13 files / 80 tests、full 28 files / 146 tests、typecheck 和 production build 通过，provider fixtures 全部 mocked，真实 YouTube 调用为 0。按仓库要求启动全新内置浏览器并设为 390×844，但本地 `127.0.0.1` 导航被浏览器安全策略拦截，因此本记录不宣称原唱 toggle、同行房间名或横向 overflow 已完成本地视觉验收。发布与生产验证证据见同日 release record。 |
 
 ### Admin console design QA（2026-07-21）
 

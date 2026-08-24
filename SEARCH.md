@@ -1,7 +1,7 @@
 # K歌助手搜索与缓存规范
 
-最后核实：2026-08-23
-代码基线：`b6fad28`
+最后核实：2026-08-24
+代码基线：当前 release worktree（基于 `43f3946`）
 状态：当前实现的 source of truth
 
 ## 1. 这份文件如何使用
@@ -24,13 +24,13 @@
   "schemaVersion": 1,
   "searchAlgorithmVersion": "rank-preserve-50-v2",
   "searchCacheVersion": "v4",
-  "recommendationsVersion": "v3",
+  "recommendationsVersion": "v4",
   "regionCode": "CA",
   "relevanceLanguage": "zh-Hans",
   "searchPageSize": 50,
   "maxCachedResults": 50,
   "maxRecommendations": 200,
-  "maxPromotedRecommendationsPerSearch": 8,
+  "maxPromotedRecommendationsPerSearch": 20,
   "dailySearchListLimit": 100,
   "maxSearchListCallsPerColdFill": 1,
   "workerDeadlineMs": 1600,
@@ -55,7 +55,7 @@
 7. 这一次查询固定取最多 50 个 YouTube video candidates；`videoEmbeddable=true` 在 provider 层排除不可播放结果，再用最多一次 `videos.list` 尝试补充 duration、category、tags 和 embeddable 状态。
 8. 普通搜索只剔除缺少可用 video id、缺少可显示标题、重复 id 或详情明确 `embeddable=false` 的候选；Music category、时长、title/artist match、KTV/原唱 marker 和 metadata 缺失都不再决定准入。
 9. 所有结构可用候选按 song/artist 与 KTV/原唱信号评分并稳定排序；低相关或错误意图结果留在后排，不被质量逻辑删除。
-10. 完整排序结果写入 D1 exact repository 和 KV exact family；recommendation pool 只摄入每次搜索的前 8 条，避免 exact search 的低分尾部污染推荐。
+10. 完整排序结果写入 D1 exact repository 和 KV exact family；recommendation pool 只摄入每次搜索的前 20 条，在增加可浏览歌曲的同时不把 exact search 的后 30 条弱尾部直接灌入推荐。
 11. Worker 的外部预算为 1600ms；浏览器在 2000ms 主动 abort。`videos.list` 缺失、失败或超时时使用已有 snippet，不延长等待。
 
 最重要的结论：**搜索完整性优先、排序第二、只有结构不可用才硬拒绝。** `maxResults=50` 是 provider 上限，不是数学保证；系统不会制造缺失结果，也不会翻页补满。但 provider 如果返回 50 个结构可用 candidates，本地质量逻辑通常保留全部 50 个。缓存保证相同 exact family 重用同一候选集合，并按当前分数重排。
@@ -289,7 +289,7 @@ KTV 模式强奖 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 | --- | --- | --- | --- |
 | D1 `search_repository_entries` | 持久 exact response source | 是，优先级最高 | 无 TTL；管理员删除/清理或新版成功覆盖 |
 | KV `yt-search:v4:*` | exact family 加速与 D1 fallback | 是 | 默认 365 天 |
-| KV recommendations `v3` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
+| KV recommendations `v4` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
 | D1 `search_video_catalog` | 结构可用 provider candidates 的 analytics catalog | 否 | 无自动 TTL |
 | Mobile localStorage | 单个 room 的 UI 恢复 | 否，不作为服务端候选来源 | 24 小时 |
 
@@ -326,7 +326,7 @@ yt-search:v4:<familyHash>:CA:zh-Hans
 
 Entry 保存 query family、aliases、hash、created/expiry、source queries、最多 50 条 results、provider call stats、payload bytes、pruned count、hit count 和 last access。
 
-KV schema version 保持 `v4`：stored entry shape 没有改变，新的 `rank-preserve-50-v2` family hash 已把旧 exact keys 隔离。Recommendation key 单独 bump 到 `v3`，因为新版只摄入高分头部，旧 v2 中混入的完整尾部不应继续合并。
+KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve-50-v2` family hash 仍隔离更早的 exact keys。Recommendation key 单独 bump 到 `v4`，使现有 exact family 可按每 family 前 20 条的新规则重建；旧 `v3` pool 不再读取并按原 TTL 自然过期。
 
 写入前只过滤结构不可用/重复结果并截断到 50 条；category、duration、tags 和完整 details 都不是 cache eligibility。JSON 超过 524,288 bytes 时从低分尾部逐条裁剪。KV touch 增加 hit count 和 last access，但保持原 expiration，不延长 family TTL。
 
@@ -346,10 +346,10 @@ KV schema version 保持 `v4`：stored entry shape 没有改变，新的 `rank-p
 Key：
 
 ```txt
-yt-search-recommendations:v3:CA:zh-Hans
+yt-search-recommendations:v4:CA:zh-Hans
 ```
 
-更新顺序：本次结果前 8 条 → 现有 recommendation pool；不会把本次 exact search 的第 9–50 条低分尾部直接灌入推荐。按 video id 去重并截断到 200。真实点歌会把该 video 以高分 `recently queued` 信号推到最前。
+更新顺序：本次结果前 20 条 → 现有 recommendation pool；不会把本次 exact search 的第 21–50 条弱尾部直接灌入推荐。按 video id 去重并截断到 200。真实点歌会把该 video 以高分 `recently queued` 信号推到最前。
 
 如果 recommendation key 不存在或数量不足，系统列出一批 KV family entries，先重建每个 entry 的当前 family hash 并排除旧 algorithm entries，再按：
 
@@ -357,7 +357,7 @@ yt-search-recommendations:v3:CA:zh-Hans
 lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 ```
 
-排序 family，再只取每个 family 的前 8 条，按第 1 名、第 2 名……轮转合并。由此保持 `exact search = permissive`、`recommendations = selective`。
+排序 family，再只取每个 family 的前 20 条，按第 1 名、第 2 名……轮转合并。由此保持 `exact search = permissive`、`recommendations = selective`，并让少量历史搜索也能提供更多可浏览推荐。
 
 重要现状：常规 exact 查询通常由 D1 命中。D1 命中只 touch D1，不会自动 touch KV 或重新提升 recommendation pool；“每次 cache hit 都重提推荐头部”并不是当前通用事实。
 
@@ -481,7 +481,7 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 6. **零结果没有 negative cache。** 同一个冷门/无效 query 每次都可能重新消耗一次额度。
 7. **并发 miss 没有合并。** 同一 family 同时到达的 cold requests 可能重复消耗额度。
 8. **D1 identity 不含 region/language。** KV key 含 `CA/zh-Hans`，D1 unique key 不含；以后改变地区/语言必须 bump algorithm version 或迁移 schema。
-9. **Recommendation 与 exact cache 是两套行为。** Exact 保留最多 50；recommendations 只摄入每个 family 的前 8。常见 D1 hit 不会重新提升推荐。
+9. **Recommendation 与 exact cache 是两套行为。** Exact 保留最多 50；recommendations 只摄入每个 family 的前 20。常见 D1 hit 不会重新提升推荐。
 10. **Snippet fallback metadata 较少。** Details 失败时候选仍会缓存，但缺 duration/category/tags，排序只能使用 title/channel/snippet；后续 exact hit 不会主动补 enrichment。
 11. **浏览器 abort 不撤销 Worker。** 2000ms 客户端停止不保证 quota reservation、provider fetch 或 background persistence 被取消。
 12. **真实结果仍受 YouTube 变化影响。** Offline golden tests 固定算法规则，但不能覆盖 provider 排序、区域结果、删除视频、metadata 变化或 key 级实际 quota。
@@ -491,6 +491,19 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 ## 14. 搜索算法变更协议
 
 ### 14.1 下一版变更提案
+
+### 扩大高分缓存推荐 `[已实现 2026-08-24]`
+
+- 当前问题：空查询最多可返回 200 条，但每个 exact search family 只提升前 8 条；只搜过一两个 family 时，缓存推荐会长期只有 8 或 16 首。
+- 期望行为：每个 family 取排序后的前 20 条进入 recommendation pool，按 video id 去重并保持最多 200 条；真实点歌仍优先，family 重建仍按近期使用与命中次数排序后轮转合并。
+- 不改变：exact search 最多保存 50 条、Mobile 每页显示 10 条、推荐总上限 200、query family、provider query、准入、排序、quota、rate limit 和时间预算都不变。
+- Query 变化：无。空查询仍只读本地 KV，非空查询的第一条 provider query 不变。
+- Hard gate 变化：无。仍只从 exact family 中已排序的结构可用候选取头部。
+- Score 变化：无。推荐不重算或改写歌曲分数。
+- Cache 影响：recommendations key 从 `v3` bump 到 `v4`，避免旧的 8 条/family 池阻止新规则重建；exact KV `v4` 和 algorithm family hash 不变，旧 recommendation key 不再读取并按原 TTL 自然过期。
+- 配额影响：无。推荐读取、新池写入与现有 family 重建都是 KV 操作，`search.list` / `videos.list` 调用数仍为 0。
+- Golden fixtures：50 条的单 family 只提升前 20 条；两个 family 共可提供 40 条且不包含各自第 21 条；旧 recommendation version 不命中；recently queued 仍排第一。
+- 真实验收：本地零网络测试验证数量、去重和顺序；若发布，只用空查询和 `cacheOnly=true` 复核零外部调用，不执行新的 cold production search。
 
 ### Mobile pending 固定高度反馈 `[已实现 2026-08-23]`
 
