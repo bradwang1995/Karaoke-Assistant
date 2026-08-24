@@ -61,7 +61,12 @@ describe("youtube search helpers", () => {
     expect(videosCalls).toHaveLength(1);
     expect(searchCalls[0].searchParams.get("maxResults")).toBe("50");
     expect(searchCalls[0].searchParams.get("q")).toBe("later ktv");
-    expect(searchCalls[0].searchParams.get("videoCategoryId")).toBe("10");
+    expect(searchCalls[0].searchParams.get("videoEmbeddable")).toBe("true");
+    expect(searchCalls[0].searchParams.get("videoCategoryId")).toBeNull();
+    expect(searchCalls[0].searchParams.get("videoDuration")).toBeNull();
+    expect(searchCalls[0].searchParams.get("safeSearch")).toBe("moderate");
+    expect(searchCalls[0].searchParams.get("regionCode")).toBe("CA");
+    expect(searchCalls[0].searchParams.get("relevanceLanguage")).toBe("zh-Hans");
     expect(searchCalls[0].searchParams.has("pageToken")).toBe(false);
     expect(videosCalls[0].searchParams.get("part")).toBe(
       "contentDetails,snippet,status",
@@ -73,7 +78,42 @@ describe("youtube search helpers", () => {
     });
   });
 
-  it("follows the focused query page token until 50 quality results survive filtering", async () => {
+  it("preserves 16 strong and 34 weak artist candidates while ranking strong matches first", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/search")) {
+        return jsonResponse({
+          items: buildSearchItemsWithTitle(0, 50, (index) =>
+            index < 16
+              ? `林俊杰 经典歌曲 ${index} Official Lyrics`
+              : `华语热门歌曲 ${index}`,
+          ),
+        });
+      }
+
+      const ids = url.searchParams.get("id")?.split(",") ?? [];
+      return jsonResponse({ items: ids.map((id) => ({ id, status: { embeddable: true } })) });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerResult = await searchYouTubeVideos({
+      query: "林俊杰",
+      searchType: "artist",
+      includeOriginalVocal: true,
+      apiKey: "test-key",
+      maxSearchCalls: 1,
+      targetResultCount: 50,
+    });
+    const results = providerResult.response.results;
+
+    expect(results).toHaveLength(50);
+    expect(results.slice(0, 16).every((result) => result.title.includes("林俊杰"))).toBe(true);
+    expect(results.slice(16).every((result) => !result.title.includes("林俊杰"))).toBe(true);
+    expect(providerResult.response.cacheMeta?.sourceQueryCount).toBe(1);
+  });
+
+  it("only follows an explicitly enabled page token when the provider returned fewer than the target", async () => {
     let searchCall = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -83,12 +123,7 @@ describe("youtube search helpers", () => {
         searchCall += 1;
         return jsonResponse({
           ...(currentCall === 0 ? { nextPageToken: "focused-page-2" } : {}),
-          items: currentCall === 0
-            ? [
-                ...buildSearchItems(0, 8),
-                ...buildSearchItemsWithTitle(8, 42, (index) => `Later Official Audio ${index}`),
-              ]
-            : buildSearchItems(50, 42),
+          items: currentCall === 0 ? buildSearchItems(0, 8) : buildSearchItems(8, 42),
         });
       }
 
@@ -208,9 +243,11 @@ describe("youtube search helpers", () => {
     });
 
     expect(providerResult.response.results).toHaveLength(50);
-    expect(providerResult.candidates).toHaveLength(0);
+    expect(providerResult.candidates).toHaveLength(50);
     expect(providerResult.response.cacheMeta).toMatchObject({
       sourceQueryCount: 1,
+      videosListCalls: 1,
+      candidateResultCount: 50,
       timedOut: true,
       providerRateLimited: false,
     });
@@ -234,12 +271,12 @@ describe("youtube search helpers", () => {
     });
   });
 
-  it("rejects seven-minute, non-music, and non-embeddable videos", async () => {
+  it("preserves long, non-Music, missing metadata candidates and rejects explicit non-embeddable videos", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
 
       if (url.pathname.endsWith("/search")) {
-        return jsonResponse({ items: buildSearchItems(0, 4) });
+        return jsonResponse({ items: buildSearchItems(0, 6) });
       }
 
       if (url.pathname.endsWith("/videos")) {
@@ -247,8 +284,9 @@ describe("youtube search helpers", () => {
           items: [
             videoDetails("video-0", "PT6M59S", "10", true),
             videoDetails("video-1", "PT7M", "10", true),
-            videoDetails("video-2", "PT4M", "19", true),
+            videoDetails("video-2", "PT10M", "19", true),
             videoDetails("video-3", "PT4M", "10", false),
+            videoDetails("video-4", "PT15M", "24", true),
           ],
         });
       }
@@ -262,13 +300,43 @@ describe("youtube search helpers", () => {
       apiKey: "test-key",
     });
 
-    expect(providerResult.response.results.map((result) => result.videoId)).toEqual([
-      "video-0",
-    ]);
-    expect(providerResult.candidates).toHaveLength(1);
+    expect(providerResult.response.results.map((result) => result.videoId)).toEqual(
+      expect.arrayContaining(["video-0", "video-1", "video-2", "video-4", "video-5"]),
+    );
+    expect(providerResult.response.results).toHaveLength(5);
+    expect(providerResult.candidates).toHaveLength(5);
     expect(providerResult.response.cacheMeta).toMatchObject({
-      candidateResultCount: 1,
-      filteredResultCount: 1,
+      candidateResultCount: 5,
+      filteredResultCount: 5,
+    });
+  });
+
+  it("keeps snippet candidates when videos.list enrichment fails", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+
+      if (url.pathname.endsWith("/search")) {
+        return jsonResponse({ items: buildSearchItems(0, 50) });
+      }
+
+      return new Response("details unavailable", { status: 503 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const providerResult = await searchYouTubeVideos({
+      query: "Later",
+      apiKey: "test-key",
+      maxSearchCalls: 1,
+      targetResultCount: 50,
+    });
+
+    expect(providerResult.response.results).toHaveLength(50);
+    expect(providerResult.candidates).toHaveLength(50);
+    expect(providerResult.response.cacheMeta).toMatchObject({
+      sourceQueryCount: 1,
+      videosListCalls: 1,
+      candidateResultCount: 50,
+      detailsEnrichmentFailed: true,
     });
   });
 

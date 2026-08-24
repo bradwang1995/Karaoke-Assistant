@@ -1,6 +1,6 @@
 import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { VideoSearchResult } from "../src/types/youtube";
-import { isEligibleSongResult } from "./songFilter";
+import { isStructurallyUsableVideoResult } from "./songFilter";
 
 const MAX_CATALOG_WRITE_RESULTS = 50;
 
@@ -107,10 +107,8 @@ function uniqueCatalogCandidates(candidates: VideoCatalogCandidate[]) {
 
   for (const candidate of candidates) {
     if (
-      !candidate.videoId ||
-      !candidate.title ||
       seen.has(candidate.videoId) ||
-      !isEligibleSongResult(candidate)
+      !isStructurallyUsableVideoResult(candidate)
     ) {
       continue;
     }

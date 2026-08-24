@@ -231,6 +231,7 @@ README 只保留产品级不变量：
 
 - Mobile 支持歌名/歌手与 KTV/原唱四种组合，只在用户显式提交时搜索。
 - 非空 exact family 优先复用本地结果；cold search 受严格调用预算和两秒体验上限保护。
+- 普通文字搜索以完整性优先：provider 返回的结构可用 candidates 通常全部保留，song/artist 与 KTV/原唱信号只控制排序；精确规则见 `SEARCH.md`。
 - 用户明确提供的 YouTube 单视频 URL 走隐藏兜底；其他 URL 不消耗搜索额度。
 - 搜索实现有零真实网络的 golden contracts；修改搜索前后必须运行 `npm run verify:search`。
 - `PROGRESS.md` 只记录历史 pass 和发布证据，不作为当前算法定义。

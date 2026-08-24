@@ -20,7 +20,7 @@ import {
 } from "./searchFamily";
 import { rankSearchResultsForQuery } from "./scoring";
 import { readSearchRepositories, writeSearchRepository } from "./searchRepository";
-import { filterEligibleSongResults } from "./songFilter";
+import { filterStructurallyUsableVideoResults } from "./songFilter";
 import type { Env } from "./types";
 import {
   upsertVideoCatalog,
@@ -370,7 +370,7 @@ function mergeLocalSearchResponses({
   const merged: SearchResponse["results"] = [];
 
   for (const hit of hits) {
-    for (const result of filterEligibleSongResults(hit.response.results)) {
+    for (const result of filterStructurallyUsableVideoResults(hit.response.results)) {
       if (!seenVideoIds.has(result.videoId)) {
         seenVideoIds.add(result.videoId);
         merged.push(result);

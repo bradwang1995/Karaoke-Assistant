@@ -73,6 +73,12 @@ assertNumericConstant(
   searchContract.maxRecommendations,
   "worker/kvCache.ts",
 );
+assertNumericConstant(
+  kvCache,
+  "MAX_PROMOTED_RESULTS_PER_SEARCH",
+  searchContract.maxPromotedRecommendationsPerSearch,
+  "worker/kvCache.ts",
+);
 
 const youtubeSearch = readFileSync("worker/youtubeSearch.ts", "utf8");
 assertStringConstant(youtubeSearch, "REGION_CODE", searchContract.regionCode, "worker/youtubeSearch.ts");
@@ -90,14 +96,21 @@ assertNumericConstant(
 );
 
 const songFilter = readFileSync("worker/songFilter.ts", "utf8");
-if (
-  searchContract.maxDurationSecondsExclusive !== 420 ||
-  !/MAX_SONG_DURATION_SECONDS\s*=\s*7\s*\*\s*60/.test(songFilter)
-) {
-  fail("SEARCH.md 与歌曲时长硬上限不一致。", {
-    documented: searchContract.maxDurationSecondsExclusive,
-    file: "worker/songFilter.ts",
+if ("maxDurationSecondsExclusive" in searchContract) {
+  fail("SEARCH.md 不得再声明普通搜索时长硬上限。", { file: "SEARCH.md" });
+}
+if (/videoCategoryId\s*:|videoDuration\s*:/.test(youtubeSearch)) {
+  fail("普通文字 search.list 不得设置 category 或 duration provider filter。", {
+    file: "worker/youtubeSearch.ts",
   });
+}
+if (/YOUTUBE_MUSIC_CATEGORY_ID|MAX_SONG_DURATION_SECONDS|categoryId|durationSeconds/.test(songFilter)) {
+  fail("结构准入不得依赖 Music category 或 duration。", { file: "worker/songFilter.ts" });
+}
+
+const scoring = readFileSync("worker/scoring.ts", "utf8");
+if (/hasSongTitleMatch|isKaraokeIntentResult|isOriginalVocalIntentResult/.test(scoring)) {
+  fail("Query/intent scoring 不得重新成为准入 hard gate。", { file: "worker/scoring.ts" });
 }
 
 console.log(
@@ -116,6 +129,10 @@ run("Search quality and experience contracts", [
   "worker/searchFamily.test.ts",
   "worker/youtubeSearch.test.ts",
   "worker/searchService.test.ts",
+  "worker/searchRepository.test.ts",
+  "worker/kvCache.test.ts",
+  "worker/songFilter.test.ts",
+  "worker/videoCatalog.test.ts",
   "worker/directVideoSearch.test.ts",
   "src/lib/searchExperience.test.ts",
   "src/lib/apiClient.test.ts",

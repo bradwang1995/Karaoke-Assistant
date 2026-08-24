@@ -1,10 +1,7 @@
 import type { SearchResponse, SearchType, VideoSearchResult } from "../src/types/youtube";
 import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
-import {
-  isEligibleSongResult,
-  YOUTUBE_MUSIC_CATEGORY_ID,
-} from "./songFilter";
+import { isStructurallyUsableVideoResult } from "./songFilter";
 import type { VideoCatalogCandidate } from "./videoCatalog";
 
 const YOUTUBE_SEARCH_URL = "https://www.googleapis.com/youtube/v3/search";
@@ -143,13 +140,14 @@ export async function searchYouTubeVideos({
 }: YouTubeSearchOptions): Promise<YouTubeSearchProviderResult> {
   const startedAt = Date.now();
   const family = buildSearchQueryFamily(query, artist, { searchType, includeOriginalVocal });
-  const dedupedResults = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
+  const discoveredVideoIds = new Set<string>();
   const candidatesById = new Map<string, VideoCatalogCandidate>();
   const usedSourceQueries: string[] = [];
   let searchCallCount = 0;
   let videosListCalls = 0;
   let timedOut = false;
   let providerRateLimited = false;
+  let detailsEnrichmentFailed = false;
 
   sourceQueries:
   for (const sourceQuery of family.sourceQueries) {
@@ -196,13 +194,17 @@ export async function searchYouTubeVideos({
       for (const item of searchBody.items ?? []) {
         const result = toBaseResult(item);
 
-        if (result && !dedupedResults.has(result.videoId)) {
-          dedupedResults.set(result.videoId, result);
+        if (result && !discoveredVideoIds.has(result.videoId)) {
+          discoveredVideoIds.add(result.videoId);
           newBaseResults.push(result);
         }
       }
 
-      let detailsResult: Awaited<ReturnType<typeof fetchVideoDetails>>;
+      let detailsResult: Awaited<ReturnType<typeof fetchVideoDetails>> = {
+        details: new Map(),
+        callCount: 0,
+      };
+      let stopAfterCurrentPage = false;
 
       try {
         detailsResult = await fetchVideoDetails(
@@ -211,37 +213,52 @@ export async function searchYouTubeVideos({
           deadlineAt,
         );
       } catch (error) {
+        videosListCalls += newBaseResults.length > 0 ? 1 : 0;
+
         if (error instanceof YouTubeSearchDeadlineError) {
           timedOut = true;
-          break sourceQueries;
-        }
-
-        if (error instanceof YouTubeHttpError && error.status === 429) {
+          stopAfterCurrentPage = true;
+        } else if (error instanceof YouTubeHttpError && error.status === 429) {
           providerRateLimited = true;
-          break sourceQueries;
+          stopAfterCurrentPage = true;
+        } else {
+          detailsEnrichmentFailed = true;
+          stopAfterCurrentPage = true;
+          console.error(
+            JSON.stringify({
+              event: "youtube-video-details-enrichment-failed",
+              error: error instanceof Error ? error.message : "Unknown YouTube details error",
+            }),
+          );
         }
-
-        throw error;
       }
       videosListCalls += detailsResult.callCount;
 
       for (const result of newBaseResults) {
         const videoDetails = detailsResult.details.get(result.videoId);
 
-        if (!videoDetails || videoDetails.embeddable === false) {
+        if (videoDetails?.embeddable === false) {
           continue;
         }
 
         const candidate = {
           ...result,
-          durationSeconds: videoDetails.durationSeconds,
-          categoryId: videoDetails.categoryId,
-          ...(videoDetails.tags.length > 0 ? { tags: videoDetails.tags } : {}),
+          ...(videoDetails?.durationSeconds !== undefined
+            ? { durationSeconds: videoDetails.durationSeconds }
+            : {}),
+          ...(videoDetails?.categoryId ? { categoryId: videoDetails.categoryId } : {}),
+          ...(videoDetails && videoDetails.tags.length > 0
+            ? { tags: videoDetails.tags }
+            : {}),
         };
 
-        if (isEligibleSongResult(candidate)) {
+        if (isStructurallyUsableVideoResult(candidate)) {
           candidatesById.set(candidate.videoId, candidate);
         }
+      }
+
+      if (stopAfterCurrentPage) {
+        break sourceQueries;
       }
 
       const rankedCount = rankSearchResultsForQuery(
@@ -259,14 +276,8 @@ export async function searchYouTubeVideos({
   }
 
   const candidates = [...candidatesById.values()];
-  const rankableResults =
-    candidates.length > 0
-      ? candidates
-      : timedOut || providerRateLimited
-        ? uniqueRankableResults(candidates, [...dedupedResults.values()])
-        : candidates;
   const results = rankSearchResultsForQuery(
-    rankableResults,
+    candidates,
     query,
     { searchType, includeOriginalVocal, artist },
   ).slice(0, targetResultCount);
@@ -289,6 +300,7 @@ export async function searchYouTubeVideos({
         filteredResultCount: results.length,
         timedOut,
         providerRateLimited,
+        detailsEnrichmentFailed,
         elapsedMs: Date.now() - startedAt,
       },
     },
@@ -313,7 +325,6 @@ async function fetchSearchPage({
     q: sourceQuery,
     maxResults: String(SEARCH_PAGE_SIZE),
     videoEmbeddable: "true",
-    videoCategoryId: YOUTUBE_MUSIC_CATEGORY_ID,
     safeSearch: "moderate",
     regionCode: REGION_CODE,
     relevanceLanguage: RELEVANCE_LANGUAGE,
@@ -361,7 +372,7 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?
   const details = new Map<
     string,
     {
-      durationSeconds: number;
+      durationSeconds?: number;
       categoryId?: string;
       tags: string[];
       embeddable?: boolean;
@@ -395,20 +406,20 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?
     const body = (await response.json()) as YouTubeVideosListResponse;
 
     for (const item of body.items ?? []) {
-      if (!item.id || !item.contentDetails?.duration) {
+      if (!item.id) {
         continue;
       }
 
-      const durationSeconds = parseIso8601DurationSeconds(item.contentDetails.duration);
+      const durationSeconds = item.contentDetails?.duration
+        ? parseIso8601DurationSeconds(item.contentDetails.duration)
+        : undefined;
 
-      if (typeof durationSeconds === "number") {
-        details.set(item.id, {
-          durationSeconds,
-          categoryId: item.snippet?.categoryId,
-          tags: (item.snippet?.tags ?? []).slice(0, 20),
-          embeddable: item.status?.embeddable,
-        });
-      }
+      details.set(item.id, {
+        ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+        categoryId: item.snippet?.categoryId,
+        tags: (item.snippet?.tags ?? []).slice(0, 20),
+        embeddable: item.status?.embeddable,
+      });
     }
   }
 
@@ -444,23 +455,6 @@ async function fetchBeforeDeadline(url: string, deadlineAt?: number) {
 
 function deadlineReached(deadlineAt?: number) {
   return deadlineAt !== undefined && Date.now() >= deadlineAt;
-}
-
-function uniqueRankableResults(
-  verified: VideoCatalogCandidate[],
-  discovered: Array<Omit<VideoSearchResult, "score" | "reasons">>,
-) {
-  const results = new Map<string, Omit<VideoSearchResult, "score" | "reasons">>();
-
-  for (const result of discovered) {
-    results.set(result.videoId, result);
-  }
-
-  for (const result of verified) {
-    results.set(result.videoId, result);
-  }
-
-  return [...results.values()];
 }
 
 export function parseIso8601DurationSeconds(duration: string) {

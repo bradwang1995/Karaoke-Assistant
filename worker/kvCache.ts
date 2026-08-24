@@ -1,12 +1,12 @@
 import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { QueueItemInput } from "../src/types/room";
 import type { SearchResponse } from "../src/types/youtube";
-import type { SearchQueryFamily } from "./searchFamily";
-import { filterEligibleSongResults } from "./songFilter";
+import { buildSearchQueryFamily, type SearchQueryFamily } from "./searchFamily";
+import { filterStructurallyUsableVideoResults } from "./songFilter";
 
 const SEARCH_CACHE_VERSION = "v4";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v2";
+const SEARCH_RECOMMENDATIONS_VERSION = "v3";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
@@ -121,7 +121,7 @@ export async function readSearchCache(
   );
 
   if (isValidSearchCacheEntry(entry) && isCompatibleSearchCacheEntry(entry, family)) {
-    const results = filterEligibleSongResults(entry.results);
+    const results = filterStructurallyUsableVideoResults(entry.results);
 
     if (results.length > 0) {
       return { entry: { ...entry, results }, familyHash: family.hash };
@@ -148,7 +148,7 @@ export async function writeSearchCache(
   const maxEntryBytes = options.maxEntryBytes ?? DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES;
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
-  const results = filterEligibleSongResults(response.results).slice(
+  const results = filterStructurallyUsableVideoResults(response.results).slice(
     0,
     MAX_CACHED_SEARCH_RESULTS,
   );
@@ -190,7 +190,7 @@ export async function readSearchRecommendations(
   );
 
   const storedResults = isValidRecommendationsEntry(recommendations)
-    ? filterEligibleSongResults(recommendations.results)
+    ? filterStructurallyUsableVideoResults(recommendations.results)
     : [];
 
   if (storedResults.length >= limit) {
@@ -374,11 +374,9 @@ async function updateSearchRecommendations(
     type: "json",
   });
   const promotedResults = nextResults.slice(0, MAX_PROMOTED_RESULTS_PER_SEARCH);
-  const remainingResults = nextResults.slice(MAX_PROMOTED_RESULTS_PER_SEARCH);
   const mergedResults = uniqueResults([
     ...promotedResults,
     ...(isValidRecommendationsEntry(existing) ? existing.results : []),
-    ...remainingResults,
   ]).slice(0, MAX_RECOMMENDED_SEARCH_RESULTS);
   const entry: SearchRecommendationsEntry = {
     updatedAt: new Date().toISOString(),
@@ -412,9 +410,13 @@ async function readRecommendationsFromFamilyCaches(
     )
   )
     .filter(isValidSearchCacheEntry)
+    .filter(isCurrentAlgorithmCacheEntry)
     .map((entry) => ({
       ...entry,
-      results: filterEligibleSongResults(entry.results),
+      results: filterStructurallyUsableVideoResults(entry.results).slice(
+        0,
+        MAX_PROMOTED_RESULTS_PER_SEARCH,
+      ),
     }))
     .filter((entry) => entry.results.length > 0);
   const rankedGroups = entries
@@ -461,8 +463,22 @@ function isCompatibleSearchCacheEntry(
     entry.queryFamily.canonicalQuery === family.canonicalQuery &&
     entry.queryFamily.searchType === family.searchType &&
     entry.queryFamily.includeOriginalVocal === family.includeOriginalVocal &&
-    (entry.queryFamily.artist ?? "") === (family.artist ?? "")
+    (entry.queryFamily.artist ?? "") === (family.artist ?? "") &&
+    entry.queryFamily.hash === family.hash
   );
+}
+
+function isCurrentAlgorithmCacheEntry(entry: SearchCacheEntry) {
+  const currentFamily = buildSearchQueryFamily(
+    entry.queryFamily.canonicalQuery,
+    entry.queryFamily.artist,
+    {
+      searchType: entry.queryFamily.searchType,
+      includeOriginalVocal: entry.queryFamily.includeOriginalVocal,
+    },
+  );
+
+  return entry.queryFamily.hash === currentFamily.hash;
 }
 
 function isValidRecommendationsEntry(

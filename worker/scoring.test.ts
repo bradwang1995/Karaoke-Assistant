@@ -2,186 +2,39 @@ import { describe, expect, it } from "vitest";
 import { rankSearchResultsForQuery, scoreSearchResult } from "./scoring";
 
 describe("search scoring", () => {
-  it("rewards KTV-like results", () => {
+  it("rewards strong song-title and KTV signals", () => {
     const result = scoreSearchResult(
-      {
-        videoId: "video-1",
-        title: "后来 KTV 字幕版",
-        channelTitle: "KTV Channel",
-        durationSeconds: 280,
-      },
+      candidate("strong", "后来 KTV 字幕伴奏版", "KTV Channel", ["karaoke", "instrumental"]),
       "后来",
     );
 
-    expect(result.score).toBeGreaterThan(20);
+    expect(result.score).toBeGreaterThan(50);
     expect(result.reasons).toContain("title contains KTV");
     expect(result.reasons).toContain("title exactly matches song query");
   });
 
-  it("penalizes likely non-karaoke results", () => {
-    const result = scoreSearchResult(
-      {
-        videoId: "video-1",
-        title: "后来 live cover",
-        channelTitle: "Example",
-        durationSeconds: 30,
-      },
-      "后来",
-    );
-
-    expect(result.score).toBeLessThan(0);
-    expect(result.reasons).toContain("video too short");
-    expect(result.reasons).toContain("title contains song query with low-priority marker");
-  });
-
-  it("keeps exact song-title matches ahead of related karaoke results", () => {
+  it("ranks a matching song above weak title mismatches without deleting either", () => {
     const results = rankSearchResultsForQuery(
       [
-        {
-          videoId: "related",
-          title: "刘若英 经典情歌 KTV 合集",
-          channelTitle: "后来 Karaoke Channel",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "exact",
-          title: "后来 KTV 字幕版",
-          channelTitle: "KTV Channel",
-          durationSeconds: 280,
-        },
+        candidate("wrong-song", "黄小琥 没那么简单 KTV", "Karaoke Channel"),
+        candidate("channel-only", "热门华语歌曲合集", "后来 Karaoke"),
+        candidate("matching", "后来 KTV 伴奏版", "KTV Channel"),
       ],
       "后来",
-    );
-
-    expect(results[0].videoId).toBe("exact");
-    expect(results[0].reasons).toContain("title exactly matches song query");
-    expect(results).toHaveLength(1);
-  });
-
-  it("removes unrelated karaoke matches instead of letting intent keywords outrank the query", () => {
-    const results = rankSearchResultsForQuery(
-      [
-        {
-          videoId: "unrelated-karaoke",
-          title: "\u9093\u7d2b\u68cb\u300a\u552f\u4e00\u300b Pinyin Karaoke Version Instrumental KTV",
-          channelTitle: "Karaoke Channel",
-          durationSeconds: 250,
-        },
-        {
-          videoId: "matching-lyrics",
-          title: "\u738b\u8273\u8587 - \u79bb\u5f00\u6211\u7684\u4f9d\u8d56 Lyrics",
-          channelTitle: "Aurora music",
-          durationSeconds: 248,
-        },
-        {
-          videoId: "matching-original",
-          title: "\u79bb\u5f00\u6211\u7684\u4f9d\u8d56 \u5e26\u539f\u5531 KTV",
-          channelTitle: "Fan Upload",
-          durationSeconds: 248,
-        },
-      ],
-      "\u4f9d\u8d56",
-      { searchType: "song", includeOriginalVocal: true },
-    );
-
-    expect(results.map((result) => result.videoId)).toEqual([
-      "matching-original",
-      "matching-lyrics",
-    ]);
-  });
-
-  it("removes unrelated metadata from song-title search results", () => {
-    const results = rankSearchResultsForQuery(
-      [
-        {
-          videoId: "matching",
-          title: "年少有为 KTV 伴奏版",
-          channelTitle: "KTV Channel",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "channel-only",
-          title: "热门华语歌曲合集",
-          channelTitle: "年少有为 Karaoke",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "unrelated",
-          title: "完全不同的歌 official MV lyrics",
-          channelTitle: "Music Channel",
-          durationSeconds: 280,
-        },
-      ],
-      "年少有为",
       { searchType: "song", includeOriginalVocal: false },
     );
 
-    expect(results.map((result) => result.videoId)).toEqual(["matching"]);
+    expect(results.map((result) => result.videoId)).toEqual([
+      "matching",
+      "channel-only",
+      "wrong-song",
+    ]);
   });
 
-  it("moves original-vocal results ahead when original vocals are requested", () => {
-    const results = rankSearchResultsForQuery(
-      [
-        {
-          videoId: "karaoke",
-          title: "后来 KTV 伴奏版",
-          channelTitle: "KTV Channel",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "lyrics",
-          title: "后来 lyric video 歌词版",
-          channelTitle: "Official Channel",
-          durationSeconds: 280,
-        },
-      ],
-      "后来",
-      { includeOriginalVocal: true },
-    );
-
-    expect(results[0].videoId).toBe("lyrics");
-    expect(results[0].reasons).toContain("title contains lyric video");
-    expect(results).toHaveLength(1);
-  });
-
-  it("uses original-vocal intent to rank non-KTV results", () => {
-    const results = rankSearchResultsForQuery(
-      [
-        {
-          videoId: "plain",
-          title: "后来 audio",
-          channelTitle: "Fan Upload",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "official",
-          title: "后来 official MV 原唱",
-          channelTitle: "Official Channel",
-          durationSeconds: 280,
-        },
-      ],
-      "后来",
-      { includeOriginalVocal: true },
-    );
-
-    expect(results[0].videoId).toBe("official");
-    expect(results[0].reasons).toContain("title contains 原唱");
-  });
-
-  it("keeps karaoke searches accompaniment-only and original searches vocal-first", () => {
+  it("uses KTV and original intent only to change ordering", () => {
     const candidates = [
-      {
-        videoId: "karaoke",
-        title: "后来 KTV 伴奏版",
-        channelTitle: "KTV Channel",
-        durationSeconds: 280,
-      },
-      {
-        videoId: "original",
-        title: "后来 official MV 原唱 歌词",
-        channelTitle: "Official Channel",
-        durationSeconds: 280,
-      },
+      candidate("karaoke", "后来 KTV 伴奏版", "KTV Channel", ["karaoke", "instrumental"]),
+      candidate("original", "后来 Official MV 原唱 Lyrics", "Official Channel", ["official"]),
     ];
 
     const karaokeOrder = rankSearchResultsForQuery(candidates, "后来", {
@@ -191,83 +44,74 @@ describe("search scoring", () => {
       includeOriginalVocal: true,
     });
 
-    expect(karaokeOrder.map((result) => result.videoId)).toEqual(["karaoke"]);
-    expect(originalOrder.map((result) => result.videoId)).toEqual(["original"]);
+    expect(karaokeOrder.map((result) => result.videoId)).toEqual(["karaoke", "original"]);
+    expect(originalOrder.map((result) => result.videoId)).toEqual(["original", "karaoke"]);
   });
 
-  it("prioritizes artist metadata in artist search mode", () => {
+  it("ranks strong artist metadata above weak metadata while preserving all candidates", () => {
     const results = rankSearchResultsForQuery(
       [
-        {
-          videoId: "other",
-          title: "晴天 KTV 伴奏版",
-          channelTitle: "KTV Channel",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "artist",
-          title: "周杰伦 晴天 KTV",
-          channelTitle: "周杰伦 Official",
-          durationSeconds: 280,
-        },
+        candidate("weak", "晴天 KTV 伴奏版", "KTV Channel"),
+        candidate("tag-match", "修炼爱情 Karaoke", "Music Channel", ["林俊杰"]),
+        candidate("strong", "林俊杰 江南 KTV", "林俊杰 Official"),
       ],
-      "周杰伦",
-      { searchType: "artist" },
+      "林俊杰",
+      { searchType: "artist", includeOriginalVocal: false },
     );
 
-    expect(results.map((result) => result.videoId)).toEqual(["artist"]);
-    expect(results[0].reasons.join("; ")).toContain("artist query");
+    expect(results.map((result) => result.videoId)).toEqual(["strong", "tag-match", "weak"]);
+    expect(results.at(-1)?.reasons).toContain("metadata does not match artist query");
   });
 
-  it("keeps lyrics, radio, and official audio ahead for original-vocal searches", () => {
+  it("preserves covers and wrong-intent artist results but ranks official originals first", () => {
     const results = rankSearchResultsForQuery(
       [
-        {
-          videoId: "karaoke",
-          title: "如愿 KTV 纯伴奏",
-          channelTitle: "KTV Channel",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "radio",
-          title: "如愿 Lyrics Radio Official Audio",
-          channelTitle: "Music Channel",
-          durationSeconds: 280,
-        },
-      ],
-      "如愿",
-      { searchType: "song", includeOriginalVocal: true },
-    );
-
-    expect(results.map((result) => result.videoId)).toEqual(["radio"]);
-  });
-
-  it("accepts artist-matching original songs without a title marker but rejects karaoke and covers", () => {
-    const results = rankSearchResultsForQuery(
-      [
-        {
-          videoId: "plain-original",
-          title: "林俊杰 修炼爱情",
-          channelTitle: "JJ Lin",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "karaoke",
-          title: "林俊杰 修炼爱情 KTV 伴奏",
-          channelTitle: "KTV Channel",
-          durationSeconds: 280,
-        },
-        {
-          videoId: "cover",
-          title: "林俊杰 修炼爱情 cover",
-          channelTitle: "Fan Channel",
-          durationSeconds: 280,
-        },
+        candidate("ktv", "林俊杰 江南 KTV 伴奏", "KTV Channel"),
+        candidate("cover", "林俊杰 江南 Cover", "Fan Channel"),
+        candidate("official", "林俊杰 修炼爱情 Lyrics Official Audio", "JJ Lin"),
       ],
       "林俊杰",
       { searchType: "artist", includeOriginalVocal: true },
     );
 
-    expect(results.map((result) => result.videoId)).toEqual(["plain-original"]);
+    expect(results[0].videoId).toBe("official");
+    expect(results.map((result) => result.videoId)).toEqual(
+      expect.arrayContaining(["official", "cover", "ktv"]),
+    );
+    expect(results).toHaveLength(3);
+  });
+
+  it("keeps long videos eligible and applies each Chinese negative signal once", () => {
+    const result = scoreSearchResult(
+      {
+        ...candidate("medley", "情歌王 现场 教学 KTV", "Music Channel"),
+        durationSeconds: 1_200,
+      },
+      "情歌王",
+    );
+
+    expect(result.reasons.filter((reason) => reason.includes("现场"))).toHaveLength(1);
+    expect(result.reasons.filter((reason) => reason.includes("教学"))).toHaveLength(1);
+    expect(result.reasons).toContain("video too long");
+    expect(rankSearchResultsForQuery([result], "情歌王")).toHaveLength(1);
+  });
+
+  it("keeps stable provider order when scores tie", () => {
+    const results = rankSearchResultsForQuery(
+      [candidate("first", "无关内容一", "Channel"), candidate("second", "无关内容二", "Channel")],
+      "后来",
+    );
+
+    expect(results.map((result) => result.videoId)).toEqual(["first", "second"]);
   });
 });
+
+function candidate(videoId: string, title: string, channelTitle: string, tags?: string[]) {
+  return {
+    videoId,
+    title,
+    channelTitle,
+    ...(tags ? { tags } : {}),
+    durationSeconds: 280,
+  };
+}

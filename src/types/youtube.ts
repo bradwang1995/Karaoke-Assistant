@@ -48,6 +48,7 @@ export interface SearchResponse {
     cacheOnly?: boolean;
     timedOut?: boolean;
     providerRateLimited?: boolean;
+    detailsEnrichmentFailed?: boolean;
     throttled?: boolean;
     retryAfterSeconds?: number;
     elapsedMs?: number;

@@ -50,26 +50,33 @@ describe("KV search cache", () => {
     );
   });
 
-  it("does not cache non-music or seven-minute videos", async () => {
+  it("caches long, non-Music, and missing-metadata videos but removes structural duplicates", async () => {
     const kv = new MemoryKv();
     const family = buildSearchQueryFamily("Later");
-    const candidates = buildResults(3);
-    const valid = candidates[0]!;
+    const candidates = buildResults(4);
     const nonMusic = candidates[1]!;
     const tooLong = candidates[2]!;
+    const noMetadata = candidates[3]!;
     nonMusic.categoryId = "19";
-    tooLong.durationSeconds = 420;
+    tooLong.durationSeconds = 900;
+    delete noMetadata.categoryId;
+    delete noMetadata.durationSeconds;
 
     const written = await writeSearchCache(
       kv,
       family,
-      buildResponse("Later", family.normalizedQuery, [valid, nonMusic, tooLong]),
+      buildResponse("Later", family.normalizedQuery, [
+        ...candidates,
+        { ...candidates[0]!, title: "duplicate" },
+      ]),
     );
 
-    expect(written?.results.map((result) => result.videoId)).toEqual([valid.videoId]);
+    expect(written?.results.map((result) => result.videoId)).toEqual(
+      candidates.map((result) => result.videoId),
+    );
     await expect(readSearchCache(kv, family)).resolves.toMatchObject({
       entry: {
-        results: [{ videoId: valid.videoId }],
+        results: candidates.map((result) => ({ videoId: result.videoId })),
       },
     });
   });
@@ -139,6 +146,22 @@ describe("KV search cache", () => {
     await expect(readSearchCache(kv, family)).resolves.toBeNull();
   });
 
+  it("rejects an exact-key entry carrying the previous algorithm family hash", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("林俊杰", undefined, { searchType: "artist" });
+    await writeSearchCache(
+      kv,
+      family,
+      buildResponse("林俊杰", family.normalizedQuery, buildResults(2)),
+    );
+    const key = searchCacheFamilyKey(family.hash);
+    const oldEntry = JSON.parse(kv.values.get(key) ?? "null");
+    oldEntry.queryFamily.hash = "a47f904a";
+    kv.values.set(key, JSON.stringify(oldEntry));
+
+    await expect(readSearchCache(kv, family)).resolves.toBeNull();
+  });
+
   it("updates the default recommendation pool from written cache entries", async () => {
     const kv = new MemoryKv();
     const family = buildSearchQueryFamily("Later");
@@ -151,11 +174,12 @@ describe("KV search cache", () => {
     const recommendations = await readSearchRecommendations(kv, 8);
 
     expect(kv.values.has(searchRecommendationsKey())).toBe(true);
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v3:CA:zh-Hans");
     expect(recommendations).toHaveLength(8);
     expect(recommendations[0].videoId).toBe("video-0");
   });
 
-  it("keeps at least 100 unique cached recommendations for infinite expansion", async () => {
+  it("keeps recommendations selective by using only the top eight from each family", async () => {
     const kv = new MemoryKv();
 
     for (let familyIndex = 0; familyIndex < 2; familyIndex += 1) {
@@ -174,8 +198,27 @@ describe("KV search cache", () => {
 
     const recommendations = await readSearchRecommendations(kv, 100);
 
-    expect(recommendations).toHaveLength(100);
-    expect(new Set(recommendations.map((result) => result.videoId)).size).toBe(100);
+    expect(recommendations).toHaveLength(16);
+    expect(new Set(recommendations.map((result) => result.videoId)).size).toBe(16);
+    expect(recommendations.some((result) => result.videoId === "video-8")).toBe(false);
+    expect(recommendations.some((result) => result.videoId === "video-58")).toBe(false);
+  });
+
+  it("does not rebuild v3 recommendations from an old algorithm family entry", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("林俊杰", undefined, { searchType: "artist" });
+    await writeSearchCache(
+      kv,
+      family,
+      buildResponse("林俊杰", family.normalizedQuery, buildResults(8)),
+    );
+    const currentKey = searchCacheFamilyKey(family.hash);
+    const oldEntry = JSON.parse(kv.values.get(currentKey) ?? "null");
+    oldEntry.queryFamily.hash = "a47f904a";
+    kv.values.clear();
+    kv.values.set(searchCacheFamilyKey("a47f904a"), JSON.stringify(oldEntry));
+
+    await expect(readSearchRecommendations(kv, 8)).resolves.toEqual([]);
   });
 
   it("promotes only the strongest results from the latest search ahead of prior hits", async () => {
@@ -200,9 +243,8 @@ describe("KV search cache", () => {
       buildResults(8, 100).map((result) => result.videoId),
     );
     expect(recommendations[8].videoId).toBe("video-0");
-    expect(recommendations.findIndex((result) => result.videoId === "video-108")).toBeGreaterThan(
-      recommendations.findIndex((result) => result.videoId === "video-0"),
-    );
+    expect(recommendations.some((result) => result.videoId === "video-108")).toBe(false);
+    expect(recommendations).toHaveLength(16);
   });
 
   it("moves recently reused searches and actually queued songs to the front", async () => {

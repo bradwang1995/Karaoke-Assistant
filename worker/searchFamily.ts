@@ -2,7 +2,7 @@ import { normalizeQuery, normalizeSearchQuery } from "../src/lib/queryNormalize"
 import type { SearchType } from "../src/types/youtube";
 
 const MAX_SOURCE_QUERY_LENGTH = 450;
-const SEARCH_ALGORITHM_VERSION = "quality-fill-50-v1";
+const SEARCH_ALGORITHM_VERSION = "rank-preserve-50-v2";
 
 const KARAOKE_SUFFIX_PATTERNS = [
   /\s+ktv$/i,

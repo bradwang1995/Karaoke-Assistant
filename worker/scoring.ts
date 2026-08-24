@@ -53,6 +53,7 @@ const ORIGINAL_VOCAL_EXCLUSION_SIGNALS = [
 ];
 
 const ORIGINAL_VOCAL_KARAOKE_PENALTIES = [
+  { text: "ktv", score: -18, reason: "KTV result deprioritized for original vocals" },
   { text: "伴奏", score: -30, reason: "accompaniment conflicts with original-vocal intent" },
   { text: "instrumental", score: -28, reason: "instrumental conflicts with original-vocal intent" },
   { text: "karaoke", score: -14, reason: "karaoke-only result deprioritized for original vocals" },
@@ -61,13 +62,11 @@ const ORIGINAL_VOCAL_KARAOKE_PENALTIES = [
 
 const NEGATIVE_SIGNALS = [
   { text: "live", score: -8, reason: "title contains live" },
-  { text: "\u73b0\u573a", score: -8, reason: "title contains live marker" },
   { text: "现场", score: -8, reason: "title contains 现场" },
   { text: "reaction", score: -8, reason: "title contains reaction" },
   { text: "cover", score: -6, reason: "title contains cover" },
   { text: "remix", score: -5, reason: "title contains remix" },
   { text: "tutorial", score: -5, reason: "title contains tutorial" },
-  { text: "\u6559\u5b66", score: -5, reason: "title contains tutorial marker" },
   { text: "shorts", score: -5, reason: "title contains shorts" },
   { text: "教学", score: -5, reason: "title contains 教学" },
 ];
@@ -139,64 +138,13 @@ export function rankSearchResultsForQuery(
   originalQuery: string,
   options: SearchScoringOptions = {},
 ): VideoSearchResult[] {
-  const searchType = options.searchType ?? "song";
-
   return results
     .map((result, index) => ({
       result: scoreSearchResult(result, originalQuery, options),
       index,
     }))
-    .filter(({ result }) =>
-      (searchType === "artist"
-        ? !result.reasons.includes("metadata does not match artist query")
-        : hasSongTitleMatch(result.reasons)) &&
-      (options.includeOriginalVocal
-        ? isOriginalVocalIntentResult(result, searchType)
-        : isKaraokeIntentResult(result)),
-    )
     .sort((a, b) => b.result.score - a.result.score || a.index - b.index)
     .map(({ result }) => result);
-}
-
-function isOriginalVocalIntentResult(result: VideoSearchResult, searchType: SearchType) {
-  const title = result.title.toLowerCase();
-  const text = `${result.title} ${result.tags?.join(" ") ?? ""}`.toLowerCase();
-  const hasExplicitOriginalSignal = [...LYRICS_VIDEO_SIGNALS, ...ORIGINAL_VOCAL_INTENT_SIGNALS]
-    .some((signal) => title.includes(signal.text));
-
-  if (hasExplicitOriginalSignal) {
-    return true;
-  }
-
-  if (searchType !== "artist") {
-    return false;
-  }
-
-  const conflictsWithOriginalVocal = [...KTV_PRIMARY_SIGNALS, ...ACCOMPANIMENT_SIGNALS]
-    .some((signal) => text.includes(signal.text)) || /\bcover\b/i.test(text);
-
-  return !conflictsWithOriginalVocal;
-}
-
-function isKaraokeIntentResult(result: VideoSearchResult) {
-  const text = `${result.title} ${result.tags?.join(" ") ?? ""}`.toLowerCase();
-  const hasKaraokeMarker = [...KTV_PRIMARY_SIGNALS, ...ACCOMPANIMENT_SIGNALS]
-    .some((signal) => text.includes(signal.text));
-  const explicitlyHasOriginalVocal =
-    text.includes("原唱") ||
-    /\boriginal(?:\s+vocal)?\b/i.test(text);
-
-  return hasKaraokeMarker && !explicitlyHasOriginalVocal;
-}
-
-function hasSongTitleMatch(reasons: string[]) {
-  return reasons.some((reason) =>
-    reason === "title exactly matches song query" ||
-    reason === "title starts with song query" ||
-    reason === "title contains song query" ||
-    reason === "title contains query tokens" ||
-    reason === "title contains song query with low-priority marker",
-  );
 }
 
 function scoreArtistQueryMatch(

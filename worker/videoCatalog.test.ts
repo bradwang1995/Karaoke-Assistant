@@ -21,15 +21,21 @@ describe("passive video candidate catalog", () => {
     expect(fake.batchSizes).toEqual([2, 1]);
   });
 
-  it("does not persist non-music or seven-minute candidates", async () => {
+  it("tracks the broader structural provider population for analytics", async () => {
     const valid = catalogCandidate("valid", "青花瓷 KTV");
     const nonMusic = { ...catalogCandidate("travel", "加拿大旅游"), categoryId: "19" };
-    const tooLong = { ...catalogCandidate("concert", "完整演唱会"), durationSeconds: 420 };
+    const tooLong = { ...catalogCandidate("concert", "情歌王完整串烧"), durationSeconds: 900 };
+    const missingMetadata = { videoId: "snippet-only", title: "青花瓷 普通上传" };
+    const malformed = { videoId: "bad id", title: "invalid" };
 
     await expect(
-      upsertVideoCatalog(undefined, [valid, nonMusic, tooLong], "青花瓷"),
+      upsertVideoCatalog(
+        undefined,
+        [valid, nonMusic, tooLong, missingMetadata, malformed],
+        "青花瓷",
+      ),
     ).resolves.toEqual({
-      candidateCount: 1,
+      candidateCount: 4,
       uniqueVideosAdded: 0,
     });
   });

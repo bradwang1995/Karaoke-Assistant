@@ -54,4 +54,13 @@ describe("search query families", () => {
     expect(family.sourceQueries).toContain("jay chou instrumental");
     expect(family.sourceQueries.length).toBeGreaterThanOrEqual(8);
   });
+
+  it("isolates the preserve-50 algorithm from the previous quality-fill family hash", () => {
+    const family = buildSearchQueryFamily("林俊杰", undefined, {
+      searchType: "artist",
+      includeOriginalVocal: false,
+    });
+
+    expect(family.hash).not.toBe("a47f904a");
+  });
 });

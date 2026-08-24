@@ -19,7 +19,7 @@ import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { SearchResponse, SearchType, YouTubeQuotaStatus } from "../src/types/youtube";
 import { searchCacheFamilyKey, searchCacheIndexKey } from "./kvCache";
 import type { SearchQueryFamily } from "./searchFamily";
-import { filterEligibleSongResults } from "./songFilter";
+import { filterStructurallyUsableVideoResults } from "./songFilter";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -102,7 +102,7 @@ export async function readSearchRepositories(
       continue;
     }
 
-    const results = filterEligibleSongResults(storedResponse.results);
+    const results = filterStructurallyUsableVideoResults(storedResponse.results);
 
     if (results.length === 0) {
       continue;
@@ -153,7 +153,7 @@ export async function writeSearchRepository(
   family: SearchQueryFamily,
   response: SearchResponse,
 ) {
-  const results = filterEligibleSongResults(response.results);
+  const results = filterStructurallyUsableVideoResults(response.results);
 
   if (!db || results.length === 0) {
     return null;

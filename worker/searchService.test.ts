@@ -184,6 +184,41 @@ describe("search service cache reuse", () => {
     });
   });
 
+  it("round-trips all 50 structurally usable cached candidates without a provider call", async () => {
+    const fetchMock = vi.fn();
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("林俊杰", undefined, {
+      searchType: "artist",
+      includeOriginalVocal: true,
+    });
+    const candidates = Array.from({ length: 50 }, (_, index) =>
+      buildResult(
+        `artist-${index}`,
+        index < 16 ? `林俊杰 歌曲 ${index} Official Lyrics` : `华语歌曲 ${index}`,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await writeSearchCache(
+      kv,
+      family,
+      buildResponse("林俊杰", family.normalizedQuery, candidates),
+    );
+
+    const response = await searchVideos({
+      query: "林俊杰",
+      searchType: "artist",
+      includeOriginalVocal: true,
+      limit: 50,
+      env: { SEARCH_CACHE: kv, YOUTUBE_API_KEY: "must-not-be-used" },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.cached).toBe(true);
+    expect(response.results).toHaveLength(50);
+    expect(response.results.slice(0, 16).every((result) => result.title.includes("林俊杰"))).toBe(true);
+    expect(response.cacheMeta?.sourceQueryCount).toBe(0);
+  });
+
   it("reuses only the same normalized text and creates a new entry for different text", async () => {
     const db = new MemorySearchRepositoryD1();
     const first = await searchVideos({
@@ -260,7 +295,7 @@ describe("search service cache reuse", () => {
     expect(response.results.map((result) => result.videoId)).not.toContain("karaoke");
   });
 
-  it("refills an artist search when same-text caches contain only unrelated artists", async () => {
+  it("returns weak artist metadata from an exact cache instead of hard-filtering and refilling", async () => {
     const kv = new MemoryKv();
     const artistFamily = buildSearchQueryFamily("单依纯", undefined, {
       searchType: "artist",
@@ -282,10 +317,9 @@ describe("search service cache reuse", () => {
       env: { SEARCH_CACHE: kv },
     });
 
-    expect(response.cached).toBe(false);
-    expect(response.results.length).toBeGreaterThan(0);
-    expect(response.results.every((result) => result.title.includes("单依纯"))).toBe(true);
-    expect(response.results.map((result) => result.videoId)).not.toContain("unrelated");
+    expect(response.cached).toBe(true);
+    expect(response.results.map((result) => result.videoId)).toEqual(["unrelated"]);
+    expect(response.cacheMeta?.sourceQueryCount).toBe(0);
   });
 
   it("rejects a legacy D1 row whose original query text differs", async () => {
@@ -314,10 +348,11 @@ describe("search service cache reuse", () => {
     expect(db.accessUpdates).toBe(0);
   });
 
-  it("rejects legacy D1 results without verified music category metadata", async () => {
+  it("accepts an exact D1 row without category or duration metadata", async () => {
     const db = new MemorySearchRepositoryD1();
     const legacyResult = buildResult("legacy-unverified", "后来 KTV 旧结果");
     delete legacyResult.categoryId;
+    delete legacyResult.durationSeconds;
     db.seedLegacyEntry({
       normalizedQuery: "后来",
       originalQuery: "后来",
@@ -332,12 +367,10 @@ describe("search service cache reuse", () => {
       env: { DB: db.database },
     });
 
-    expect(response.cached).toBe(false);
-    expect(response.cacheMeta?.responseSource).toBe("mock");
-    expect(response.results.map((result) => result.videoId)).not.toContain(
-      "legacy-unverified",
-    );
-    expect(db.accessUpdates).toBe(0);
+    expect(response.cached).toBe(true);
+    expect(response.cacheMeta?.responseSource).toBe("repository");
+    expect(response.results.map((result) => result.videoId)).toEqual(["legacy-unverified"]);
+    expect(db.accessUpdates).toBe(1);
   });
 
   it("refills a D1 repository row written by an older search algorithm", async () => {
@@ -346,7 +379,7 @@ describe("search service cache reuse", () => {
       normalizedQuery: "林俊杰",
       originalQuery: "林俊杰",
       searchType: "artist",
-      familyHash: "quality-fill-older-version",
+      familyHash: "a47f904a",
       response: buildResponse("林俊杰", "林俊杰", [
         buildResult("stale-eight-result-cache", "林俊杰 江南 KTV 旧结果"),
       ]),
