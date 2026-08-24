@@ -1022,10 +1022,10 @@ function CandidateVideoCard({
         selected
           ? "border-teal-300 ring-2 ring-teal-300/35"
           : "border-white/10 hover:border-white/25 focus:border-teal-300 focus:ring-teal-300/25"
-      } ${previewActive ? "col-span-2 sm:col-span-3 lg:col-span-4" : ""}`}
+      }`}
       data-preview-active={previewActive || undefined}
     >
-      <div className={`aspect-video overflow-hidden ${previewActive ? "min-h-[200px]" : ""}`}>
+      <div className="aspect-video overflow-hidden">
         <CandidatePreview
           result={result}
           active={previewActive}
@@ -1432,7 +1432,7 @@ function QueueItemCard({
 }) {
   return (
     <article
-      className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)_2rem] items-center gap-2 overflow-hidden rounded-lg border border-white/10 bg-white/[0.06] p-2 shadow-md shadow-black/15"
+      className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)_5.75rem] items-center gap-2 overflow-hidden rounded-lg border border-white/10 bg-white/[0.06] p-2 shadow-md shadow-black/15"
       data-queue-item-card
     >
       {item.thumbnailUrl ? (
@@ -1453,24 +1453,24 @@ function QueueItemCard({
         </h3>
         <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle ?? "未知频道"}</p>
       </div>
-      <div className="grid gap-1">
+      <div className="flex gap-1">
         <button
           type="button"
           onClick={onPromote}
           aria-label={`置顶 ${item.title}`}
           title="置顶"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 text-slate-200 transition hover:bg-white/10 active:scale-95"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 active:scale-95"
         >
-          <ArrowUpToLine size={15} />
+          <ArrowUpToLine size={18} />
         </button>
         <button
           type="button"
           onClick={onRemove}
           aria-label={`删歌 ${item.title}`}
           title="删歌"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-300/25 text-rose-200 transition hover:bg-rose-300/10 active:scale-95"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-rose-300/25 text-rose-200 transition hover:bg-rose-300/10 active:scale-95"
         >
-          <Trash2 size={15} />
+          <Trash2 size={18} />
         </button>
       </div>
     </article>

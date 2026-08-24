@@ -414,7 +414,7 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 
 Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完整 response、已展开数量、选中项、active preview 和 scroll，TTL 24 小时。输入/筛选的草稿变化会被保存，但不会自动重新搜索。
 
-选中结果后的 active preview card 只改变 Mobile grid 布局：竖屏从半列扩展为整行，使 16:9 player 达到约 `356×200`，满足 YouTube embed 的最低 viewport；它不改变 query、ranking、cache、recommendations、quota、deadline 或 search response。Preview 构造时直接使用 `autoplay=1 + mute=1 + start=30 + cc_load_policy=1`，ready 后只校准 seek/play，不再二次 `loadVideoById`。这是纯 UI/player 变更，不 bump algorithm、KV 或 recommendation version。
+选中结果后的 active preview card 保持 Mobile 原有 2/3/4 列 grid 尺寸，不因播放而横跨整行；app 不在 active video 上叠加 selection badge。Preview 构造时直接使用 `autoplay=1 + mute=1 + start=30 + cc_load_policy=1`，ready 后只校准 seek/play，不再二次 `loadVideoById`。这不改变 query、ranking、cache、recommendations、quota、deadline 或 search response，属于纯 UI/player 变更，不 bump algorithm、KV 或 recommendation version。
 
 ## 11. API response 怎么诊断
 

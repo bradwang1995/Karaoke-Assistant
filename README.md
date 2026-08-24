@@ -325,12 +325,12 @@ npx wrangler dev --local --config wrangler.toml
 
 Mobile preview：
 
-- 手机竖屏默认两列，较宽/横屏为 3–4 列；每张 card 在视频下方显示两行以内的歌名，不显示 uploader/channel。激活 preview 的 card 临时横跨整行，在 390px viewport 获得约 `356×200` 的 player，满足 YouTube embed 最低 viewport 并扩大字幕可视区。
+- 手机竖屏默认两列，较宽/横屏为 3–4 列；每张 card 在视频下方显示两行以内的歌名，不显示 uploader/channel。激活 preview 时保持原 card/grid 尺寸，不临时放大或改变结果布局。
 - Mobile 使用与 display 连续一致的 slate/teal 深色背景，`theme-color`、`color-scheme`、HTML/body 和 safe-area 都保持深色，避免 Safari 顶部状态栏、底部地址栏或结果区露出白带。
 - 进入点歌页后预热 IFrame API；选择 card 后立即激活 preview，快速切换会销毁旧 preview，只有 active card 挂载 iframe。
 - Pending/加载阶段显示 spinner；10 秒仍未加载会显示可重试提示；点击外部停止。
 - Preview 构造时直接设置 `autoplay=1`、`mute=1`、`start=30`、`cc_load_policy=1` 和 `playsinline=1`，让有字幕轨的视频默认显示字幕；ready 后只校准 `mute()`、`seekTo(30)` 和 `playVideo()`，不再二次 `loadVideoById`。只有真实 current time 达到 29 秒后才结束 spinner，并把实际时间写入 preview 容器的 `data-preview-current-time` 供生产验收读取。
-- App 不重复显示 video title/channel/quality，active preview 也不叠加“已选中”badge；iframe 禁止 pointer/hover/focus，并在实际 PLAYING 后立即淡入。YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡；整行 player 用更大的合规 viewport 降低这些 chrome 对字幕的遮挡比例。
+- App 不重复显示 video title/channel/quality，active preview 也不叠加“已选中”badge；iframe 禁止 pointer/hover/focus，并在实际 PLAYING 后立即淡入。YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡。
 
 Display：
 

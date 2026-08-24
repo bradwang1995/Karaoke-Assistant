@@ -120,8 +120,8 @@ Last updated: 2026-08-24
 - `[x]` Direct promote；confirm remove/restart/skip。
 - `[x]` Preview iframe load/timeout fallback。
 - `[x]` 搜索 pending 不插入等待 panel；compact header/tab/search/footer 提高结果区高度，“即将播放” badge 可直达歌单。
-- `[x]` Active preview 在手机端扩展到约 356×200；构造时直接 autoplay/start/captions，避免 ready 后重复加载。
-- `[x]` 待播 card 约减半高度并移除“第 N 首”；置顶/删歌在 WebSocket send 成功后立即乐观更新本地 snapshot。
+- `[x]` Active preview 保持原 2/3/4 列 card 尺寸；构造时直接 autoplay/start/captions，避免 ready 后重复加载。
+- `[x]` 待播 card 约减半高度并移除“第 N 首”；置顶/删歌使用横向 44px touch target，并在 WebSocket send 成功后立即乐观更新本地 snapshot。
 - `[~]` Mobile autoplay/playsinline real-device check。
 
 ### Phase 6 — Display playback
@@ -475,6 +475,15 @@ Last updated: 2026-08-24
 | MUI19-03 | P1 | 待播 card 改为紧凑 thumbnail/title/channel + 右侧图标操作，移除“第 N 首”和第二行大按钮区，list gap 同步收紧。 |
 | MUI19-04 | P1 | Connected 状态下置顶/删歌在 WebSocket send 成功后立即应用同一 reducer 到本地 snapshot；服务端广播随后覆盖为权威状态。 |
 
+### 2026-08-24 preview size rollback and queue controls pass 20
+
+根据实际使用反馈撤回整行 preview，不再用放大 player 规避不可控的 YouTube 原生 chrome；保留 30 秒直接启动、字幕请求和 active app badge 隐藏。待播 card 保持紧凑高度，两个无文字操作改为横向排列并扩大触控区域。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| MUI20-01 | P0 | Active preview 移除 full-row col-span 与 200px minimum height，恢复与其他搜索结果相同的 2/3/4 列 card 尺寸。 |
+| MUI20-02 | P1 | 待播 card 的置顶/删歌从 32px 纵向按钮改为左右横排的 44px touch target；保留 aria-label/title，390px viewport 实测 card 高度为 74px。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -537,6 +546,7 @@ Last updated: 2026-08-24
 | 2026-08-23 mobile compact/preview polish production release | 源码提交 `d4ade67` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布；push 触发的 Workers Build 在首次 Main 手动发布后生成同源自动版本，因此再次手动发布 Main。最终活动版本为 Room `297b4fb6-6f28-4b56-873a-eaab83332d70`、Main `f14ea2df-e47d-4d7e-8a83-5f6343a06145`，部署列表均显示 100%。Production root HTTP 200 并加载新 bundle `/assets/index-C7R6G3_e.js`；bundle HTTP 200、309,268 bytes。本轮只做页面/assets 只读 smoke，没有调用 production search endpoint，也没有消耗真实 YouTube `search.list` quota；真实设备 preview autoplay 与官方 chrome 淡出仍保留为人工验收项。 |
 | 2026-08-24 full-width preview/dense queue local | 生产旧版先复现 active preview 只有 `167×94`，虽达到真实 `30.048s`，但低于 YouTube `200×200` 最低 viewport。新版通过 `npm run verify:search` 13 files / 79 tests、full 28 files / 145 tests、typecheck、production build、Wrangler 4.105 Room/Main `--keep-vars` dry-run 与 `git diff --check`；dry-run 仅有既知用户级 log EPERM，bundle/bindings summary 均成功。全新内置浏览器 390×844 验证 active player 为 `355.5×200`、单 iframe、`autoplay=1`、`start=30`、`cc_load_policy=1`、`controls=0`，无 active selection badge、无横向 overflow。本地 5 个待播 card 均为 86px 且没有“第 N 首”；置顶完整自动化往返约 293ms 后目标已到首位，删歌约 303ms 后 card/header/count 同步从 5 变 4。Console 只有既有 React Router v7 future-flag warnings；mock video 进入 error fallback，因此没有虚报本地真实 PLAYING/字幕。 |
 | 2026-08-24 full-width preview/dense queue production release | 源码提交 `58f248e` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布；GitHub Workers Build 随后生成自动 Main 版本，因此再次手动发布。最终 100% 活动版本为 Room `2a4e7ef5-1aca-4890-9e86-094a9d7156e4`、Main `0f070c4d-1017-42ac-9b37-58a79cd455db`。Production root、新 JS `/assets/index-D1oYEM9X.js`（309,183 bytes）和 CSS `/assets/index-zpoI-iHt.css`（44,521 bytes）均 HTTP 200。全新内置浏览器 390×844 的真实 YouTube preview 达到 `30.084s`，单 iframe 为 `355.5×200`，参数含 `autoplay=1`、`start=30`、`cc_load_policy=1`、`controls=0`；实际截图中歌词清晰可见，未出现 app 暂停键/已选中 badge，也无横向 overflow。内置浏览器中的临时生产房间持续显示重连，因此没有把 connected WebSocket 下的生产置顶/删歌速度虚报为通过；本地 UI 自动化与 reducer 路径已覆盖该即时反馈。本轮没有提交 production search，也未消耗真实 YouTube `search.list` quota。 |
+| 2026-08-24 preview rollback/queue controls local | `npm run verify:search` 13 files / 79 tests、full 28 files / 145 tests、typecheck、production build 与 `git diff --check` passed。全新内置浏览器 390×844：active preview card 与 sibling 均为 169px 宽，iframe 恢复为约 `167×94`，grid 保持两列且无横向 overflow；5 个待播 card 均高 74px，没有“第 N 首”，每张 card 的置顶/删歌为从左到右排列的两个 `44×44` touch target。截图确认长标题仍可两行显示，操作区没有挤出 card。Local mock video 进入既有 preview error fallback，因此本轮只验证尺寸与布局，没有虚报真实 PLAYING。 |
 
 ### Admin console design QA（2026-07-21）
 
