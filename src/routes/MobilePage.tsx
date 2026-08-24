@@ -74,7 +74,7 @@ export default function MobilePage() {
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
   const roomDisplayName = visibleRoomDisplayName(snapshot.room.displayName, roomId);
-  const queueTargetRef = useRef<HTMLDivElement | null>(null);
+  const queueTargetRef = useRef<HTMLButtonElement | null>(null);
   const storedActiveTab = useMobileUiStore((state) => state.activeTab);
   const setStoredActiveTab = useMobileUiStore((state) => state.setActiveTab);
   const activeTab = parseMobileTab(searchParams.get("tab"));
@@ -110,21 +110,24 @@ export default function MobilePage() {
   return (
     <main className="app-no-select h-[100dvh] overflow-hidden bg-slate-950 text-white">
       <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden border-x border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
-        <header className="mobile-safe-header relative z-[60] shrink-0 overflow-hidden border-b border-white/10 bg-slate-950 px-4 pb-3 text-white">
+        <header className="mobile-safe-header relative z-[60] shrink-0 overflow-hidden border-b border-white/10 bg-slate-950 px-4 pb-2 text-white">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(20,184,166,0.2),transparent_42%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.13),transparent_38%)]" />
           <div className="relative flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-normal">K歌助手</h1>
               <p className="mt-0.5 text-sm text-slate-300">{roomDisplayName}</p>
             </div>
-            <div className="flex flex-col items-end gap-2">
-              <div
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <button
+                type="button"
                 ref={queueTargetRef}
-                className="rounded-xl border border-teal-200/20 bg-teal-300/10 px-3 py-2 text-right"
+                onClick={() => setActiveTab("queue")}
+                aria-label={`查看歌单，即将播放 ${queuedItems.length} 首`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-teal-200/20 bg-teal-300/10 px-2 py-1 text-xs font-semibold text-teal-100 transition hover:bg-teal-300/15 focus:outline-none focus:ring-2 focus:ring-teal-300/40"
               >
-                <p className="text-xs text-teal-200">即将播放</p>
-                <p className="text-base font-semibold text-white">{queuedItems.length} 首</p>
-              </div>
+                <ListMusic size={13} />
+                即将播放 {queuedItems.length} 首
+              </button>
               <ConnectionBadge
                 status={roomSocket.status}
                 canUseLocalFallback={roomSocket.canUseLocalFallback}
@@ -132,7 +135,7 @@ export default function MobilePage() {
             </div>
           </div>
 
-          <div className="relative mt-3 grid grid-cols-2 rounded-xl bg-white/10 p-1">
+          <div className="relative mt-2 grid grid-cols-2 rounded-xl bg-white/10 p-1">
             <TabButton
               active={activeTab === "search"}
               icon={<Music2 size={17} />}
@@ -191,7 +194,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-base font-semibold transition ${
+      className={`flex h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition ${
         active
           ? "bg-teal-300 text-slate-950 shadow-lg shadow-black/20"
           : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -286,6 +289,10 @@ function SearchTab({
     },
     [],
   );
+
+  useEffect(() => {
+    void loadYouTubeIframeApi().catch(() => undefined);
+  }, []);
 
   const recommendationsQuery = useQuery({
     queryKey: ["search-recommendations", roomId],
@@ -699,7 +706,7 @@ function SearchTab({
       <MobileToast toast={toast} />
       <AddToQueueTrail trail={addTrail} />
 
-      <div className="z-50 isolate shrink-0 overflow-hidden border-b border-white/10 bg-slate-900 px-4 pb-2.5 pt-3 shadow-lg shadow-slate-950/15">
+      <div className="z-50 isolate shrink-0 overflow-hidden border-b border-white/10 bg-slate-900 px-4 pb-2 pt-2.5 shadow-lg shadow-slate-950/15">
         <form onSubmit={submitSearch}>
           <div className="grid grid-cols-[4.75rem_minmax(0,1fr)_5rem_3.25rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_5.25rem_3.5rem] sm:gap-2">
             <label className="sr-only" htmlFor="search-type">
@@ -709,7 +716,7 @@ function SearchTab({
               id="search-type"
               value={searchType}
               onChange={(event) => setSearchType(event.target.value as SearchType)}
-              className="h-12 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
+              className="h-10 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             >
               <option value="song">歌名</option>
               <option value="artist">歌手</option>
@@ -723,7 +730,7 @@ function SearchTab({
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchType === "artist" ? "歌手名" : "歌名"}
               enterKeyHint="search"
-              className="h-12 min-w-0 rounded-lg border border-white/15 bg-slate-800 px-3 text-base text-white outline-none transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
+              className="h-10 min-w-0 rounded-lg border border-white/15 bg-slate-800 px-3 text-base text-white outline-none transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             />
             <PillToggle
               label="原唱"
@@ -735,7 +742,7 @@ function SearchTab({
               aria-label="搜索"
               title="搜索"
               disabled={!query.trim() || searchMutation.isPending}
-              className="inline-flex h-12 w-[3.25rem] shrink-0 items-center justify-center rounded-lg bg-teal-300 text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 sm:w-14"
+              className="inline-flex h-10 w-[3.25rem] shrink-0 items-center justify-center rounded-lg bg-teal-300 text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 sm:w-14"
             >
               {isSearching ? (
                 <>
@@ -779,26 +786,6 @@ function SearchTab({
         {recommendationsQuery.isError && showingRecommendations ? (
           <StatusMessage tone="warning" title="推荐加载失败" appearance="dark" className="mt-4">
             {searchErrorMessage(recommendationsQuery.error)}
-          </StatusMessage>
-        ) : null}
-
-        {isSearching && activeResults.length === 0 ? (
-          <div
-            className="grid min-h-64 place-items-center py-12 text-center"
-            role="status"
-            aria-live="polite"
-          >
-            <div>
-              <LoaderCircle className="mx-auto animate-spin text-teal-300" size={36} />
-              <p className="mt-4 text-base font-semibold text-slate-100">正在搜索歌曲…</p>
-              <p className="mt-1 text-sm text-slate-400">最多等待 2 秒，到时立即返回</p>
-            </div>
-          </div>
-        ) : null}
-
-        {isSearching && activeResults.length > 0 ? (
-          <StatusMessage tone="loading" appearance="dark" className="mt-4">
-            正在搜索，最多等待 2 秒；当前结果继续可用。
           </StatusMessage>
         ) : null}
 
@@ -873,17 +860,17 @@ function SearchTab({
         ) : null}
       </div>
 
-      <footer className="mobile-safe-footer z-20 shrink-0 border-t border-white/10 bg-slate-950 px-4 pt-3 shadow-[0_-12px_30px_rgba(2,6,23,0.5)]">
+      <footer className="mobile-safe-footer z-20 shrink-0 border-t border-white/10 bg-slate-950 px-4 pt-2 shadow-[0_-12px_30px_rgba(2,6,23,0.5)]">
         <button
           type="button"
           onClick={addSelectedSong}
           disabled={!selected}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 py-3 text-lg font-bold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-base font-bold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
         >
           <Check size={21} />
           点歌
         </button>
-        <p className="mt-2 text-center text-xs leading-4 text-slate-400">
+        <p className="mt-1.5 text-center text-xs leading-4 text-slate-400">
           搜索使用 YouTube Data API，视频仅通过 YouTube 嵌入播放器播放。
         </p>
       </footer>
@@ -931,7 +918,7 @@ function PillToggle({
       type="button"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
-      className={`inline-flex h-12 items-center justify-center gap-1.5 rounded-lg border px-2 text-base font-semibold transition focus:outline-none focus:ring-4 focus:ring-teal-300/15 ${
+      className={`inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border px-2 text-base font-semibold transition focus:outline-none focus:ring-4 focus:ring-teal-300/15 ${
         checked
           ? "border-teal-300 bg-teal-300 text-slate-950"
           : "border-white/15 bg-slate-800 text-slate-300"
@@ -1168,6 +1155,7 @@ function CandidatePreview({
         "allow",
         "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture",
       );
+      iframe?.setAttribute("tabindex", "-1");
       startYouTubePreview(event.target, result.videoId);
 
       for (const delay of [250, 900]) {
@@ -1235,8 +1223,8 @@ function CandidatePreview({
       />
       <div
         ref={playerShellRef}
-        className={`pointer-events-none absolute inset-0 h-full w-full [&_iframe]:h-full [&_iframe]:w-full ${
-          active && loadStatus !== "error" ? "" : "invisible"
+        className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200 [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full ${
+          active && loadStatus === "loaded" ? "delay-500 opacity-100" : "opacity-0"
         }`}
         aria-hidden="true"
       />

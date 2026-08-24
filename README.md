@@ -33,7 +33,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 当前核心体验：
 
 - 第一首歌自动成为 `playing`；后续歌曲 `queued`，不会打断当前播放。
-- Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
+- Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；搜索 pending 只更新固定高度状态，不插入等待 panel；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
 - 搜索框保留一个不展示提示的 YouTube 单视频 URL 兜底：支持常见 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 链接，命中后只读取该视频并沿用现有 preview/点歌卡片；其他明确 URL 直接返回空结果。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌，超长歌名会在卡片内换行且不会产生横向滚动。
@@ -327,10 +327,10 @@ Mobile preview：
 
 - 手机竖屏默认两列，较宽/横屏为 3–4 列；每张 card 在视频下方显示两行以内的歌名，不显示 uploader/channel。
 - Mobile 使用与 display 连续一致的 slate/teal 深色背景，`theme-color`、`color-scheme`、HTML/body 和 safe-area 都保持深色，避免 Safari 顶部状态栏、底部地址栏或结果区露出白带。
-- 选择 card 后立即激活 preview；快速切换会销毁旧 preview，只有 active card 挂载 iframe。
+- 进入点歌页后预热 IFrame API；选择 card 后立即激活 preview，快速切换会销毁旧 preview，只有 active card 挂载 iframe。
 - Pending/加载阶段显示 spinner；10 秒仍未加载会显示可重试提示；点击外部停止。
 - Preview 初始化先设置 `autoplay=0`、`mute=1`、`start=30` 和 `playsinline=1`，避免构造阶段从 0 秒抢跑；ready 后依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试。只有真实 current time 达到 29 秒后才结束 spinner，并把实际时间写入 preview 容器的 `data-preview-current-time` 供生产验收读取。
-- App 不重复显示 video title/channel/quality；YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡。
+- App 不重复显示 video title/channel/quality；preview iframe 禁止 pointer/hover/focus，并在实际 PLAYING 后短暂等待原生 loading chrome 收起再淡入。YouTube 原生 title/avatar/branding 仍可能按官方规则出现，不能用 overlay 或裁切遮挡。
 
 Display：
 
@@ -490,7 +490,7 @@ Display 专项：
 - `实时已连接`、今日剩余额度和本地 reset 相对小时都在 footer 最左侧，不显示“正在播放”；歌名与 progress 在中间且不重叠。
 - 已播放 progress 与 thumb 同为 teal，未播放部分为灰色；右侧重播、暂停/继续、下一首和队列统计有明确的 button/panel 层级。
 - `/create` 在 390×844 与 1280×720 都应无横向 overflow；主标题使用受控两行，CTA 在手机首屏可见，三步说明保持简短。
-- Mobile 使用固定高度深色外壳；header、搜索栏/结果标题和 footer 不参与页面滚动，只有结果容器独立滚动并保存 `scrollTop`，滚动条也只出现在结果区，卡片标签不得穿透搜索栏。
+- Mobile 使用固定高度深色外壳；header、搜索栏/结果标题和 footer 不参与页面滚动，只有结果容器独立滚动并保存 `scrollTop`，滚动条也只出现在结果区，卡片标签不得穿透搜索栏；header/tab/search/点歌 controls 保持紧凑，“即将播放”是可直达歌单的 inline badge。
 - Mobile Safari 的状态栏、浏览器上下栏和 safe-area 不应露白；长按正文/缩略图不出现蓝色选择层，搜索输入仍可选字。
 - Display 空状态 footer 不显示占位歌名；Space 在页面任意非输入焦点暂停/继续，点击播放器控制键后不保留焦点圈。
 

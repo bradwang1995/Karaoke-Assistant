@@ -410,7 +410,7 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 | `quota.exhausted=true` 且零结果 | 保留旧卡片和恢复倒计时 | 持续显示“今日搜索额度已用完” |
 | 浏览器 2000ms abort / HTTP error | 原 `searchResponse` 不变，显示错误 panel | 显示错误 panel |
 
-搜索 pending 时旧卡片仍可见并可用；结果标题显示“正在搜索”。按搜索按钮本身发生在结果 grid 外，会依照现有 click-outside 规则停止 active preview。较旧 requestId 的迟到成功响应会被忽略。
+搜索 pending 时旧卡片仍可见并可用；固定高度的结果标题、计数和搜索按钮图标显示搜索状态，不在滚动结果区插入“最多等待 2 秒”面板，避免结果 content shift。按搜索按钮本身发生在结果 grid 外，会依照现有 click-outside 规则停止 active preview。较旧 requestId 的迟到成功响应会被忽略。
 
 Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完整 response、已展开数量、选中项、active preview 和 scroll，TTL 24 小时。输入/筛选的草稿变化会被保存，但不会自动重新搜索。
 
@@ -489,6 +489,13 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 ## 14. 搜索算法变更协议
 
 ### 14.1 下一版变更提案
+
+### Mobile pending 固定高度反馈 `[已实现 2026-08-23]`
+
+- 当前问题：搜索开始后在滚动结果区插入大块等待状态或提示 panel，会挤动已有卡片并减少有效浏览高度。
+- 期望行为：只使用既有固定高度的结果标题、计数和搜索按钮 spinner 反馈 pending；旧结果继续可用，空结果区保持稳定。
+- 不改变：query family、provider query、准入、排序、cache、quota、rate limit、1600ms Worker deadline、2000ms browser abort 和 partial response 保留策略全部不变。
+- Version：纯 UI loading 呈现，不 bump algorithm、KV 或 recommendation version。
 
 ### Preserve-50：完整性优先、排序控制质量 `[已实现 2026-08-23]`
 
