@@ -42,7 +42,6 @@ import {
 import {
   enforceYouTubePreviewStart,
   hasYouTubePreviewReachedStart,
-  startYouTubePreview,
   youtubeThumbnailUrl,
   youtubePreviewPlayerVars,
 } from "../lib/youtube";
@@ -1023,9 +1022,10 @@ function CandidateVideoCard({
         selected
           ? "border-teal-300 ring-2 ring-teal-300/35"
           : "border-white/10 hover:border-white/25 focus:border-teal-300 focus:ring-teal-300/25"
-      }`}
+      } ${previewActive ? "col-span-2 sm:col-span-3 lg:col-span-4" : ""}`}
+      data-preview-active={previewActive || undefined}
     >
-      <div className="aspect-video overflow-hidden">
+      <div className={`aspect-video overflow-hidden ${previewActive ? "min-h-[200px]" : ""}`}>
         <CandidatePreview
           result={result}
           active={previewActive}
@@ -1037,7 +1037,7 @@ function CandidateVideoCard({
           {result.title}
         </h3>
       </div>
-      {duplicate || selected ? (
+      {!previewActive && (duplicate || selected) ? (
         <div className="pointer-events-none absolute right-1.5 top-1.5 z-[1] flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1">
           {duplicate ? (
             <span className="max-w-full truncate rounded-md bg-amber-100 px-1.5 py-1 text-[11px] font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200">
@@ -1156,12 +1156,12 @@ function CandidatePreview({
         "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture",
       );
       iframe?.setAttribute("tabindex", "-1");
-      startYouTubePreview(event.target, result.videoId);
+      enforceYouTubePreviewStart(event.target);
 
-      for (const delay of [250, 900]) {
+      for (const delay of [120, 450]) {
         const retryId = window.setTimeout(() => {
-          if (!playingRef.current && enforceYouTubePreviewStart(event.target)) {
-            markPreviewPlaying(event.target);
+          if (!playingRef.current) {
+            enforceYouTubePreviewStart(event.target);
           }
         }, delay);
 
@@ -1223,8 +1223,8 @@ function CandidatePreview({
       />
       <div
         ref={playerShellRef}
-        className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-200 [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full ${
-          active && loadStatus === "loaded" ? "delay-500 opacity-100" : "opacity-0"
+        className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-150 [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full ${
+          active && loadStatus === "loaded" ? "opacity-100" : "opacity-0"
         }`}
         aria-hidden="true"
       />
@@ -1396,12 +1396,11 @@ function QueueTab({
           <p className="mt-2 text-base text-slate-400">歌单还是空的，去点第一首吧。</p>
         </div>
       ) : (
-        <div className="mt-3 grid gap-3">
-          {queuedItems.map((item, index) => (
+        <div className="mt-2 grid gap-1.5">
+          {queuedItems.map((item) => (
             <QueueItemCard
               key={item.id}
               item={item}
-              index={index}
               onPromote={() => handlePromote(item)}
               onRemove={() => setConfirmAction({ type: "remove", item })}
             />
@@ -1424,54 +1423,54 @@ function QueueTab({
 
 function QueueItemCard({
   item,
-  index,
   onPromote,
   onRemove,
 }: {
   item: QueueItem;
-  index: number;
   onPromote: () => void;
   onRemove: () => void;
 }) {
   return (
-    <article className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-white/[0.06] p-3 shadow-lg shadow-black/20">
-      <div className="flex gap-3">
-        {item.thumbnailUrl ? (
-          <img
-            src={item.thumbnailUrl}
-            alt=""
-            draggable={false}
-            className="h-20 w-28 shrink-0 rounded-md object-cover"
-          />
-        ) : (
-          <div className="grid h-20 w-28 shrink-0 place-items-center rounded-md bg-slate-800 text-slate-400">
-            <Music2 size={24} />
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-rose-300">第 {index + 1} 首</p>
-          <h3 className="line-clamp-2 [overflow-wrap:anywhere] text-base font-semibold leading-5 text-white">
-            {item.title}
-          </h3>
-          <p className="mt-1 truncate text-sm text-slate-400">{item.channelTitle ?? "未知频道"}</p>
+    <article
+      className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)_2rem] items-center gap-2 overflow-hidden rounded-lg border border-white/10 bg-white/[0.06] p-2 shadow-md shadow-black/15"
+      data-queue-item-card
+    >
+      {item.thumbnailUrl ? (
+        <img
+          src={item.thumbnailUrl}
+          alt=""
+          draggable={false}
+          className="h-14 w-20 rounded-md object-cover"
+        />
+      ) : (
+        <div className="grid h-14 w-20 place-items-center rounded-md bg-slate-800 text-slate-400">
+          <Music2 size={20} />
         </div>
+      )}
+      <div className="min-w-0">
+        <h3 className="line-clamp-2 [overflow-wrap:anywhere] text-sm font-semibold leading-4 text-white">
+          {item.title}
+        </h3>
+        <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle ?? "未知频道"}</p>
       </div>
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="grid gap-1">
         <button
           type="button"
           onClick={onPromote}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2.5 text-base font-semibold text-slate-200 transition hover:bg-white/10"
+          aria-label={`置顶 ${item.title}`}
+          title="置顶"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-white/15 text-slate-200 transition hover:bg-white/10 active:scale-95"
         >
-          <ArrowUpToLine size={16} />
-          置顶
+          <ArrowUpToLine size={15} />
         </button>
         <button
           type="button"
           onClick={onRemove}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300/25 px-3 py-2.5 text-base font-semibold text-rose-200 transition hover:bg-rose-300/10"
+          aria-label={`删歌 ${item.title}`}
+          title="删歌"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-300/25 text-rose-200 transition hover:bg-rose-300/10 active:scale-95"
         >
-          <Trash2 size={16} />
-          删歌
+          <Trash2 size={15} />
         </button>
       </div>
     </article>
@@ -1528,12 +1527,18 @@ function runQueueAction({
 }) {
   if (action.type === "promote") {
     if (isSocketConnected) {
-      return sendRoomMessage({
+      const sent = sendRoomMessage({
         type: "PROMOTE_QUEUE_ITEM",
         payload: {
           queueItemId: action.item.id,
         },
       });
+
+      if (sent) {
+        promoteSong(roomId, action.item.id);
+      }
+
+      return sent;
     }
 
     if (canUseLocalFallback) {
@@ -1545,12 +1550,18 @@ function runQueueAction({
   }
 
   if (isSocketConnected) {
-    return sendRoomMessage({
+    const sent = sendRoomMessage({
       type: "REMOVE_QUEUE_ITEM",
       payload: {
         queueItemId: action.item.id,
       },
     });
+
+    if (sent) {
+      removeSong(roomId, action.item.id);
+    }
+
+    return sent;
   }
 
   if (canUseLocalFallback) {

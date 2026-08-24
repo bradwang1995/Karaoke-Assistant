@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
@@ -16,7 +16,7 @@ Last updated: 2026-08-23
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
 | Persistent search repository | Production complete | D1 作为无 TTL 的真实资料源，KV 继续作为加速层；精确查询复用、访问统计、手动删除和存储压力清理已上线。 |
-| Mobile preview | MVP complete | 2–4 列、IFrame API 预热、选中即激活单 Player、静音从 30 秒显式 load/seek/play、实际 PLAYING 后淡入、spinner/timeout fallback 已完成。 |
+| Mobile preview | MVP complete | 2–4 列、active card 整行扩展、IFrame API 预热、构造即从 30 秒静音 autoplay、字幕默认开启、PLAYING 后淡入与 timeout fallback 已完成。 |
 | Display player | MVP complete | Autoplay、0 秒切歌、restart、pause/resume、seek、auto-advance 已完成；画质由 YouTube 自适应。 |
 | Reliability | MVP complete | Heartbeat、5-minute cleanup、debug、fallback policy 已完成。 |
 | Automated tests | 28 files / 145 tests | 零网络 preserve-50 golden search contract、cache-only、两秒体验、provider 限流、preview、Admin、quota 等 regressions 全部通过；DO storage 和端到端测试待补。 |
@@ -120,6 +120,8 @@ Last updated: 2026-08-23
 - `[x]` Direct promote；confirm remove/restart/skip。
 - `[x]` Preview iframe load/timeout fallback。
 - `[x]` 搜索 pending 不插入等待 panel；compact header/tab/search/footer 提高结果区高度，“即将播放” badge 可直达歌单。
+- `[x]` Active preview 在手机端扩展到约 356×200；构造时直接 autoplay/start/captions，避免 ready 后重复加载。
+- `[x]` 待播 card 约减半高度并移除“第 N 首”；置顶/删歌在 WebSocket send 成功后立即乐观更新本地 snapshot。
 - `[~]` Mobile autoplay/playsinline real-device check。
 
 ### Phase 6 — Display playback
@@ -462,6 +464,17 @@ Last updated: 2026-08-23
 | MUI18-03 | P1 | 收紧 header、tab、search controls 和底部点歌按钮高度，扩大搜索与歌单的独立滚动窗口。 |
 | MUI18-04 | P1 | 点歌页挂载即预热 YouTube IFrame API；preview 在真实 PLAYING 后短延迟淡入，iframe 显式禁止 pointer/hover/focus，以减少首次加载和原生 chrome 干扰。 |
 
+### 2026-08-24 full-width preview and dense queue pass 19
+
+生产复现确认半列 preview 只有约 `167×94`，低于 YouTube embed `200×200` 最低 viewport；本轮不再依赖淡入延迟掩盖问题，而是扩大 active player、移除重复加载并压缩长歌单。
+
+| ID | P | Implemented locally |
+| --- | --- | --- |
+| MUI19-01 | P0 | Active preview card 在 2/3/4 列 grid 中分别横跨整行；390px viewport 的 player 约为 `356×200`，active video 上不显示 app selection badge。 |
+| MUI19-02 | P0 | Preview player 改为构造时 `autoplay=1 + mute=1 + start=30 + cc_load_policy=1`；ready/retry 只做 seek/play 校准，移除重复 `loadVideoById`，真实 PLAYING/29 秒 guard 不变。 |
+| MUI19-03 | P1 | 待播 card 改为紧凑 thumbnail/title/channel + 右侧图标操作，移除“第 N 首”和第二行大按钮区，list gap 同步收紧。 |
+| MUI19-04 | P1 | Connected 状态下置顶/删歌在 WebSocket send 成功后立即应用同一 reducer 到本地 snapshot；服务端广播随后覆盖为权威状态。 |
+
 ### Admin storage discovery（2026-07-25）
 
 - 旧管理页面约 `192.0 KB` 的来源已定位：`getAdminOverview()` 执行资料库聚合 SQL 后读取该 statement 的 `D1Result.meta.size_after`。它通常接近整个 D1 文件大小，但不是 Cloudflare database details 管理 API，因此本轮已从 UI 与清理判断移除。
@@ -522,6 +535,7 @@ Last updated: 2026-08-23
 | 2026-08-23 preserve-50 search redesign production release | 源码提交 `b6fad28` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布；push 触发的 Workers Build 在首次 Main 手动发布后切换活动版本，因此再次手动发布 Main。最终 100% 活动版本为 Room `97e33d3e-f95f-4f2c-8bd3-aa0998ff3d54`、Main `b900b971-b7ad-4a76-96b7-8dbb32811ad9`。生产临时房间 `124r3q1r` 的 `林俊杰 + artist + original + cacheOnly` 返回新 algorithm family 的安全 miss：`resultCount=0`、`sourceQueryCount=0`、`externalCallAvoided=true`，quota `0 → 0`；这不是 live quality 结论，只证明旧 family 未被当作新版 exact hit 且零额度路径正常。Production root HTTP 200 并加载 `/assets/index-CbPHpDBo.js`。本轮没有执行 cold production search，真实 YouTube `search.list` quota 消耗为 0；真实 provider 数量与前排质量留待用户后续有限人工验收。 |
 | 2026-08-23 mobile compact/preview polish local | `npm run verify:search` 13 files / 79 tests、full 28 files / 145 tests、typecheck、production build、Wrangler 4.105 Room/Main `--keep-vars` dry-run 和 `git diff --check` passed；Wrangler 仅有既知的用户级 log EPERM，两个 bundle/bindings summary 都正常退出。全新内置浏览器 390×844：pending 前后结果滚动区坐标恒为 `top=214 / height=531`，8 张旧卡片保持可用且无“最多等待 2 秒”panel；badge 高 26px 并正确跳到 `?tab=queue`，页面无横向 overflow。点选 preview 后只有 1 个 iframe，参数含 `controls=0`、`start=30`、`enablejsapi=1`，iframe 为 `pointer-events:none`、`tabindex=-1`，卡片内没有 app 暂停按钮。自动化环境进入既有 10 秒 slow-load fallback，未把真实 PLAYING 或 YouTube 原生 chrome 淡出虚报为通过；console 只有既知 React Router v7 future-flag warnings。 |
 | 2026-08-23 mobile compact/preview polish production release | 源码提交 `d4ade67` 已推送 `origin/main`。Wrangler 4.105 按 Room → Main、`--keep-vars` 发布；push 触发的 Workers Build 在首次 Main 手动发布后生成同源自动版本，因此再次手动发布 Main。最终活动版本为 Room `297b4fb6-6f28-4b56-873a-eaab83332d70`、Main `f14ea2df-e47d-4d7e-8a83-5f6343a06145`，部署列表均显示 100%。Production root HTTP 200 并加载新 bundle `/assets/index-C7R6G3_e.js`；bundle HTTP 200、309,268 bytes。本轮只做页面/assets 只读 smoke，没有调用 production search endpoint，也没有消耗真实 YouTube `search.list` quota；真实设备 preview autoplay 与官方 chrome 淡出仍保留为人工验收项。 |
+| 2026-08-24 full-width preview/dense queue local | 生产旧版先复现 active preview 只有 `167×94`，虽达到真实 `30.048s`，但低于 YouTube `200×200` 最低 viewport。新版通过 `npm run verify:search` 13 files / 79 tests、full 28 files / 145 tests、typecheck、production build、Wrangler 4.105 Room/Main `--keep-vars` dry-run 与 `git diff --check`；dry-run 仅有既知用户级 log EPERM，bundle/bindings summary 均成功。全新内置浏览器 390×844 验证 active player 为 `355.5×200`、单 iframe、`autoplay=1`、`start=30`、`cc_load_policy=1`、`controls=0`，无 active selection badge、无横向 overflow。本地 5 个待播 card 均为 86px 且没有“第 N 首”；置顶完整自动化往返约 293ms 后目标已到首位，删歌约 303ms 后 card/header/count 同步从 5 变 4。Console 只有既有 React Router v7 future-flag warnings；mock video 进入 error fallback，因此没有虚报本地真实 PLAYING/字幕。 |
 
 ### Admin console design QA（2026-07-21）
 

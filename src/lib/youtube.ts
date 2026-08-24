@@ -40,7 +40,8 @@ export function youtubePreviewEmbedUrl(videoId: string) {
 
 export function youtubePreviewPlayerVars(origin: string) {
   return {
-    autoplay: 0,
+    autoplay: 1,
+    cc_load_policy: 1,
     controls: 0,
     disablekb: 1,
     enablejsapi: 1,
@@ -52,16 +53,6 @@ export function youtubePreviewPlayerVars(origin: string) {
     start: MOBILE_PREVIEW_START_SECONDS,
     origin,
   };
-}
-
-export function startYouTubePreview(player: YouTubePlayer, videoId: string) {
-  player.mute?.();
-  player.loadVideoById?.({
-    videoId,
-    startSeconds: MOBILE_PREVIEW_START_SECONDS,
-  });
-  player.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
-  player.playVideo?.();
 }
 
 export function hasYouTubePreviewReachedStart(player: YouTubePlayer) {

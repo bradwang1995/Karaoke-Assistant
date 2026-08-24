@@ -3,7 +3,6 @@ import {
   enforceYouTubePreviewStart,
   hasYouTubePreviewReachedStart,
   MOBILE_PREVIEW_START_SECONDS,
-  startYouTubePreview,
   youtubeEmbedUrl,
   youtubePreviewEmbedUrl,
   youtubePreviewPlayerVars,
@@ -20,34 +19,22 @@ describe("YouTube embed URLs", () => {
     expect(url.searchParams.get("mute")).toBe("1");
   });
 
-  it("explicitly mutes, seeks, and starts mobile previews through the player API", () => {
-    const calls: string[] = [];
-    const player = {
-      mute: () => calls.push("mute"),
-      loadVideoById: ({ videoId, startSeconds }) =>
-        calls.push(`load:${videoId}:${startSeconds}`),
-      seekTo: (seconds, allowSeekAhead) =>
-        calls.push(`seek:${seconds}:${allowSeekAhead}`),
-      playVideo: () => calls.push("play"),
-    } satisfies YouTubePlayer;
-
-    startYouTubePreview(player, "video-id");
-
-    expect(calls).toEqual([
-      "mute",
-      "load:video-id:30",
-      "seek:30:true",
-      "play",
-    ]);
-  });
-
   it("configures selected-card previews for immediate muted autoplay from 30 seconds", () => {
     expect(youtubePreviewPlayerVars("https://example.com")).toMatchObject({
-      autoplay: 0,
+      autoplay: 1,
       mute: 1,
       start: 30,
       playsinline: 1,
       origin: "https://example.com",
+    });
+  });
+
+  it("requests captions while keeping preview controls disabled", () => {
+    expect(youtubePreviewPlayerVars("https://example.com")).toMatchObject({
+      cc_load_policy: 1,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
     });
   });
 
@@ -80,8 +67,11 @@ describe("YouTube embed URLs", () => {
 
   it("does not emit deprecated branding parameters", () => {
     const url = new URL(youtubeEmbedUrl("video-id"));
+    const previewVars = youtubePreviewPlayerVars("https://example.com");
 
     expect(url.searchParams.has("modestbranding")).toBe(false);
     expect(url.searchParams.has("showinfo")).toBe(false);
+    expect(previewVars).not.toHaveProperty("modestbranding");
+    expect(previewVars).not.toHaveProperty("showinfo");
   });
 });

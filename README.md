@@ -36,7 +36,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；搜索 pending 只更新固定高度状态，不插入等待 panel；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
 - 搜索框保留一个不展示提示的 YouTube 单视频 URL 兜底：支持常见 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 链接，命中后只读取该视频并沿用现有 preview/点歌卡片；其他明确 URL 直接返回空结果。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
-- 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌，超长歌名会在卡片内换行且不会产生横向滚动。
+- 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。待播项使用紧凑单行 card，不重复显示“第 N 首”；置顶/删歌先在本地乐观更新，再由房间 snapshot 确认。超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
 - WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
 
@@ -325,12 +325,12 @@ npx wrangler dev --local --config wrangler.toml
 
 Mobile preview：
 
-- 手机竖屏默认两列，较宽/横屏为 3–4 列；每张 card 在视频下方显示两行以内的歌名，不显示 uploader/channel。
+- 手机竖屏默认两列，较宽/横屏为 3–4 列；每张 card 在视频下方显示两行以内的歌名，不显示 uploader/channel。激活 preview 的 card 临时横跨整行，在 390px viewport 获得约 `356×200` 的 player，满足 YouTube embed 最低 viewport 并扩大字幕可视区。
 - Mobile 使用与 display 连续一致的 slate/teal 深色背景，`theme-color`、`color-scheme`、HTML/body 和 safe-area 都保持深色，避免 Safari 顶部状态栏、底部地址栏或结果区露出白带。
 - 进入点歌页后预热 IFrame API；选择 card 后立即激活 preview，快速切换会销毁旧 preview，只有 active card 挂载 iframe。
 - Pending/加载阶段显示 spinner；10 秒仍未加载会显示可重试提示；点击外部停止。
-- Preview 初始化先设置 `autoplay=0`、`mute=1`、`start=30` 和 `playsinline=1`，避免构造阶段从 0 秒抢跑；ready 后依次 `mute()`、`loadVideoById(startSeconds=30)`、`seekTo(30)` 和 `playVideo()`，并在短延迟后重试。只有真实 current time 达到 29 秒后才结束 spinner，并把实际时间写入 preview 容器的 `data-preview-current-time` 供生产验收读取。
-- App 不重复显示 video title/channel/quality；preview iframe 禁止 pointer/hover/focus，并在实际 PLAYING 后短暂等待原生 loading chrome 收起再淡入。YouTube 原生 title/avatar/branding 仍可能按官方规则出现，不能用 overlay 或裁切遮挡。
+- Preview 构造时直接设置 `autoplay=1`、`mute=1`、`start=30`、`cc_load_policy=1` 和 `playsinline=1`，让有字幕轨的视频默认显示字幕；ready 后只校准 `mute()`、`seekTo(30)` 和 `playVideo()`，不再二次 `loadVideoById`。只有真实 current time 达到 29 秒后才结束 spinner，并把实际时间写入 preview 容器的 `data-preview-current-time` 供生产验收读取。
+- App 不重复显示 video title/channel/quality，active preview 也不叠加“已选中”badge；iframe 禁止 pointer/hover/focus，并在实际 PLAYING 后立即淡入。YouTube 原生 title/avatar/branding 可能按官方规则出现，不能用 overlay 或裁切遮挡；整行 player 用更大的合规 viewport 降低这些 chrome 对字幕的遮挡比例。
 
 Display：
 
