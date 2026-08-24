@@ -36,7 +36,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - Mobile 支持 `歌名 / 歌手`、`带原唱`、默认推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
 - 搜索框保留一个不展示提示的 YouTube 单视频 URL 兜底：支持常见 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 链接，命中后只读取该视频并沿用现有 preview/点歌卡片；其他明确 URL 直接返回空结果。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
-- 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。
+- 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌，超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
 - WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
 

@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-08-04
+Last updated: 2026-08-23
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
@@ -11,7 +11,7 @@ Last updated: 2026-08-04
 | Repository | Complete | GitHub 已改名为 `bradwang1995/Karaoke-Assistant`，local origin 已更新。 |
 | Product MVP | Complete | Create、display、mobile、debug 全流程可用。 |
 | Cloudflare backend | Complete | Worker + Assets、D1、KV、Durable Object 已上线。 |
-| Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect 已完成。 |
+| Realtime queue | Complete | WebSocket commands、broadcast、persistence、reconnect，以及 mobile 歌单超长标题的安全换行与横向溢出约束已完成。 |
 | YouTube search | MVP complete | 当前 executable contract、四模式规则、缓存层次、已知风险和变更协议见 `SEARCH.md`；本文件只保留历史 pass 与验证证据。 |
 | Admin console | Production complete | 简洁暗色总览、搜索记录、资料库管理与认证已完成，并已发布到生产环境。 |
 | Cloudflare storage metrics | Production complete | D1 `file_size`、KV Analytics bytes/key count、服务端缓存、过期回退和 UI 已发布；生产 token、管理员登录与 Dashboard 同刻对照均已完成。 |
@@ -490,6 +490,7 @@ Last updated: 2026-08-04
 | 2026-08-01 zero-quota search guard local | `npm run verify:search` 在真实网络被禁止的环境下通过 9 files / 56 tests，并通过 typecheck；full 28 files / 142 tests、production build、Wrangler 4.105 Room/Main 双 dry-run 与 `git diff --check` passed。全新内置浏览器本地 room `096x1933` 搜索 `后来` 返回 8 条 mock 结果，点选第二条后只有一个 iframe，URL 含 `autoplay=0`、`start=30`、`mute=1`、`enablejsapi=1` 和正确 localhost origin。本轮没有执行 production search/cache smoke，保留真实额度给用户次日上午 2–3 次人工验收。 |
 | 2026-08-01 zero-quota search guard production release | 源码提交 `ef2fb17` 已推送 `origin/main`。Wrangler 4.105 先发布 Room，再以 `--keep-vars` 发布 Main；Workers Builds 在首次 Main 手动发布后完成同一 main push 的自动版本，因此又手动发布 Main 一次，最终活动流量为 Room `d7aedc20-6af5-4125-9807-008ea4889a9d`、Main `b3bb7d9d-9db0-4eda-9c77-ba3111587d7a`，均为 100%。Production root 返回 200 并加载本地 build 对应的 `index-CmOH7Wkg.js`。按用户安排，本轮没有请求 production search endpoint（包括 cache-only），也没有执行 cold search；真实搜索与 preview 终验保留到次日上午。 |
 | 2026-08-04 search source-of-truth local | 基于 `02f2e42` 逐项复核 search family、provider、scoring、D1/KV、recommendations、quota、router 与 Mobile 状态后新增 `SEARCH.md`。机器契约与源码/config 校验、零网络 focused 9 files / 56 tests、typecheck、full 28 files / 142 tests、production build 和 `git diff --check` passed。没有修改 Worker/frontend runtime，因此本轮不做浏览器或 production deploy/smoke。 |
+| 2026-08-23 mobile queue overflow local | Mobile 歌单纵向滚动容器禁止横向 overflow，正在播放与待播卡片对不可断开的超长标题使用任意位置换行，并收紧 flex/card 宽度边界。Full 28 files / 142 tests、typecheck、production build、Wrangler 4.105 Room/Main 双 dry-run 和 `git diff --check` passed。全新内置浏览器在 390×844 的本地房间 `0m2b711n` 加入 100 字符无空格的正在播放与待播标题；document、body 和歌单容器均为 `scrollWidth=clientWidth`，两处标题自身也无横向 overflow。视觉检查通过，console 无 error；仅有 README 已记录的 React Router v7 future-flag warnings。 |
 
 ### Admin console design QA（2026-07-21）
 

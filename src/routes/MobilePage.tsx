@@ -1342,7 +1342,7 @@ function QueueTab({
   };
 
   return (
-    <section className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(circle_at_16%_6%,rgba(20,184,166,0.10),transparent_32%),linear-gradient(#020617,#0f172a)] px-4 py-4 text-white scrollbar-soft-dark">
+    <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_16%_6%,rgba(20,184,166,0.10),transparent_32%),linear-gradient(#020617,#0f172a)] px-4 py-4 text-white scrollbar-soft-dark">
       {actionError ? (
         <StatusMessage tone="warning" title="操作未完成" appearance="dark" className="mb-4">
           {actionError}
@@ -1362,8 +1362,10 @@ function QueueTab({
                   className="h-16 w-24 rounded-md object-cover"
                 />
               ) : null}
-              <div className="min-w-0">
-                <h2 className="line-clamp-2 text-base font-semibold text-white">{currentItem.title}</h2>
+              <div className="min-w-0 flex-1">
+                <h2 className="line-clamp-2 [overflow-wrap:anywhere] text-base font-semibold text-white">
+                  {currentItem.title}
+                </h2>
                 <p className="mt-1 truncate text-sm text-slate-400">
                   {currentItem.channelTitle ?? "未知频道"}
                 </p>
@@ -1444,18 +1446,23 @@ function QueueItemCard({
   onRemove: () => void;
 }) {
   return (
-    <article className="rounded-xl border border-white/10 bg-white/[0.06] p-3 shadow-lg shadow-black/20">
+    <article className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-white/[0.06] p-3 shadow-lg shadow-black/20">
       <div className="flex gap-3">
         {item.thumbnailUrl ? (
-          <img src={item.thumbnailUrl} alt="" draggable={false} className="h-20 w-28 rounded-md object-cover" />
+          <img
+            src={item.thumbnailUrl}
+            alt=""
+            draggable={false}
+            className="h-20 w-28 shrink-0 rounded-md object-cover"
+          />
         ) : (
-          <div className="grid h-20 w-28 place-items-center rounded-md bg-slate-800 text-slate-400">
+          <div className="grid h-20 w-28 shrink-0 place-items-center rounded-md bg-slate-800 text-slate-400">
             <Music2 size={24} />
           </div>
         )}
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-rose-300">第 {index + 1} 首</p>
-          <h3 className="line-clamp-2 text-base font-semibold leading-5 text-white">
+          <h3 className="line-clamp-2 [overflow-wrap:anywhere] text-base font-semibold leading-5 text-white">
             {item.title}
           </h3>
           <p className="mt-1 truncate text-sm text-slate-400">{item.channelTitle ?? "未知频道"}</p>
