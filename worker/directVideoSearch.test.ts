@@ -54,6 +54,23 @@ describe("direct YouTube URL search routing", () => {
     });
   });
 
+  it("bypasses an exhausted quota ledger and all cache reads for a direct URL", async () => {
+    const get = vi.fn(() => { throw new Error("quota ledger must not be read"); });
+    const prepare = vi.fn(() => { throw new Error("D1 must not be read"); });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ items: [{
+      id: "dQw4w9WgXcQ", snippet: { title: "指定歌曲" }, status: { embeddable: true },
+    }] })));
+    const response = await searchVideos({
+      query: "https://youtu.be/dQw4w9WgXcQ",
+      env: { YOUTUBE_API_KEY: "test-key", YOUTUBE_SEARCH_DAILY_LIMIT: "0",
+        SEARCH_CACHE: { get, put: vi.fn() }, DB: { prepare } as unknown as D1Database },
+    });
+    expect(response.results[0]?.videoId).toBe("dQw4w9WgXcQ");
+    expect(response.cacheMeta?.sourceQueryCount).toBe(0);
+    expect(get).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
   it("returns no results and performs no provider call for another URL", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

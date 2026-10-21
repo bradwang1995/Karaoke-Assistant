@@ -1,8 +1,17 @@
 # Project Progress
 
-Last updated: 2026-08-24
+Last updated: 2026-10-21
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
+
+## URL 点歌正式入口 — 2026-10-21
+
+- 已增加 URL 下拉选项、链接提示、提交前共享校验、URL 模式隐藏原唱、24 小时状态恢复；文字搜索契约和缓存版本不变。
+- 搜索专项验证：13 files / 89 tests，通过零网络约束与 typecheck。
+- 完整测试：28 files / 155 tests；production build 通过。
+- 内置 @Browser 本地验证：无效其他站点链接提示、URL 模式隐藏原唱、刷新恢复 URL 模式、切回歌手恢复原唱；通过。
+- 新增直接视频回归：quota/cache/D1 不被读取，0 次 search.list，metadata 正常返回。
+- 发布及生产验证：待执行；版本 ID 仅在部署成功后记录。
 
 ## 1. 当前状态
 

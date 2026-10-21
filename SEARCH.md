@@ -1,6 +1,6 @@
 # K歌助手搜索与缓存规范
 
-最后核实：2026-08-24
+最后核实：2026-10-21
 代码基线：`ea062a9`
 状态：当前实现的 source of truth
 
@@ -46,7 +46,7 @@
 
 一次普通文字搜索的实际顺序是：
 
-1. Mobile 只有在用户按搜索或键盘 Search/Enter 时才提交；切换歌名/歌手、原唱开关或修改文字本身不会搜索。
+1. Mobile 只有在用户按搜索或键盘 Search/Enter 时才提交；切换歌名/歌手/URL、原唱开关或修改文字本身不会搜索。
 2. Main Worker 先对非空请求执行同 room + IP 的一分钟 rate limit。
 3. 服务端用完整规范化文字、可选 artist、歌名/歌手模式、KTV/原唱意图和算法版本生成唯一 family hash。
 4. D1 repository 与 KV family cache 并行读取，但 D1 命中优先；只读取当前 exact family，不跨文字、不跨模式、不跨原唱开关。
@@ -86,7 +86,7 @@
 
 API 还接受可选 `artist`、`cacheFill` 和隐藏的 `cacheOnly`；Mobile 当前不单独发送 artist，也不暴露 cache-only。
 
-### 3.3 YouTube 单视频 URL：隐藏兜底
+### 3.3 YouTube 单视频 URL：正式点歌入口
 
 服务端在普通 family 逻辑之前识别 `youtube.com/watch`、`youtu.be`、`shorts`、`live`、`embed` 和 `/v/` 的 11 位 video id：
 
@@ -96,7 +96,7 @@ API 还接受可选 `artist`、`cacheFill` 和隐藏的 `cacheOnly`；Mobile 当
 - 该路径没有 Worker 1600ms deadline 包装，但 Mobile 的整个请求仍受浏览器 2000ms abort 约束。
 - `cacheOnly=true` 时不调用 `videos.list`，并返回空结果。
 
-这条路径是用户明确指定 video id 的隐藏后门，不属于普通文字搜索算法。
+Mobile 下拉框提供 `URL` 选项；该模式提示粘贴 YouTube 视频链接、隐藏原唱开关，并在提交前用与服务端相同的分类器校验。无效链接、普通文字、频道和纯播放列表会提示且不发送搜索请求。URL 模式随 24 小时 UI 状态恢复。歌名/歌手模式仍兼容已有 URL 输入。此路径不属于普通文字搜索算法，不消耗 `search.list` 次数，额度耗尽仍可点歌；`videos.list` metadata 调用并非零 YouTube API 用量。
 
 ### 3.4 其他 URL：直接拦截
 
@@ -492,6 +492,17 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 
 ### 14.1 下一版变更提案
 
+### URL 点歌正式入口 [已实现 2026-10-21]
+
+- 输入/输出：Mobile 增加 URL 模式，有效 YouTube 单视频链接返回现有卡片；无效 id、频道、纯列表、其他站点和普通文字提交前提示且不发请求。
+- UI：URL 模式提示粘贴链接、隐藏原唱开关，并随 24 小时状态恢复；四种文字模式不变。
+- 实现：前后端共用现有分类器，沿用直接视频 API 路径。
+- Query、准入、排序、缓存迁移：无变化，不 bump algorithm、KV 或 recommendations version。
+- 配额：0 次 search.list，最多 1 次 videos.list，搜索额度耗尽仍可使用；既有 rate limit、浏览器 2 秒 deadline 不变。
+- 验收：有效 watch/短链接/shorts、无效 URL 拦截、四种文字模式回归；模拟 quota ledger 不可用仍返回单视频。
+- 生产验证：cacheOnly 零外部调用 smoke 和 URL 单视频路径，不运行 cold 文字搜索。
+
+
 ### 扩大高分缓存推荐 `[已实现 2026-08-24]`
 
 - 当前问题：空查询最多可返回 200 条，但每个 exact search family 只提升前 8 条；只搜过一两个 family 时，缓存推荐会长期只有 8 或 16 首。
@@ -586,7 +597,7 @@ Version bump 后必须新增测试证明旧 D1 `family_hash` 不会命中，并�
 | 文件 | 职责 |
 | --- | --- |
 | `worker/router.ts` | Request validation、rate limit、search event、quota broadcast、HTTP errors |
-| `worker/searchQuery.ts` | 普通文字、YouTube 单视频 URL、blocked URL 分类 |
+| `src/lib/searchQuery.ts` / `worker/searchQuery.ts` | 前后端共享普通文字、YouTube 单视频 URL、blocked URL 分类；Worker 保留转导出 |
 | `src/lib/queryNormalize.ts` | canonical query 基础规范化 |
 | `worker/searchFamily.ts` | algorithm version、family hash、provider aliases/source queries |
 | `worker/youtubeSearch.ts` | search.list、videos.list、deadline、candidate detail pipeline |

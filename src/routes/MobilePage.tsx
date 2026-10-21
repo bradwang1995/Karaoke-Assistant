@@ -23,6 +23,7 @@ import {
   SearchRequestTimeoutError,
   searchVideosViaApi,
 } from "../lib/apiClient";
+import { classifySearchQuery } from "../lib/searchQuery";
 import { searchMockVideos } from "../lib/mockSearch";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
 import { visibleRoomDisplayName } from "../lib/roomName";
@@ -63,6 +64,7 @@ const SEARCH_FETCH_LIMIT = 50;
 const RECOMMENDATION_FETCH_LIMIT = 200;
 const PREVIEW_LOAD_TIMEOUT_MS = 10_000;
 const SEARCH_STATE_TTL_MS = 1000 * 60 * 60 * 24;
+type SearchInputType = SearchType | "url";
 type MobileTab = "search" | "queue";
 
 export default function MobilePage() {
@@ -222,7 +224,7 @@ function SearchTab({
 }) {
   const [initialSearchState] = useState(() => readPersistedSearchState(roomId));
   const [query, setQuery] = useState(initialSearchState?.query ?? "");
-  const [searchType, setSearchType] = useState<SearchType>(
+  const [searchType, setSearchType] = useState<SearchInputType>(
     initialSearchState?.searchType ?? "song",
   );
   const [includeOriginalVocal, setIncludeOriginalVocal] = useState(
@@ -612,12 +614,17 @@ function SearchTab({
 
   const runSearch = (
     nextQuery: string,
-    nextSearchType: SearchType,
+    nextSearchType: SearchInputType,
     nextIncludeOriginalVocal: boolean,
   ) => {
     const trimmedQuery = nextQuery.trim();
 
     if (!trimmedQuery) {
+      return;
+    }
+
+    if (nextSearchType === "url" && classifySearchQuery(trimmedQuery).kind !== "youtube-video-url") {
+      showToast({ tone: "warning", message: "请输入有效的 YouTube 单视频链接。" });
       return;
     }
 
@@ -628,8 +635,8 @@ function SearchTab({
     setIsLoadingMore(false);
     searchMutation.mutate({
       query: trimmedQuery,
-      searchType: nextSearchType,
-      includeOriginalVocal: nextIncludeOriginalVocal,
+      searchType: nextSearchType === "url" ? "song" : nextSearchType,
+      includeOriginalVocal: nextSearchType === "url" ? false : nextIncludeOriginalVocal,
       requestId,
     });
   };
@@ -707,35 +714,39 @@ function SearchTab({
 
       <div className="z-50 isolate shrink-0 overflow-hidden border-b border-white/10 bg-slate-900 px-4 pb-2 pt-2.5 shadow-lg shadow-slate-950/15">
         <form onSubmit={submitSearch}>
-          <div className="grid grid-cols-[4.75rem_minmax(0,1fr)_5rem_3.25rem] gap-1.5 sm:grid-cols-[5.25rem_minmax(0,1fr)_5.25rem_3.5rem] sm:gap-2">
+          <div className={`grid gap-1.5 sm:gap-2 ${searchType === "url"
+            ? "grid-cols-[4.75rem_minmax(0,1fr)_3.25rem] sm:grid-cols-[5.25rem_minmax(0,1fr)_3.5rem]"
+            : "grid-cols-[4.75rem_minmax(0,1fr)_5rem_3.25rem] sm:grid-cols-[5.25rem_minmax(0,1fr)_5.25rem_3.5rem]"}`}>
             <label className="sr-only" htmlFor="search-type">
               搜索类型
             </label>
             <select
               id="search-type"
               value={searchType}
-              onChange={(event) => setSearchType(event.target.value as SearchType)}
+              onChange={(event) => setSearchType(event.target.value as SearchInputType)}
               className="h-10 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             >
               <option value="song">歌名</option>
               <option value="artist">歌手</option>
+              <option value="url">URL</option>
             </select>
             <label className="sr-only" htmlFor="song-search">
-              搜索歌曲
+              {searchType === "url" ? "YouTube 视频链接" : "搜索歌曲"}
             </label>
             <input
               id="song-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={searchType === "artist" ? "歌手名" : "歌名"}
+              placeholder={searchType === "url" ? "粘贴 YouTube 视频链接" : searchType === "artist" ? "歌手名" : "歌名"}
+              inputMode={searchType === "url" ? "url" : "text"}
               enterKeyHint="search"
               className="h-10 min-w-0 rounded-lg border border-white/15 bg-slate-800 px-3 text-base text-white outline-none transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             />
-            <PillToggle
+            {searchType !== "url" && <PillToggle
               label="原唱"
               checked={includeOriginalVocal}
               onChange={setIncludeOriginalVocal}
-            />
+            />}
             <button
               type="submit"
               aria-label="搜索"
@@ -1625,7 +1636,7 @@ function searchErrorMessage(error: unknown) {
 interface PersistedSearchState {
   savedAt: number;
   query: string;
-  searchType: SearchType;
+  searchType: SearchInputType;
   includeOriginalVocal: boolean;
   response: SearchResponse | null;
   visibleResultCount: number;
@@ -1655,7 +1666,7 @@ function readPersistedSearchState(roomId: string): PersistedSearchState | null {
     return {
       savedAt: parsed.savedAt,
       query: typeof parsed.query === "string" ? parsed.query : "",
-      searchType: parsed.searchType === "artist" ? "artist" : "song",
+      searchType: parsed.searchType === "url" ? "url" : parsed.searchType === "artist" ? "artist" : "song",
       includeOriginalVocal: parsed.includeOriginalVocal === true,
       response: isSearchResponse(parsed.response) ? parsed.response : null,
       visibleResultCount: clampVisibleResultCount(parsed.visibleResultCount),

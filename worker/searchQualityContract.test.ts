@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchType } from "../src/types/youtube";
+import { classifySearchQuery } from "../src/lib/searchQuery";
 import { searchYouTubeVideos } from "./youtubeSearch";
 
 interface QualityCandidate {
@@ -187,3 +188,13 @@ function jsonResponse(value: unknown) {
     headers: { "content-type": "application/json" },
   });
 }
+
+
+describe("URL entry validation contract", () => {
+  it.each(["https://youtube.com/watch?v=dQw4w9WgXcQ", "youtu.be/dQw4w9WgXcQ", "https://youtube.com/shorts/dQw4w9WgXcQ"])("accepts a single video: %s", query => {
+    expect(classifySearchQuery(query).kind).toBe("youtube-video-url");
+  });
+  it.each(["后来", "https://youtube.com/playlist?list=PL123", "https://youtube.com/@artist", "https://youtube.com/watch?v=bad", "https://example.com/watch?v=dQw4w9WgXcQ"])("rejects URL-mode input: %s", query => {
+    expect(classifySearchQuery(query).kind).not.toBe("youtube-video-url");
+  });
+});
