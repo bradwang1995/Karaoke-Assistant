@@ -11,7 +11,10 @@ Last updated: 2026-10-21
 - 完整测试：28 files / 155 tests；production build 通过。
 - 内置 @Browser 本地验证：无效其他站点链接提示、URL 模式隐藏原唱、刷新恢复 URL 模式、切回歌手恢复原唱；通过。
 - 新增直接视频回归：quota/cache/D1 不被读取，0 次 search.list，metadata 正常返回。
-- 发布及生产验证：待执行；版本 ID 仅在部署成功后记录。
+- 内置 @Browser：390×844 URL 布局无横向溢出（clientWidth/scrollWidth 均为 390），未捕获 console error；未做真实 YouTube 端到端点歌验收。
+- `git diff --check`：通过（修复 tsconfig 列表新增项的尾空格后）。
+- 功能提交 `ccb98b1` 已推送 `origin/main`。
+- Room 部署尝试 `--keep-vars` 被 Wrangler 认证阻断：非交互环境缺少可用 CLOUDFLARE_API_TOKEN/登录状态。Room/Main 均未发布；无新版本 ID，生产 smoke 尚未执行。恢复 Cloudflare 认证后按 Room → Main 继续。
 
 ## 1. 当前状态
 
