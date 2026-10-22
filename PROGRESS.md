@@ -1,6 +1,6 @@
 # Project Progress
 
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
@@ -14,7 +14,11 @@ Last updated: 2026-10-21
 - 内置 @Browser：390×844 URL 布局无横向溢出（clientWidth/scrollWidth 均为 390），未捕获 console error；未做真实 YouTube 端到端点歌验收。
 - `git diff --check`：通过（修复 tsconfig 列表新增项的尾空格后）。
 - 功能提交 `ccb98b1` 已推送 `origin/main`。
-- Room 部署尝试 `--keep-vars` 被 Wrangler 认证阻断：非交互环境缺少可用 CLOUDFLARE_API_TOKEN/登录状态。Room/Main 均未发布；无新版本 ID，生产 smoke 尚未执行。恢复 Cloudflare 认证后按 Room → Main 继续。
+- 2026-10-22 已恢复本机 Wrangler OAuth 登录；生产构建、typecheck 与 diff 检查通过，按 Room → Main 使用 --keep-vars 发布。
+- Room version: c1b7d1c1-3e3e-4b85-9f23-2bd343a49a37；Main version: 9b63a48f-c4bb-41a6-861f-4d15fd47ff95；deployments list 复核均为 100%。
+- Production cacheOnly smoke：测试房间 640z5m2i，直接 URL 返回 0 条，0 次外部调用，quota used 0 → 0。
+- 内置 @Browser 生产验收：创建房间、实时连接、URL 模式隐藏原唱、指定视频 metadata 卡片返回 1 条、点歌成功、歌单显示该视频为当前歌曲；全部通过。真实 URL 查询及点歌后 quota used=0、remaining=100，未运行 cold 文字搜索。
+- 实际视频解码/音频播放与真实设备兼容性未在本次 smoke 中验证。
 
 ## 1. 当前状态
 
