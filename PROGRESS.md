@@ -23,7 +23,9 @@ Last updated: 2026-10-22
 ## URL 输入提示简化 — 2026-10-22
 
 - URL placeholder 改为 `YouTube视频链接`；歌名/歌手名及搜索行为不变。
-- 完整测试 28 files / 155 tests、搜索专项 13 files / 89 tests、typecheck、production build、git diff --check 均通过。发布待执行。
+- 完整测试 28 files / 155 tests、搜索专项 13 files / 89 tests、typecheck、production build、git diff --check 均通过。
+- Room `b10d3089-9173-493b-a92f-902d8392028c` → Main `c6133ee1-f41f-4425-bc36-c239680df633` 已使用 --keep-vars 发布。
+- 内置 @Browser 生产 smoke：三个输入提示精确为 `歌名`、`歌手名`、`YouTube视频链接`；未提交搜索，不消耗搜索次数。
 
 ## 1. 当前状态
 
