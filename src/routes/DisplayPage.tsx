@@ -345,9 +345,9 @@ export default function DisplayPage() {
           )}
         </section>
 
-        <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-4 shadow-2xl">
-          <div className="grid gap-4 text-sm lg:grid-cols-[12rem_minmax(0,1fr)_22rem] lg:items-center">
-            <div className="min-w-0 lg:self-start">
+        <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-2 shadow-2xl">
+          <div className="grid gap-4 text-sm lg:grid-cols-[18rem_minmax(0,1fr)_22rem] lg:items-center">
+            <div className="flex min-w-0 items-center gap-3">
               <ConnectionBadge
                 status={roomSocket.status}
                 canUseLocalFallback={roomSocket.canUseLocalFallback}
@@ -360,7 +360,7 @@ export default function DisplayPage() {
             </div>
             <div className="min-w-0 text-center">
               {currentItem ? (
-                <h2 className="truncate text-xl font-semibold tracking-normal sm:text-2xl">
+                <h2 className="truncate text-lg font-semibold tracking-normal sm:text-xl">
                   {currentItem.title}
                 </h2>
               ) : null}
@@ -449,7 +449,7 @@ function PlayerProgressControl({
   const playedPercent = disabled ? 0 : (safeCurrentTime / safeDuration) * 100;
 
   return (
-    <div className="mx-auto mt-3 flex w-full max-w-3xl items-center gap-3 text-sm text-slate-200">
+    <div className="mx-auto mt-1 flex w-full max-w-3xl items-center gap-3 text-sm text-slate-200">
       <span className="w-12 shrink-0 tabular-nums">{formatPlayerTime(safeCurrentTime)}</span>
       <div className="relative min-w-0 flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[0.45rem] -translate-y-1/2 overflow-hidden rounded-full bg-slate-500/60">
@@ -506,16 +506,16 @@ function YouTubeQuotaStatus({
   isError: boolean;
 }) {
   if (isLoading) {
-    return <p className="mt-2 text-xs text-slate-400">搜索额度加载中</p>;
+    return <p className="text-xs text-slate-400">搜索额度加载中</p>;
   }
 
   if (isError || !status) {
-    return <p className="mt-2 text-xs text-slate-400">搜索额度暂不可用</p>;
+    return <p className="text-xs text-slate-400">搜索额度暂不可用</p>;
   }
 
   return (
     <div
-      className={`mt-2 space-y-1 text-xs font-medium ${
+      className={`space-y-1 text-xs font-medium ${
         status.exhausted ? "text-amber-200" : "text-slate-400"
       }`}
     >
@@ -554,7 +554,7 @@ function ConnectionBadge({
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold backdrop-blur ${
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold backdrop-blur ${
         connected
           ? "bg-emerald-500/90 text-emerald-950"
           : canUseLocalFallback
