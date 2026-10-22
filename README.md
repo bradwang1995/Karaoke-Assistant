@@ -487,7 +487,7 @@ Display 专项：
 - 不显示画质选项；YouTube adaptive 是唯一模式，不伪装成可强制固定的 app quality API。
 - 默认播放区无 app 状态提示、透明点击层或结束遮罩；native controls/fullscreen/keyboard 关闭，ENDED/error iframe 不继续显示相关推荐或错误页。
 - QR 外层为紧凑暗色 card，内部保留 140px Canvas 纯黑/纯白高纠错码与白色 quiet zone，并阻止浏览器强制深色模式降低对比度；不遮挡 player。
-- `实时已连接`、今日剩余额度和本地 reset 相对小时都在 footer 最左侧，不显示“正在播放”；歌名与 progress 在中间且不重叠。
+- footer 最左侧将连接状态 badge 与右侧两行额度/reset 提示水平并排；仅中间歌名缩小为 18px（sm 起 20px），progress 上间距和 footer 上下留白收紧。其他字体、颜色、右侧播放控制与队列统计、二维码 card 尺寸保持原样。不显示“正在播放”，歌名与 progress 不重叠。
 - 已播放 progress 与 thumb 同为 teal，未播放部分为灰色；右侧重播、暂停/继续、下一首和队列统计有明确的 button/panel 层级。
 - `/create` 在 390×844 与 1280×720 都应无横向 overflow；主标题使用受控两行，CTA 在手机首屏可见，三步说明保持简短。
 - Mobile 使用固定高度深色外壳；header、搜索栏/结果标题和 footer 不参与页面滚动，只有结果容器独立滚动并保存 `scrollTop`，滚动条也只出现在结果区，卡片标签不得穿透搜索栏；header/tab/search/点歌 controls 保持紧凑，“即将播放”是可直达歌单的 inline badge。

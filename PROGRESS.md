@@ -27,6 +27,19 @@ Last updated: 2026-10-22
 - Room `b10d3089-9173-493b-a92f-902d8392028c` → Main `c6133ee1-f41f-4425-bc36-c239680df633` 已使用 --keep-vars 发布。
 - 内置 @Browser 生产 smoke：三个输入提示精确为 `歌名`、`歌手名`、`YouTube视频链接`；未提交搜索，不消耗搜索次数。
 
+## 大屏底栏收紧（已发布）— 2026-10-22
+
+- 左侧连接 badge 与两行额度/reset 提示水平并排；歌名字号最终从 20/24px 稍微缩小到 18/20px（审阅后由首版 16/18px 调回），progress 上间距从 12px 改为 4px，底栏上下 padding 从 16px 改为 8px。其余字体、颜色、右侧按钮、控制面板、队列统计及二维码 card 样式保持原版。
+- `npm run typecheck`、`git diff --check` 通过；仅样式调整，未运行全量测试、build 或搜索专项。
+- 新建内置 @Browser 会话，在 Vite http://127.0.0.1:5173/room/2y6f410w/display 检查空状态、额度不可用、模拟两行额度、长歌名、禁用进度和播放器错误状态；1280×720 无横向溢出，正常底栏高 74px，三个按钮均高 40px；错误提示出现时高 102px。
+- Vite 预览使用临时服务脚本提供模拟 quota 97/100，其余 API 使用本地 fallback/mock；不是实时 Worker 连接或真实额度。样例视频出现 YouTube 150 错误，未验证真实音视频播放。尝试 390×844 viewport 切换后实际仍为 1280×720，窄屏验收未完成。
+- 本地预览阶段保留页面供用户审阅，未提前提交、推送或部署。
+- 审阅修订验证：对照 HEAD，右侧 controls/队列和二维码 card 源码完全一致，唯一 typography 差异是歌名；其余变化仅 layout、padding/margin 与防收缩。typecheck、diff 检查再次通过；新内置 @Browser 页面实测 1033×846 无横向溢出，歌名 20px，badge/额度/“即将播放”12px、队列数量 18px，按钮 14px/高 40px，QR card 182×210px。本地模式的灰色 badge 与空房间隐藏控制键均为原有状态行为。
+- 字体显示差异最终由用户确认是 Chrome 站点缩放不同：production 125%，localhost 100%；未为此放大其他字体或控件。用户统一比例审阅后明确批准发布。
+- 发布前完整测试 28 files / 155 tests、搜索专项 13 files / 89 tests、typecheck、build、git diff --check 均通过。代码提交 `a09d961` 已推送 origin/main。
+- 初次手动发布后 Main 自动构建完成，已再次按 Room → Main 使用 --keep-vars 发布并复核：Room `faa9f2aa-94d4-4f1e-b313-172a9de5ddb6`；Main `7cd8bd12-b7ed-4ff6-8207-b0fee486d0e4`，最终均 100%。线上静态资源匹配本批构建。
+- Production smoke 房间 `0e0k0s2b`：cacheOnly 搜索返回 0 条但契约通过，0 次外部搜索，quota used 6 → 6；缓存推荐返回结果，选取既有缓存中的倒数视频点歌成功。内置 @Browser 确认实时连接、左侧并排、标题 20px、按钮 14px/高 40px、footer padding 8px 16px、无横向溢出；再次 cacheOnly 检查 quota 仍为 6。未将真实音视频解码或窄屏作为本次发布验收通过项。
+
 ## 1. 当前状态
 
 | Area | Status | Summary |
