@@ -96,7 +96,7 @@ API 还接受可选 `artist`、`cacheFill` 和隐藏的 `cacheOnly`；Mobile 当
 - 该路径没有 Worker 1600ms deadline 包装，但 Mobile 的整个请求仍受浏览器 2000ms abort 约束。
 - `cacheOnly=true` 时不调用 `videos.list`，并返回空结果。
 
-Mobile 下拉框提供 `URL` 选项；该模式提示粘贴 YouTube 视频链接、隐藏原唱开关，并在提交前用与服务端相同的分类器校验。无效链接、普通文字、频道和纯播放列表会提示且不发送搜索请求。URL 模式随 24 小时 UI 状态恢复。歌名/歌手模式仍兼容已有 URL 输入。此路径不属于普通文字搜索算法，不消耗 `search.list` 次数，额度耗尽仍可点歌；`videos.list` metadata 调用并非零 YouTube API 用量。
+Mobile 下拉框提供 `URL` 选项；该模式输入提示为 `YouTube视频链接`、隐藏原唱开关，并在提交前用与服务端相同的分类器校验。无效链接、普通文字、频道和纯播放列表会提示且不发送搜索请求。URL 模式随 24 小时 UI 状态恢复。歌名/歌手模式仍兼容已有 URL 输入。此路径不属于普通文字搜索算法，不消耗 `search.list` 次数，额度耗尽仍可点歌；`videos.list` metadata 调用并非零 YouTube API 用量。
 
 ### 3.4 其他 URL：直接拦截
 
@@ -492,10 +492,16 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 
 ### 14.1 下一版变更提案
 
+### URL 输入提示简化 [已实现 2026-10-22]
+
+- URL placeholder 改为 `YouTube视频链接`，删除操作动词；仅文案变化，不改变输入解释、配额、缓存或版本。
+- 验收：URL 模式空输入显示该精确文案；歌名/歌手名不变。
+
+
 ### URL 点歌正式入口 [已实现 2026-10-21]
 
 - 输入/输出：Mobile 增加 URL 模式，有效 YouTube 单视频链接返回现有卡片；无效 id、频道、纯列表、其他站点和普通文字提交前提示且不发请求。
-- UI：URL 模式提示粘贴链接、隐藏原唱开关，并随 24 小时状态恢复；四种文字模式不变。
+- UI：URL 模式提示为 `YouTube视频链接`、隐藏原唱开关，并随 24 小时状态恢复；四种文字模式不变。
 - 实现：前后端共用现有分类器，沿用直接视频 API 路径。
 - Query、准入、排序、缓存迁移：无变化，不 bump algorithm、KV 或 recommendations version。
 - 配额：0 次 search.list，最多 1 次 videos.list，搜索额度耗尽仍可使用；既有 rate limit、浏览器 2 秒 deadline 不变。

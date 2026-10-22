@@ -20,6 +20,11 @@ Last updated: 2026-10-22
 - 内置 @Browser 生产验收：创建房间、实时连接、URL 模式隐藏原唱、指定视频 metadata 卡片返回 1 条、点歌成功、歌单显示该视频为当前歌曲；全部通过。真实 URL 查询及点歌后 quota used=0、remaining=100，未运行 cold 文字搜索。
 - 实际视频解码/音频播放与真实设备兼容性未在本次 smoke 中验证。
 
+## URL 输入提示简化 — 2026-10-22
+
+- URL placeholder 改为 `YouTube视频链接`；歌名/歌手名及搜索行为不变。
+- 完整测试 28 files / 155 tests、搜索专项 13 files / 89 tests、typecheck、production build、git diff --check 均通过。发布待执行。
+
 ## 1. 当前状态
 
 | Area | Status | Summary |

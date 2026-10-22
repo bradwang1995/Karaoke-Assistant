@@ -737,7 +737,7 @@ function SearchTab({
               id="song-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={searchType === "url" ? "粘贴 YouTube 视频链接" : searchType === "artist" ? "歌手名" : "歌名"}
+              placeholder={searchType === "url" ? "YouTube视频链接" : searchType === "artist" ? "歌手名" : "歌名"}
               inputMode={searchType === "url" ? "url" : "text"}
               enterKeyHint="search"
               className="h-10 min-w-0 rounded-lg border border-white/15 bg-slate-800 px-3 text-base text-white outline-none transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"

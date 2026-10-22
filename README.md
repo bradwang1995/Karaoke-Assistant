@@ -34,7 +34,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
 - 第一首歌自动成为 `playing`；后续歌曲 `queued`，不会打断当前播放。
 - Mobile 支持 `歌名 / 歌手 / URL`、`带原唱`、高分缓存推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；头部的“K歌助手 / K歌房”同行显示，原唱开启时只有内部 toggle 变绿；搜索 pending 只更新固定高度状态，不插入等待 panel；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
-- URL 点歌：选择 `URL` 后粘贴 YouTube 单视频链接并提交；支持 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 等链接，隐藏原唱选项，无效输入在提交前提示。沿用现有 preview/点歌卡片，不消耗搜索次数，搜索额度耗尽仍可使用（视频 metadata 可能调用一次 `videos.list`）。
+- URL 点歌：选择 `URL` 后，输入框提示 `YouTube视频链接`，输入单视频链接并提交；支持 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 等链接，隐藏原唱选项，无效输入在提交前提示。沿用现有 preview/点歌卡片，不消耗搜索次数，搜索额度耗尽仍可使用（视频 metadata 可能调用一次 `videos.list`）。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。待播项使用紧凑单行 card，不重复显示“第 N 首”；置顶/删歌先在本地乐观更新，再由房间 snapshot 确认。超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
