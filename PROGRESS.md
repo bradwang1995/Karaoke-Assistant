@@ -4,6 +4,18 @@ Last updated: 2026-10-23
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
+## 冷门同名词歌曲排序修复（用户已批准，发布准备中）— 2026-10-23
+
+- 复现：截图中的简体“耍赖”无法匹配繁体“耍賴”；原唱/Official/MV 叠加负分与普通视频的同词命中进一步拉低真正歌曲。新增的 8 个初始回归样例在旧实现下全部失败，修复后通过。
+- 排序采用简繁等价、英文词边界与相关性分层，KTV/原唱偏好有界；cover/live 不再把歌名匹配降至 +10。独立歌名、音乐标题或 Music metadata 支持歌曲优先，不把 KTV 场所剧情仅凭 KTV 字样升为歌曲。准入规则未改，50 条结构可用候选全部保留。
+- 新增唯一依赖 `opencc-js@1.4.2`，只导入 Worker 的繁转简入口，用于通用匹配，不维护歌名/歌手特例；前端构建未包含该词典。
+- 保留 `rank-preserve-50-v2` 和 exact KV `v4`，已缓存的同一候选池重新搜索时重排；recommendations 升为 `v5`，旧 exact family 重建/复用时先排序再取前 20，旧推荐池不再读取。未清空生产缓存，不增加 YouTube 调用。
+- 发布前验证：`npm test` 通过（28 files / 173 tests）；`npm run verify:search` 通过（13 files / 107 tests，禁止真实网络，包含 typecheck）；`npm run build` 通过；`git diff --check` 通过。
+- 本地双 Worker：独立 `.wrangler/state-search-ranking` 完成本地 6 个 migrations；Main 使用空 env 文件，无 YouTube key；真实本地 D1 写入截图改编的 50 条错序 fixture。API cacheOnly 验证 `cached=true`、`responseSource=repository`、`sourceQueryCount=0`、`videosListCalls=0`、返回 50 条，6 条目标歌曲全部在前。本地 quota used `0`。
+- 新建内置 @Browser 会话验证创建房间、实时连接、歌名搜索与原唱切换，前六项均为目标歌曲；非原唱首项 KTV，原唱首项 Official MV。console warning/error 记录为空。未验证真实 YouTube 搜索、metadata、播放或生产结果。
+- 本地预览运行于 `http://127.0.0.1:8791/room/4t691l1k/mobile`；输入“耍赖”并按搜索，切换原唱后再次搜索以检查顺序。展示的是固定样例，缩略图占位正常；前端由 dist 提供，前端编辑后需 build 再刷新，Worker 编辑由 Wrangler 重载。停止运行终端会关闭预览。
+- 用户已检查本地预览并明确批准 push and deploy；本条发布状态待线上验证后补充。
+
 ## 空搜索返回缓存推荐（已发布）— 2026-10-23
 
 - Mobile 搜索框清空后按搜索，会返回缓存推荐页并重置为先显示 10 首；按钮在非搜索中保持可用。推荐池和分页逻辑未变。

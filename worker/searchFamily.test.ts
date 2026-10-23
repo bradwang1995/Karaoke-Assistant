@@ -5,6 +5,15 @@ import {
 } from "./searchFamily";
 
 describe("search query families", () => {
+  it("keeps existing hashes and provider queries while ranking comparisons become script-equivalent", () => {
+    const family = buildSearchQueryFamily("耍赖");
+    expect(family.hash).toBe("14c36cb9");
+    expect(family.canonicalQuery).toBe("耍赖");
+    expect(family.sourceQueries[0]).toBe("耍赖 ktv");
+    expect(buildSearchQueryFamily("耍赖", undefined, { includeOriginalVocal: true }).hash).toBe("9c860606");
+    expect(buildSearchQueryFamily("耍賴").hash).not.toBe(family.hash);
+  });
+
   it("keeps different query text in separate cache families", () => {
     expect(normalizeSearchFamilyQuery("Later ktv")).toBe("later");
     expect(normalizeSearchFamilyQuery("Later karaoke")).toBe("later");

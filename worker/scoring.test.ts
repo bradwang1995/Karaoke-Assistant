@@ -1,7 +1,55 @@
 import { describe, expect, it } from "vitest";
 import { rankSearchResultsForQuery, scoreSearchResult } from "./scoring";
+import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
 
 describe("search scoring", () => {
+  it.each([false, true])("ranks songs above screenshot distractions with original=%s, preserving fifty", (includeOriginalVocal) => {
+    const ranked = rankSearchResultsForQuery(ambiguousSongCandidates(), "耍赖", { includeOriginalVocal });
+
+    expect(ranked).toHaveLength(50);
+    expect(new Set(ranked.map((result) => result.videoId)).size).toBe(50);
+    expect(ranked.slice(0, 6).every((result) => result.videoId.startsWith("song-"))).toBe(true);
+    expect(ranked[0].videoId).toBe(includeOriginalVocal ? "song-official" : "song-ktv");
+    expect(ranked.every((result) => !result.reasons.includes("old cached score"))).toBe(true);
+  });
+
+  it.each([
+    ["耍赖", "陳楚生 - 耍賴"],
+    ["耍賴", "陈楚生 - 耍赖"],
+    ["后来", "劉若英《後來》"],
+    ["爱与诚", "古巨基《愛與誠》翻唱"],
+  ])("matches simplified/traditional titles: %s", (query, title) => {
+    const ranked = rankSearchResultsForQuery([
+      candidate("unrelated", `今天${query}的搞笑故事`, "KTV Official Karaoke", ["ktv", "伴奏", "instrumental"]),
+      { videoId: "song", title },
+    ], query);
+    expect(ranked[0].videoId).toBe("song");
+  });
+
+  it("matches artist metadata across scripts and keeps relevant originals above unrelated karaoke", () => {
+    const ranked = rankSearchResultsForQuery([
+      candidate("unrelated", "其他歌手 KTV 伴奏 karaoke instrumental", "KTV"),
+      candidate("song", "陳楚生 - 耍賴 Official MV 原唱", "陳楚生"),
+    ], "陈楚生", { searchType: "artist" });
+    expect(ranked[0].videoId).toBe("song");
+  });
+
+  it("does not mistake parts of English words for song or intent markers", () => {
+    const ranked = rankSearchResultsForQuery([
+      candidate("incidental", "Someone lives in Clover", "Channel"),
+      candidate("song", "Artist - One (Cover)", "Channel"),
+    ], "One");
+    expect(ranked[0].videoId).toBe("song");
+    expect(ranked[1].reasons).not.toContain("title contains live");
+    expect(ranked[1].reasons).toContain("title does not match query");
+  });
+
+  it.each(["Live", "Cover", "MV", "Ｔｈｅ Ｏｎｅ"])("preserves a title made of version words or full-width letters: %s", (query) => {
+    const result = scoreSearchResult(candidate("song", query.normalize("NFKC"), "Channel"), query);
+    expect(result.reasons).toContain("title exactly matches song query");
+    expect(result.reasons).toContain("query relevance tier 3");
+  });
+
   it("rewards strong song-title and KTV signals", () => {
     const result = scoreSearchResult(
       candidate("strong", "后来 KTV 字幕伴奏版", "KTV Channel", ["karaoke", "instrumental"]),

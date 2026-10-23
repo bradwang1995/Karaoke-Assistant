@@ -1,7 +1,7 @@
 # K歌助手搜索与缓存规范
 
-最后核实：2026-10-21
-代码基线：`ea062a9`
+最后核实：2026-10-23（排序修复已获用户审阅批准，发布准备中）
+代码基线：当前工作区；排序以本文件第 7 节和对应回归测试为准
 状态：当前实现的 source of truth
 
 ## 1. 这份文件如何使用
@@ -24,7 +24,7 @@
   "schemaVersion": 1,
   "searchAlgorithmVersion": "rank-preserve-50-v2",
   "searchCacheVersion": "v4",
-  "recommendationsVersion": "v4",
+  "recommendationsVersion": "v5",
   "regionCode": "CA",
   "relevanceLanguage": "zh-Hans",
   "searchPageSize": 50,
@@ -239,11 +239,20 @@ artist 在 title/channel/tags 或多 token metadata 中命中会累加显著加�
 
 ### 6.3 KTV 与原唱意图
 
-KTV 模式强奖 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对 original/原唱/MV/official 降分；原唱模式强奖 original/原唱/MV/official/lyrics/歌词/audio/radio，并对 KTV/karaoke/伴奏/instrumental/cover 降分。错误意图只降序，不删除。
+KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对 original/原唱/MV/official 降分；原唱模式奖励 original/原唱/MV/official/lyrics/歌词/audio/radio，并对 KTV/karaoke/伴奏/instrumental/cover 降分。这些偏好受有界总分约束，仅影响同一相关性层内的顺序，不把匹配歌曲排到无关视频之后。
 
 ## 7. Scoring 与最终排序
 
 结构可用 candidates 全部计算总分。相同分数保持 YouTube 候选的原发现顺序；`reasons` 只用于诊断，不参与 inclusion 判断。
+
+### 7.0 比较规范化与相关性优先
+
+- 仅排序比较使用 Unicode NFKC 与 `opencc-js/t2cn` 简繁等价转换；标题展示、provider query、canonical query 和 family hash 均不变。不做拼音/语义扩展，不特判歌手或歌名。英文匹配保留词边界，例如 `One` 不命中 `Someone`，`live` 不命中 `lives`。
+- 总分 = `相关性层 × 1000 + query 匹配分 + clamp(意图分 + 通用负分, -40, 60) + 时长分`。各层之间不会被 metadata 标记叠加逆转。
+- 歌名模式第 3 层：标题命中，且有歌曲证据（去版本标记后仅剩歌名、分隔/书名号中的独立歌名、Music category、标题伴奏/歌词/翻唱/现场/MV 等）。KTV/卡拉OK 单独出现在叙事中不是证据；位于标题末尾或有独立歌名/其他音乐证据时才支持优先。没有 category/duration/tags 的歌曲仍可凭标题进入此层。
+- 第 2 层：仅有标题文字命中，或标题带 reaction/tutorial/shorts；第 1 层：只在 channel/tags 命中；第 0 层：不匹配。
+- 歌手模式：title/channel/tags 或完整 token 命中为第 3 层，不匹配为第 0 层；同层沿用原有 metadata 权重。
+- live/cover 保留正常歌名匹配分，不再把匹配分一律降至 +10；仍有小幅版本偏好扣分。低相关结果全部留在后排。
 
 ### 7.1 歌名相关性分
 
@@ -253,7 +262,7 @@ KTV 模式强奖 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 | 标题以 query 开头 | +48 |
 | 标题包含 query | +40 |
 | 多 token 全部命中标题 | +24 |
-| 上述 title match 同时带 live/cover/reaction/tutorial/shorts | 改为 +10 |
+| 上述 title match 同时带 reaction/tutorial/shorts | 改为 +10 |
 
 ### 7.2 KTV 意图分
 
@@ -290,7 +299,7 @@ KTV 模式强奖 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 | --- | --- | --- | --- |
 | D1 `search_repository_entries` | 持久 exact response source | 是，优先级最高 | 无 TTL；管理员删除/清理或新版成功覆盖 |
 | KV `yt-search:v4:*` | exact family 加速与 D1 fallback | 是 | 默认 365 天 |
-| KV recommendations `v4` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
+| KV recommendations `v5` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
 | D1 `search_video_catalog` | 结构可用 provider candidates 的 analytics catalog | 否 | 无自动 TTL |
 | Mobile localStorage | 单个 room 的 UI 恢复 | 否，不作为服务端候选来源 | 24 小时 |
 
@@ -327,7 +336,7 @@ yt-search:v4:<familyHash>:CA:zh-Hans
 
 Entry 保存 query family、aliases、hash、created/expiry、source queries、最多 50 条 results、provider call stats、payload bytes、pruned count、hit count 和 last access。
 
-KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve-50-v2` family hash 仍隔离更早的 exact keys。Recommendation key 单独 bump 到 `v4`，使现有 exact family 可按每 family 前 20 条的新规则重建；旧 `v3` pool 不再读取并按原 TTL 自然过期。
+KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve-50-v2` family hash 仍隔离更早的 exact keys。本轮明确只重排旧候选，因此保留算法 family version。Recommendation key 单独 bump 到 `v5`，旧 `v4` pool 不再读取并按原 TTL 自然过期；从现有 exact family 重建时先按当前 scoring 重排，再取前 20 条。KV touch 同样先重排，避免旧顺序重新提升无关视频。不清空 exact 数据，也不触发 YouTube refill。
 
 写入前只过滤结构不可用/重复结果并截断到 50 条；category、duration、tags 和完整 details 都不是 cache eligibility。JSON 超过 524,288 bytes 时从低分尾部逐条裁剪。KV touch 增加 hit count 和 last access，但保持原 expiration，不延长 family TTL。
 
@@ -347,7 +356,7 @@ KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve
 Key：
 
 ```txt
-yt-search-recommendations:v4:CA:zh-Hans
+yt-search-recommendations:v5:CA:zh-Hans
 ```
 
 更新顺序：本次结果前 20 条 → 现有 recommendation pool；不会把本次 exact search 的第 21–50 条弱尾部直接灌入推荐。按 video id 去重并截断到 200。真实点歌会把该 video 以高分 `recently queued` 信号推到最前。
@@ -358,7 +367,7 @@ yt-search-recommendations:v4:CA:zh-Hans
 lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 ```
 
-排序 family，再只取每个 family 的前 20 条，按第 1 名、第 2 名……轮转合并。由此保持 `exact search = permissive`、`recommendations = selective`，并让少量历史搜索也能提供更多可浏览推荐。
+排序 family，再按当前 query/intent 重排每个 family 并取前 20 条，按第 1 名、第 2 名……轮转合并。由此保持 `exact search = permissive`、`recommendations = selective`，并让少量历史搜索也能提供更多可浏览推荐。
 
 重要现状：常规 exact 查询通常由 D1 命中。D1 命中只 touch D1，不会自动 touch KV 或重新提升 recommendation pool；“每次 cache hit 都重提推荐头部”并不是当前通用事实。
 
@@ -468,7 +477,13 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 - 明确匹配林俊杰的普通歌曲随后。
 - KTV、伴奏、cover 和弱 metadata candidates 仍保留在后排；16 个强匹配 + 34 个弱匹配的结构可用 provider pool 应返回 50 条。
 
-这些是 `worker/searchQualityContract.test.ts` 的零网络 golden contracts。它们同时验证 permissive inclusion 和 intelligent ordering，不代表真实 YouTube 每次一定返回 50 条或完整歌单。
+### 12.5 `耍赖` + 歌名 + 两种原唱开关
+
+- 简体输入匹配繁体 `耍賴`，截图改编的 44 条日常/剧情/其他歌曲与 6 条目标歌曲全部保留。
+- 6 条目标歌曲（伴奏、原唱、歌词、翻唱、现场、纯歌名）优先于干扰项；非原唱首项 KTV，原唱首项 Official MV。
+- D1/KV 已有错序结果重新搜索后同样修复，0 次外部请求；推荐从旧 family 重建时先重排再取前 20。
+
+这些是 `worker/searchQualityContract.test.ts` 与 service/cache/scoring 的零网络 contracts。它们同时验证 permissive inclusion 和 intelligent ordering，不代表真实 YouTube 每次一定返回 50 条或完整歌单。
 
 ## 13. 当前已知问题与维护风险
 
@@ -492,6 +507,14 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 ## 14. 搜索算法变更协议
 
 ### 14.1 下一版变更提案
+
+### 简繁等价与歌曲相关性优先排序 [已实现，本地验收通过，待发布 2026-10-23]
+
+- 输入/验收：`耍赖` 应匹配 `陳楚生 - 耍賴`；目标歌曲的伴奏、原唱、翻唱、现场排在剧情/日常视频之前。保留全部结构可用候选，不强化过滤。
+- 排序：仅比较时用 OpenCC 统一简繁与 Unicode 宽度；歌名/歌手相关性和标题音乐证据优先于有界的 KTV/原唱偏好，cover/live 不再降低歌名匹配等级；不靠频道/tags 堆叠把无关视频推上来。
+- 缓存：本次明确只重排现有候选，保留 algorithm `rank-preserve-50-v2` 和 exact KV `v4`，不改变 family identity、provider query、准入或候选来源。D1/KV exact hit 继续重算；recommendations 升为 `v5`，从旧 exact family 用新排序重建前 20 条，旧推荐按 TTL 自然过期。
+- 配额/预算：不增加外部请求，保持 1 次 cold search.list、1600ms Worker 与 2000ms 浏览器；无生产清理/发布。
+- 验证：简繁双向、截图标题、原唱/伴奏切换、翻唱/现场、metadata 缺失/非 Music、英文词边界、四种模式、旧 D1/KV 错序重排、旧推荐重建和 50 条完整保留，使用零网络 fixtures。
 
 ### URL 输入提示简化 [已实现 2026-10-22]
 
@@ -567,7 +590,7 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 | 改动 | `SEARCH_ALGORITHM_VERSION` | KV cache version | Recommendations version |
 | --- | --- | --- | --- |
 | Provider 第一 query、aliases、region/language | 必须 | 通常不必 | 视结果语义 |
-| Hard filter、intent gate、title/artist match | 必须 | 只有 entry schema 不兼容才改 | 视旧推荐是否安全 |
+| Hard filter、intent gate、影响准入的 title/artist match | 必须 | 只有 entry schema 不兼容才改 | 视旧推荐是否安全 |
 | Score/排序改变 | 建议必须；除非明确只想重排旧候选 | 不必 | 旧推荐排序不安全时改 |
 | Family identity 字段改变 | 必须 | 可能必须 | 通常不必 |
 | KV entry schema/兼容校验改变 | 视候选语义 | 必须 | 不一定 |

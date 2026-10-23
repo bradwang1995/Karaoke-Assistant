@@ -2,6 +2,12 @@ import type { VideoSearchResult } from "../src/types/youtube";
 import type { SearchType } from "../src/types/youtube";
 import { normalizeQuery } from "../src/lib/queryNormalize";
 import { normalizeSearchFamilyQuery } from "./searchFamily";
+import { Converter } from "opencc-js/t2cn";
+
+// Comparison only: keep displayed titles, provider queries and cache identities intact.
+const toSimplified = Converter({ from: "t", to: "cn" });
+const RELEVANCE_TIER_SCORE = 1_000;
+const MUSIC_TITLE_SIGNALS = /\b(karaoke|instrumental|lyrics?|mv|audio|cover|live)\b|(?:\bktv\b|卡拉\s*ok)[\s\p{P}]*$|伴奏|歌词|翻唱|现场|原唱|演唱|纯音乐/iu;
 
 const EXACT_TITLE_MATCH_SCORE = 60;
 const TITLE_PREFIX_MATCH_SCORE = 48;
@@ -76,10 +82,10 @@ export function scoreSearchResult(
   originalQuery: string,
   options: SearchScoringOptions = {},
 ): VideoSearchResult {
-  const haystack = `${result.title} ${result.channelTitle ?? ""} ${result.tags?.join(" ") ?? ""}`.toLowerCase();
-  const title = normalizeQuery(result.title);
-  const channelTitle = normalizeQuery(result.channelTitle ?? "");
-  const tags = normalizeQuery(result.tags?.join(" ") ?? "");
+  const title = normalizeRankingText(result.title);
+  const channelTitle = normalizeRankingText(result.channelTitle ?? "");
+  const tags = normalizeRankingText(result.tags?.join(" ") ?? "");
+  const haystack = `${title} ${channelTitle} ${tags}`;
   const reasons: string[] = [];
   let score = 0;
 
@@ -96,19 +102,21 @@ export function scoreSearchResult(
       ];
 
   for (const signal of intentSignals) {
-    if (haystack.includes(signal.text)) {
+    if (containsQuery(haystack, signal.text)) {
       score += signal.score;
       reasons.push(signal.reason);
     }
   }
 
   for (const signal of NEGATIVE_SIGNALS) {
-    if (haystack.includes(signal.text)) {
+    if (containsQuery(haystack, signal.text)) {
       score += signal.score;
       reasons.push(signal.reason);
     }
   }
 
+  // Intent is a preference within relevance tiers, never a substitute for relevance.
+  score = Math.max(-40, Math.min(60, score));
   const queryMatch =
     options.searchType === "artist"
       ? scoreArtistQueryMatch(title, channelTitle, tags, originalQuery)
@@ -118,6 +126,10 @@ export function scoreSearchResult(
     score += queryMatch.score;
     reasons.push(queryMatch.reason);
   }
+
+  const tier = queryRelevanceTier(result, title, originalQuery, queryMatch.score, options);
+  score += tier * RELEVANCE_TIER_SCORE;
+  reasons.push(`query relevance tier ${tier}`);
 
   if (typeof result.durationSeconds === "number") {
     if (result.durationSeconds < 60) {
@@ -153,7 +165,7 @@ function scoreArtistQueryMatch(
   tags: string,
   originalQuery: string,
 ) {
-  const canonicalQuery = normalizeSearchFamilyQuery(originalQuery);
+  const canonicalQuery = normalizeRankingText(normalizeSearchFamilyQuery(originalQuery));
 
   if (!canonicalQuery) {
     return { score: 0, reason: "" };
@@ -165,17 +177,17 @@ function scoreArtistQueryMatch(
   let score = 0;
   const reasons: string[] = [];
 
-  if (title.includes(canonicalQuery) || comparableTitle.includes(comparableQuery)) {
+  if (containsQuery(title, canonicalQuery) || containsQuery(comparableTitle, comparableQuery)) {
     score += 42;
     reasons.push("title contains artist query");
   }
 
-  if (channelTitle.includes(canonicalQuery) || comparableChannel.includes(comparableQuery)) {
+  if (containsQuery(channelTitle, canonicalQuery) || containsQuery(comparableChannel, comparableQuery)) {
     score += 32;
     reasons.push("channel contains artist query");
   }
 
-  if (tags.includes(canonicalQuery)) {
+  if (containsQuery(tags, canonicalQuery)) {
     score += 16;
     reasons.push("tags contain artist query");
   }
@@ -187,7 +199,7 @@ function scoreArtistQueryMatch(
   const queryTokens = canonicalQuery.split(" ").filter((token) => token.length > 1);
   const haystack = `${title} ${channelTitle}`;
 
-  if (queryTokens.length > 1 && queryTokens.every((token) => haystack.includes(token))) {
+  if (queryTokens.length > 1 && queryTokens.every((token) => containsQuery(haystack, token))) {
     return {
       score: 18,
       reason: "metadata contains artist query tokens",
@@ -206,7 +218,7 @@ function scoreTitleQueryMatch(
   tags: string,
   originalQuery: string,
 ) {
-  const canonicalQuery = normalizeSearchFamilyQuery(originalQuery);
+  const canonicalQuery = normalizeRankingText(normalizeSearchFamilyQuery(originalQuery));
 
   if (!canonicalQuery) {
     return { score: 0, reason: "" };
@@ -248,7 +260,7 @@ function scoreTitleQueryMatch(
     };
   }
 
-  if (title.includes(canonicalQuery) || comparableTitle.includes(comparableQuery)) {
+  if (containsQuery(title, canonicalQuery) || containsQuery(comparableTitle, comparableQuery)) {
     if (hasLowPriorityMarker) {
       return {
         score: 10,
@@ -264,21 +276,21 @@ function scoreTitleQueryMatch(
 
   const queryTokens = canonicalQuery.split(" ").filter((token) => token.length > 1);
 
-  if (queryTokens.length > 1 && queryTokens.every((token) => title.includes(token))) {
+  if (queryTokens.length > 1 && queryTokens.every((token) => containsQuery(title, token))) {
     return {
       score: TITLE_TOKEN_MATCH_SCORE,
       reason: "title contains query tokens",
     };
   }
 
-  if (channelTitle.includes(canonicalQuery)) {
+  if (containsQuery(channelTitle, canonicalQuery)) {
     return {
       score: CHANNEL_ONLY_QUERY_SCORE,
       reason: "channel contains query",
     };
   }
 
-  if (tags.includes(canonicalQuery)) {
+  if (containsQuery(tags, canonicalQuery)) {
     return {
       score: 8,
       reason: "tags contain query",
@@ -292,11 +304,47 @@ function scoreTitleQueryMatch(
 }
 
 function titleStartsWithQuery(title: string, query: string) {
-  return title === query || title.startsWith(`${query} `) || title.startsWith(query);
+  return Boolean(query) && title.startsWith(query) && containsQuery(title, query);
+}
+
+function normalizeRankingText(value: string) {
+  return normalizeQuery(toSimplified(value.normalize("NFKC")));
+}
+
+function containsQuery(text: string, query: string) {
+  if (!query) return false;
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const start = /^[a-z0-9]/i.test(query) ? "(?<![a-z0-9])" : "";
+  const end = /[a-z0-9]$/i.test(query) ? "(?![a-z0-9])" : "";
+  return new RegExp(`${start}${escaped}${end}`, "i").test(text);
+}
+
+function queryRelevanceTier(
+  result: Omit<VideoSearchResult, "score" | "reasons">,
+  title: string,
+  query: string,
+  matchScore: number,
+  options: SearchScoringOptions,
+) {
+  if (matchScore <= 0) return 0;
+  if (options.searchType === "artist") return 3;
+  // Reactions/tutorials still have a title match, but remain below songs.
+  if (matchScore === 10) return 2;
+  if (matchScore < TITLE_TOKEN_MATCH_SCORE) return 1;
+
+  const comparableQuery = normalizeSongComparableText(normalizeSearchFamilyQuery(query));
+  const standaloneTitle = normalizeSongComparableText(title) === comparableQuery;
+  const namedSong = title
+    .split(/[|/\[\]{}()<>《》〈〉【】「」『』:：–—-]+/u)
+    .some((segment) => normalizeSongComparableText(segment) === comparableQuery);
+  // Category and version markers support a title match; neither is an inclusion gate.
+  const musicEvidence = standaloneTitle || namedSong || result.categoryId === "10" || MUSIC_TITLE_SIGNALS.test(title);
+  return musicEvidence ? 3 : 2;
 }
 
 function normalizeSongComparableText(value: string) {
-  return normalizeQuery(value)
+  const normalized = normalizeRankingText(value);
+  return normalized
     .replace(/&amp;/g, "&")
     .replace(/[()[\]{}<>]/g, " ")
     .replace(/[\u300a\u300b\u3008\u3009\u3010\u3011\uff08\uff09]/gu, " ")
@@ -305,9 +353,9 @@ function normalizeSongComparableText(value: string) {
     .replace(/\u5361\u62c9\s*ok/giu, " ")
     .replace(/(\u4f34\u594f|\u5b57\u5e55|\u9ad8\u6e05|\u5b8c\u6574|\u5b98\u65b9|\u7eaf\u97f3\u4e50|\u7248)/gu, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim() || normalized;
 }
 
 function hasLowPriorityTitleMarker(title: string) {
-  return /\b(live|cover|reaction|tutorial|shorts)\b/i.test(title);
+  return /\b(reaction|tutorial|shorts)\b/i.test(title);
 }

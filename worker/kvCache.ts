@@ -3,10 +3,11 @@ import type { QueueItemInput } from "../src/types/room";
 import type { SearchResponse } from "../src/types/youtube";
 import { buildSearchQueryFamily, type SearchQueryFamily } from "./searchFamily";
 import { filterStructurallyUsableVideoResults } from "./songFilter";
+import { rankSearchResultsForQuery } from "./scoring";
 
 const SEARCH_CACHE_VERSION = "v4";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v4";
+const SEARCH_RECOMMENDATIONS_VERSION = "v5";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
@@ -218,6 +219,7 @@ export async function touchSearchCache(
 
   const nextEntry: SearchCacheEntry = {
     ...entry,
+    results: rankCachedResults(entry),
     hitCount: entry.hitCount + 1,
     lastAccessedAt: new Date().toISOString(),
   };
@@ -413,7 +415,7 @@ async function readRecommendationsFromFamilyCaches(
     .filter(isCurrentAlgorithmCacheEntry)
     .map((entry) => ({
       ...entry,
-      results: filterStructurallyUsableVideoResults(entry.results).slice(
+      results: rankCachedResults(entry).slice(
         0,
         MAX_PROMOTED_RESULTS_PER_SEARCH,
       ),
@@ -452,6 +454,14 @@ function isValidSearchCacheEntry(value: SearchCacheEntry | null): value is Searc
   const expiresAtMs = Date.parse(value.expiresAt);
 
   return !Number.isFinite(expiresAtMs) || expiresAtMs > Date.now();
+}
+
+function rankCachedResults(entry: SearchCacheEntry) {
+  return rankSearchResultsForQuery(
+    filterStructurallyUsableVideoResults(entry.results),
+    entry.query,
+    entry.queryFamily,
+  );
 }
 
 function isCompatibleSearchCacheEntry(

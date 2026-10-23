@@ -3,6 +3,7 @@ import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { searchVideos } from "./searchService";
 import { writeSearchCache } from "./kvCache";
+import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
 
 class MemoryKv {
   values = new Map<string, string>();
@@ -36,6 +37,34 @@ class MemoryKv {
 describe("search service cache reuse", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each(["D1", "KV"])("reranks an old %s candidate pool without refilling or losing any of fifty", async (source) => {
+    const kv = new MemoryKv();
+    const db = new MemorySearchRepositoryD1();
+    const family = buildSearchQueryFamily("耍赖");
+    const stored = buildResponse("耍赖", family.normalizedQuery, ambiguousSongCandidates());
+    if (source === "D1") {
+      db.seedLegacyEntry({ normalizedQuery: "耍赖", originalQuery: "耍赖", response: stored });
+    } else {
+      await writeSearchCache(kv, family, stored);
+    }
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await searchVideos({
+      query: "耍赖",
+      searchType: "song",
+      limit: 50,
+      cacheOnly: true,
+      env: { DB: db.database, SEARCH_CACHE: kv, YOUTUBE_API_KEY: "must-not-be-used" },
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.cached).toBe(true);
+    expect(response.results).toHaveLength(50);
+    expect(response.results.slice(0, 6).every((item) => item.videoId.startsWith("song-"))).toBe(true);
+    expect(response.results[0].videoId).toBe("song-ktv");
+    expect(response.cacheMeta).toMatchObject({ sourceQueryCount: 0, externalCallAvoided: true });
   });
 
   it("uses only the cache for the exact text and search options", async () => {

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchType } from "../src/types/youtube";
 import { classifySearchQuery } from "../src/lib/searchQuery";
 import { searchYouTubeVideos } from "./youtubeSearch";
+import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
 
 interface QualityCandidate {
   videoId: string;
@@ -24,6 +25,15 @@ interface QualityContract {
 }
 
 const QUALITY_CONTRACTS: QualityContract[] = [
+  ...[false, true].map((includeOriginalVocal): QualityContract => ({
+    name: `冷门同名词歌曲简繁匹配优先，原唱=${includeOriginalVocal}，保留 50 条`,
+    query: "耍赖",
+    searchType: "song",
+    includeOriginalVocal,
+    candidates: ambiguousSongCandidates(),
+    strongestId: includeOriginalVocal ? "song-official" : "song-ktv",
+    weakId: "unrelated-0",
+  })),
   {
     name: "歌曲非原唱保留全部候选并把目标 KTV 排在弱结果前",
     query: "后来",
@@ -126,6 +136,10 @@ describe("search quality release contracts", () => {
     expect(ids).toHaveLength(contract.candidates.length);
     expect(ids).toEqual(expect.arrayContaining(contract.candidates.map((item) => item.videoId)));
     expect(ids.indexOf(contract.strongestId)).toBeLessThan(ids.indexOf(contract.weakId));
+    if (contract.query === "耍赖") {
+      expect(ids.slice(0, 6).every((id) => id.startsWith("song-"))).toBe(true);
+      expect(ids[0]).toBe(contract.strongestId);
+    }
     expect(urls.filter((url) => url.pathname.endsWith("/search"))).toHaveLength(1);
     expect(urls.filter((url) => url.pathname.endsWith("/videos"))).toHaveLength(1);
     expect(result.response.cacheMeta).toMatchObject({
