@@ -382,6 +382,7 @@ function SearchTab({
 
   const isSearching = searchMutation.isPending;
   const showingRecommendations = !searchResponse && !searchMutation.isError;
+  const showingCachedResults = showingRecommendations || searchResponse?.cached === true;
   const activeResults = useMemo(
     () =>
       searchResponse?.results ??
@@ -853,7 +854,9 @@ function SearchTab({
           </div>
           <div ref={loadMoreRef} className="mt-4 min-h-12">
             {isLoadingMore ? (
-              <StatusMessage tone="loading" appearance="dark">正在加载更多缓存结果</StatusMessage>
+              <StatusMessage tone="loading" appearance="dark">
+                {showingCachedResults ? "正在加载更多缓存结果" : "正在加载更多搜索结果"}
+              </StatusMessage>
             ) : canLoadMore ? (
               <button
                 type="button"
@@ -863,7 +866,9 @@ function SearchTab({
                 加载更多
               </button>
             ) : (
-              <p className="py-3 text-center text-sm text-slate-400">已经显示全部缓存结果</p>
+              <p className="py-3 text-center text-sm text-slate-400">
+                {showingCachedResults ? "已经显示全部缓存结果" : "已经显示全部搜索结果"}
+              </p>
             )}
           </div>
           </>

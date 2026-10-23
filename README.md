@@ -23,7 +23,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 | Route | 用途 |
 | --- | --- |
 | `/create` | 创建房间。 |
-| `/room/:roomId/display` | 播放、二维码、重播、暂停/继续、下一首、seek 和 quota。 |
+| `/room/:roomId/display` | 播放、可收起并随时重新展开的二维码、重播、暂停/继续、下一首、seek 和 quota。 |
 | `/room/:roomId/mobile` | 搜索、preview、点歌和队列管理。 |
 | `/room/:roomId/debug` | Snapshot、房间链接和 cleanup。 |
 | `/admin` | 单管理员登录后的搜索、配额与持久资料库总览。 |
