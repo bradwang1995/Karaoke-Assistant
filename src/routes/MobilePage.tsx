@@ -621,6 +621,15 @@ function SearchTab({
     const trimmedQuery = nextQuery.trim();
 
     if (!trimmedQuery) {
+      latestSearchRequestRef.current += 1;
+      searchMutation.reset();
+      setSearchResponse(null);
+      setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
+      setActivePreviewVideoId(null);
+      setPendingPreviewVideoId(null);
+      setToast(null);
+      setDuplicateCandidate(null);
+      setIsLoadingMore(false);
       return;
     }
 
@@ -752,7 +761,7 @@ function SearchTab({
               type="submit"
               aria-label="搜索"
               title="搜索"
-              disabled={!query.trim() || searchMutation.isPending}
+              disabled={searchMutation.isPending}
               className="inline-flex h-10 w-[3.25rem] shrink-0 items-center justify-center rounded-lg bg-teal-300 text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 sm:w-14"
             >
               {isSearching ? (

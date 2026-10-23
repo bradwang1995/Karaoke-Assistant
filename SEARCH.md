@@ -70,6 +70,7 @@
 - 不读取 D1 exact repository。
 - 不调用 YouTube，也不占 `search.list` ledger。
 - API 最多返回 200 条；Mobile 先显示 10 条，再每次增加 10 条。
+- Mobile 搜索框为空时按搜索，会切回这组缓存推荐，并重置为先显示 10 条；不发起新的空查询请求。
 
 ### 3.2 普通文字：主搜索算法
 
