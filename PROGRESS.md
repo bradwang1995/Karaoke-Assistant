@@ -8,7 +8,7 @@ Last updated: 2026-10-23
 
 - Mobile 搜索分页在普通搜索时显示“搜索结果”，只有缓存/推荐结果显示“缓存结果”；大屏二维码可在原位置收起为按钮并重新展开。
 - 功能提交 `a5bb731`；完整测试 28 files / 155 tests、typecheck、搜索专项 13 files / 89 tests、production build、`git diff --check` 均通过。
-- Room → Main 使用 `--keep-vars` 发布；Room version `0fc7b0c1-4cdc-484b-8315-3941d59d3646`、Main version `8e7e2081-a03e-4e93-bb1c-462009fda95c`，部署历史复核均为 100% 活动版本。
+- 功能提交 `a5bb731` 和发布记录提交 `c7833f7` 已推送 `origin/main`；随后 Room → Main 使用 `--keep-vars` 再次发布。最终 Room version `88a722e6-0e91-43c0-9435-5d434d16ece3`、Main version `d800f53a-e438-49e4-ad16-6a1138f493b0`，部署历史复核均为 100% 活动版本。
 - 生产 cacheOnly smoke：测试房间 `0e0k0s2b`、查询“后来”，安全 miss、0 条结果，quota used `0 → 0`；脚本确认没有外部搜索调用。
 - 内置 @Browser 生产验收：新房间 `373w311p` 实时连接正常，二维码收起后按钮出现，再次点击可恢复二维码；未运行 cold search，也未消耗 YouTube 搜索额度。
 
