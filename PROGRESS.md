@@ -9,7 +9,7 @@ Last updated: 2026-10-23
 - Mobile 搜索框清空后按搜索，会返回缓存推荐页并重置为先显示 10 首；按钮在非搜索中保持可用。推荐池和分页逻辑未变。
 - 缓存规则说明见 `SEARCH.md`：推荐池最多 200 首，每个 exact 搜索 family 最多贡献排序前 20 首；exact family 最多存 50 首；实际点歌歌曲也会被提升。推荐按 video ID 去重，热门/最近使用的 family 参与重建顺序。
 - `npm run typecheck` 通过；`npm run verify:search` 通过（13 files / 89 tests，零网络约束）；`git diff --check` 通过。
-- 功能提交 `61080b1` 与搜索结果文案修复 `3adcd5e` 一起推送至 `origin/main`；Room `723b0d5b-3542-456f-a457-19dbe7cc971a`、Main `89421cb9-6947-4d22-8834-0ac2a9d59e95` 均为部署历史中的 100% 活动版本。
+- 功能提交 `61080b1` 与搜索结果文案修复 `3adcd5e` 一起推送至 `origin/main`；Room `723b0d5b-3542-456f-a457-19dbe7cc971a`、Main `d0f733c6-c25c-4da8-90a1-a253f0645faa` 均为部署历史中的最新 100% 活动版本。Main 自动构建在手动部署后完成，最终版本已复核。
 - 发布前全量测试 28 files / 155 tests、typecheck、搜索专项 13 files / 89 tests、production build、`git diff --check` 均通过。cacheOnly 生产 smoke 使用房间 `0e0k0s2b`、查询“后来”，安全 miss、0 条结果，quota used `3 → 3`；没有外部搜索调用。
 
 ## 搜索结果文案不依赖缓存来源（已发布）— 2026-10-23
