@@ -382,7 +382,7 @@ function SearchTab({
 
   const isSearching = searchMutation.isPending;
   const showingRecommendations = !searchResponse && !searchMutation.isError;
-  const showingCachedResults = showingRecommendations || searchResponse?.cached === true;
+  const showingCachedResults = showingRecommendations;
   const activeResults = useMemo(
     () =>
       searchResponse?.results ??
