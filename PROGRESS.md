@@ -4,7 +4,7 @@ Last updated: 2026-10-23
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
-## 冷门同名词歌曲排序修复（用户已批准，发布准备中）— 2026-10-23
+## 冷门同名词歌曲排序修复（已发布）— 2026-10-23
 
 - 复现：截图中的简体“耍赖”无法匹配繁体“耍賴”；原唱/Official/MV 叠加负分与普通视频的同词命中进一步拉低真正歌曲。新增的 8 个初始回归样例在旧实现下全部失败，修复后通过。
 - 排序采用简繁等价、英文词边界与相关性分层，KTV/原唱偏好有界；cover/live 不再把歌名匹配降至 +10。独立歌名、音乐标题或 Music metadata 支持歌曲优先，不把 KTV 场所剧情仅凭 KTV 字样升为歌曲。准入规则未改，50 条结构可用候选全部保留。
@@ -12,10 +12,13 @@ Last updated: 2026-10-23
 - 保留 `rank-preserve-50-v2` 和 exact KV `v4`，已缓存的同一候选池重新搜索时重排；recommendations 最终升为 `v6`，旧 exact family 重建/复用时先排序再取前 20，旧推荐池不再读取。未清空生产缓存，不增加 YouTube 调用。
 - 发布前验证：最终 `npm test` 通过（28 files / 176 tests）；`npm run verify:search` 通过（13 files / 110 tests，禁止真实网络，包含 typecheck）；`npm run build` 通过；`git diff --check` 通过。
 - 本地双 Worker：独立 `.wrangler/state-search-ranking` 完成本地 6 个 migrations；Main 使用空 env 文件，无 YouTube key；真实本地 D1 写入截图改编的 50 条错序 fixture。API cacheOnly 验证 `cached=true`、`responseSource=repository`、`sourceQueryCount=0`、`videosListCalls=0`、返回 50 条，6 条目标歌曲全部在前。本地 quota used `0`。
-- 新建内置 @Browser 会话验证创建房间、实时连接、歌名搜索与原唱切换，前六项均为目标歌曲；非原唱首项 KTV，原唱首项 Official MV。console warning/error 记录为空。未验证真实 YouTube 搜索、metadata、播放或生产结果。
+- 新建内置 @Browser 会话验证创建房间、实时连接、歌名搜索与原唱切换，前六项均为目标歌曲；非原唱首项 KTV，原唱首项 Official MV。console warning/error 记录为空。本地使用固定样例；生产缓存验收见下。未调用真实 YouTube 搜索/metadata，也未验证播放。
 - 本地预览运行于 `http://127.0.0.1:8791/room/4t691l1k/mobile`；输入“耍赖”并按搜索，切换原唱后再次搜索以检查顺序。展示的是固定样例，缩略图占位正常；前端由 dist 提供，前端编辑后需 build 再刷新，Worker 编辑由 Wrangler 重载。停止运行终端会关闭预览。
-- 用户已检查本地预览并明确批准 push and deploy；本条发布状态待线上验证后补充。
+- 用户已检查本地预览并明确批准 push and deploy。
 - 首次部署 `a6b86d7` 的 cacheOnly 验收实际命中“耍赖”50 条缓存、quota `5 → 5`，发现日常视频 `#打火机翻唱#ktv` 仍排第一。该验收未视为通过：补入完整真实缓存 50 条 fixture，移除 hashtag 对歌曲证据的影响，并让独立/开头歌名高于仅在其他歌曲歌词中出现的 query；全部候选保留，待重新部署验证。`v6` 同时隔离首次 `v5` 可能产生的推荐旧顺序。
+- 最终功能提交 `482658f` 与前置 `a6b86d7` 均已推送 `origin/main` 和 `origin/codex/search-relevance-ranking`。最终按 Room → Main 并加 `--keep-vars` 发布，活动版本：Room `c1dd3d91-dd9d-4faa-baf1-efa3ae4b8d3a`；Main `95e4bd0a-5674-4ac7-8cdf-27252df39a99`；分别由 `wrangler deployments status --json` 确认 100% 流量。
+- 最终生产 cacheOnly 验收：房间 `0e0k0s2b`，查询“耍赖”，命中 50 条，quota used `5 → 5`；前四项为“耍赖”、琳娜同名歌与两条陈楚生《耍賴》。另一首歌的歌词匹配排第 5，日常 hashtag 视频随后。没有新增 YouTube 外部请求，也没有删除原候选。
+- 新建内置 @Browser 生产验证：房间实时连接、搜索结果 `20/50`，首行即上述四个相关歌曲；console warning/error 为空，真实缩略图与文字顺序可见。截图本地保存为 `.wrangler/search-ranking/production.png`，未提交临时产物；未点歌或播放。最终发布记录单独以 `[CI Skip]` 提交。
 
 ## 空搜索返回缓存推荐（已发布）— 2026-10-23
 
