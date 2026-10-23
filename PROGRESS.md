@@ -27,6 +27,14 @@ Last updated: 2026-10-22
 - Room `b10d3089-9173-493b-a92f-902d8392028c` → Main `c6133ee1-f41f-4425-bc36-c239680df633` 已使用 --keep-vars 发布。
 - 内置 @Browser 生产 smoke：三个输入提示精确为 `歌名`、`歌手名`、`YouTube视频链接`；未提交搜索，不消耗搜索次数。
 
+## 开发流程改为本地优先 — 2026-10-22
+
+- 默认本地开发/最小验证；明确要求发布后才完整测试、Room → Main 部署及生产 smoke。默认不 push main，避免 Workers Builds 自动发布。
+- AGENTS 新增新手指导要求，README 第 4 节给出 Vite 预览、focused tests、local migrations、双 Worker 与排障步骤；SEARCH 验证阶段同步对齐。
+- 实测双 Worker --local 启动命令：Ready on http://127.0.0.1:8787；存储 bindings 均为 local，未部署。
+- local migrations 检查：No migrations to apply；内置 @Browser 实测本地创建房间 0q2q3u37、实时连接、mock 搜索 8 条、点歌成功、大屏同步标题与手机歌单一致。未将真实音视频播放作为验收条件。
+- git diff --check 通过；本批仅修改流程文档，未重复运行全量测试/构建，未提交、推送或部署。
+
 ## 大屏底栏收紧（已发布）— 2026-10-22
 
 - 左侧连接 badge 与两行额度/reset 提示水平并排；歌名字号最终从 20/24px 稍微缩小到 18/20px（审阅后由首版 16/18px 调回），progress 上间距从 12px 改为 4px，底栏上下 padding 从 16px 改为 8px。其余字体、颜色、右侧按钮、控制面板、队列统计及二维码 card 样式保持原版。
@@ -761,7 +769,7 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 
 - `[ ]` Evaluate ESLint/Prettier。
 - `[ ]` 在未来 dependency upgrade 时 opt into 或消除 React Router v7 future-flag warnings。
-- `[ ]` Evaluate automatic deploy；before that, push and deploy remain separate。
+- `[x]` Main 已连接 Workers Builds；main push 会自动部署，日常本地开发不自动 push，发布仍需验证 Room → Main 的最终版本。
 
 ## 6. Documentation rules
 

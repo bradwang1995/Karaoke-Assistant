@@ -95,7 +95,7 @@ Snapshot 包含 `room`、`queue`、`playback` 和 `connectedClients`。Activity 
 
 ### 2.3 Local 与 production
 
-本地 Vite 保留 `localStorage + BroadcastChannel` fallback；只有 localhost origin 在 socket 未连接时允许使用。以下必须在线上验证：
+本地 Vite 保留 `localStorage + BroadcastChannel` fallback；只有 localhost origin 在 socket 未连接时允许使用。D1、KV、Durable Object、WebSocket 和 Worker routing 可按第 4 节在本机模拟验证；以下仍需在发布时做线上 smoke：
 
 - Durable Object、WebSocket、D1 和 KV。
 - Search cache、quota 和 rate limit。
@@ -166,31 +166,66 @@ Runtime variables：
 
 YouTube search quota、response-size 和本地 ledger 的区别见 `SEARCH.md`。
 
-## 4. 本地开发
+## 4. 本地开发与分批发布
 
-```bash
+默认先在本机修改、预览、验证；你明确说“发布”或“部署”后，才执行第 10 节的完整发布。可以连续调整几轮再一起发布。平时不自动 push main，因为 main push 会触发 Cloudflare Main 自动部署。
+
+Codex 每次应主动说明该用哪种验证、替你执行可运行的检查，并告诉你本地地址、服务是否运行、操作步骤和预期结果。你不用先学会所有命令；可以直接说“打开本地预览让我看看”或“帮我验证本地 Worker 的房间同步”。
+
+### 4.1 第一次准备
+
+在 PowerShell 进入仓库（下面所有命令都在此目录运行）：
+
+```powershell
+Set-Location 'C:\Brad Wang\Repos\K歌助手'
 npm install
+```
+
+依赖已经安装时不必每次重新 install。每个长时间运行的服务占一个终端；保留终端窗口，按 Ctrl+C 停止。端口占用时，以终端实际打印的地址为准。
+
+### 4.2 文字、按钮、样式：快速前端预览
+
+```powershell
 npm run dev
 ```
 
-| Command | 作用 |
+1. 看到 Local 地址后打开它，通常是 http://localhost:5173/create。
+2. 点击“创建房间”，从大屏的扫码点歌链接进入手机页。
+3. 例如检查这次文案：搜索类型选择 URL，空输入提示应为“YouTube视频链接”；切回歌名/歌手，提示应分别为“歌名”“歌手名”。
+4. 保存前端源文件后，Vite 自动更新页面。看不到变化时先确认打开的是 localhost，而不是线上 workers.dev。
+
+此模式没有运行 Worker 后端；API 失败后可进入“本地模式”，使用 mock 搜索与 localStorage/BroadcastChannel。适合检查文案、布局、开关、错误提示；不能证明真实 D1、KV、DO 或生产搜索正确。不提交真实播放即可验证多数 UI。
+
+### 4.3 自动测试：我来选择并解释结果
+
+| 改动 | 日常最小验证 |
 | --- | --- |
-| `npm run dev` | Vite dev server。 |
-| `npm run typecheck` | Frontend + Worker TypeScript。 |
-| `npm run test` | 全部 Vitest tests。 |
-| `npm run verify:search` | 零真实额度的搜索质量、两秒体验、调用预算和网络隔离回归。搜索代码改动及发布前必须通过。 |
-| `npm run smoke:search:cache -- --room-id <id> --query <文字>` | 生产 exact cache-only smoke；只使用已有结果，cache miss 也绝不请求 YouTube。 |
-| `npm run build` | TypeScript + Worker + production assets。 |
-| `npm run preview` | Preview built assets。 |
+| 纯文案、说明文档 | 文案/差异检查；有 UI 时本地预览，不默认全量测试或 build |
+| 某个 helper 的逻辑 | 相关测试，例如 npm test -- src/lib/searchExperience.test.ts；再 npm run typecheck |
+| 搜索行为、校验或配额 | npm run verify:search（网络隔离，不花真实搜索额度） |
+| API、房间和同步 | 相关自动测试、typecheck，再按下一节运行本地双 Worker |
+| 准备发布 | 第 10 节完整验证和生产 smoke |
 
-提交前：
+测试输出中的 passed 是通过；failed 则先修复/解释。Codex 必须报告实际运行的命令和结果，不能把“没运行”写成通过。npm run preview 只预览已构建静态文件，不会启动 Worker。
 
-```bash
-npm run typecheck
-npm run test
-npm run verify:search
+### 4.4 后端、数据库、实时同步：本地双 Worker
+
+先准备前端产物与本地数据库：
+
+```powershell
 npm run build
+npx wrangler d1 migrations apply ktv-assistant-db --local --config wrangler.toml
+npx wrangler dev --local --config wrangler.toml --config wrangler.room.toml --port 8787 --ip 127.0.0.1
 ```
+
+- 看到 Ready on http://127.0.0.1:8787 后打开 http://127.0.0.1:8787/create。第一个 config 是入口，第二个提供 Room Durable Object；不要只启动 Main 就判断房间同步失败。[Cloudflare 多 Worker 本地开发说明](https://developers.cloudflare.com/workers/local-development/multi-workers/)
+- 创建新房间，在两个同源标签页分别打开 display 和 mobile。预期显示“实时已连接”，而不是“本地模式”。
+- 未配置 YOUTUBE_API_KEY 时可使用 mock 文字搜索：点一首歌，在另一页检查标题/队列是否同步；重点检查应用状态，不把 iframe 的真实播放或自动播放当作此次通过条件。
+- D1、KV 和 DO 在本机模拟，数据保存在 .wrangler/state；本地初始数据与生产不同是正常现象。迁移只在首次准备或新增 migration 后执行，不使用 --remote。
+- Worker 源码修改由 Wrangler 重新加载；前端显示的是 dist。改前端后，在另一终端重新 npm run build，构建完成再刷新浏览器。不要把 Vite 的 5173 页面和 Worker 的 8787 页面混作一次验证。
+- 本地运行一般无需 Cloudflare 登录。不要为本地验证 deploy，不添加 remote bindings，也不把生产密钥复制到本地。Wrangler 会加载 .dev.vars；本地存储隔离不等于外部请求隔离，若配置 YouTube key，外部查询仍可能消耗真实额度。默认无 key/mock；现有本地管理员密钥不要打印或提交。
+
+停止服务按 Ctrl+C；数据会保留，后续启动通常可继续使用。若报 no such table，先核对是否漏跑 --local migrations；若是“本地模式”，核对地址、双 Worker 启动和终端错误。Codex 应先帮忙定位，不要求你自行排查全部日志。
 
 ## 5. API 与 WebSocket protocol
 
@@ -440,26 +475,19 @@ ROOM_OBJECT  -> RoomDurableObject, script_name = ktv-assistant-room
 
 ## 10. 日常部署
 
-Main Worker/frontend only：
+只有明确要求发布/部署时才运行以下流程，日常小修改不自动执行。发布前先汇总本批本地验收与未覆盖项，再统一验证：
 
-```bash
-npm run typecheck
+```powershell
 npm run test
-npm run build
-npx wrangler deploy --keep-vars
-```
-
-改到 DO/Room Worker：
-
-```bash
 npm run typecheck
-npm run test
+npm run verify:search
 npm run build
+git diff --check
 npx wrangler deploy --config wrangler.room.toml --keep-vars
-npx wrangler deploy --keep-vars
+npx wrangler deploy --config wrangler.toml --keep-vars
 ```
 
-Room Worker 先部署；`--keep-vars` 防止覆盖 Dashboard variables/secrets。
+Room → Main 使用 --keep-vars；提交/推送仅包含本批改动，随后做生产 smoke 并记录真实版本 ID。未请求发布时不自动提交/推送 main；需要保留检查点可明确要求本地 commit。
 
 当前 Main Worker 已连接 Cloudflare Workers Builds：push 到 production branch `main` 会自动构建并部署 Main，但不会替代 Room 的发布。因此 substantial release 仍以“先 Room、再 Main”为最终顺序；如果代码 push 已先触发 Main 自动部署，需要再按该顺序手动发布并复核最终 active versions。纯文档提交应使用 `[CI Skip]` 前缀，避免生成没有运行时变化的重复 Main 版本。
 

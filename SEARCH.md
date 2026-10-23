@@ -576,20 +576,20 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 
 Version bump 后必须新增测试证明旧 D1 `family_hash` 不会命中，并说明旧 KV 如何自然过期或清理。
 
-### 14.3 每次修改必须完成
+### 14.3 本地开发与发布验证
 
 1. 更新本文件的提案、当前契约和已知风险。
-2. 更新 `worker/searchQualityContract.test.ts` 的 golden cases；不能仅放宽断言。
+2. 算法/准入/排序契约改变时更新 `worker/searchQualityContract.test.ts` golden cases；纯文案不要求新增算法测试，不能仅放宽断言。
 3. 更新相关 focused tests：family、scoring、provider、service/cache、experience。
-4. 运行 `npm run verify:search`；它会禁止未 stub 的网络，并核对本文件机器契约与代码/config。
-5. 运行 full tests、typecheck、production build 和 `git diff --check`。
-6. 先使用 `cacheOnly=true` 做零额度 production smoke。
+4. 搜索行为变化时运行 `npm run verify:search`；它会禁止未 stub 的网络，并核对本文件机器契约与代码/config。纯文案/流程说明按 README 第 4 节做最小检查，不默认全量验证。
+5. 本地阶段运行相关检查与 `git diff --check`。只有用户明确要求发布/部署时，再统一运行 full tests、typecheck、verify:search 和 production build；不默认 push main（会触发自动部署）。
+6. 发布后先使用 `cacheOnly=true` 做零额度 production smoke；本地完成不自动请求生产。
 7. 只有用户明确安排时才运行 2–3 次真实 cold search；记录 quota before/after、source query、调用数、时间、前排结果和 repeat exact hit。
 8. 结果通过后在 `PROGRESS.md` 记录发布历史；不要把历史 pass 复制回本文件冒充当前规则。
 
 ### 14.4 完成标准
 
-搜索改动只有同时满足以下条件才算完成：
+本地搜索开发和正式发布分别标记状态；纯文案只需验证对应文案与相邻 UI。行为改动按适用项验证，生产项留到明确要求发布时：
 
 - 四种模式的正负例都明确。
 - Exact cache identity 和迁移策略明确。
