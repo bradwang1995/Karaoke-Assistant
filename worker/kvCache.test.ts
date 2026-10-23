@@ -175,20 +175,20 @@ describe("KV search cache", () => {
     const recommendations = await readSearchRecommendations(kv, 20);
 
     expect(kv.values.has(searchRecommendationsKey())).toBe(true);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v5:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v6:CA:zh-Hans");
     expect(recommendations).toHaveLength(10);
     expect(recommendations[0].videoId).toBe("video-0");
   });
 
-  it("ignores the previous recommendation pool version", async () => {
+  it.each(["v4", "v5"])("ignores the previous recommendation pool version %s", async (version) => {
     const kv = new MemoryKv();
     kv.values.set(
-      "yt-search-recommendations:v4:CA:zh-Hans",
+      `yt-search-recommendations:${version}:CA:zh-Hans`,
       JSON.stringify({ updatedAt: new Date().toISOString(), results: buildResults(20) }),
     );
 
     await expect(readSearchRecommendations(kv, 20)).resolves.toEqual([]);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v5:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v6:CA:zh-Hans");
   });
 
   it("rebuilds recommendations from reranked legacy candidates before taking the top twenty", async () => {

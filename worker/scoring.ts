@@ -332,13 +332,19 @@ function queryRelevanceTier(
   if (matchScore === 10) return 2;
   if (matchScore < TITLE_TOKEN_MATCH_SCORE) return 1;
 
+  // Hashtags describe/distribute a clip; they cannot establish its song identity.
+  const contentTitle = title.replace(/#[^\s#]+/gu, " ").trim();
   const comparableQuery = normalizeSongComparableText(normalizeSearchFamilyQuery(query));
-  const standaloneTitle = normalizeSongComparableText(title) === comparableQuery;
-  const namedSong = title
+  const standaloneTitle = normalizeSongComparableText(contentTitle) === comparableQuery;
+  const namedSong = contentTitle
     .split(/[|/\[\]{}()<>《》〈〉【】「」『』:：–—-]+/u)
     .some((segment) => normalizeSongComparableText(segment) === comparableQuery);
   // Category and version markers support a title match; neither is an inclusion gate.
-  const musicEvidence = standaloneTitle || namedSong || result.categoryId === "10" || MUSIC_TITLE_SIGNALS.test(title);
+  const titleMusicEvidence = MUSIC_TITLE_SIGNALS.test(contentTitle);
+  if (standaloneTitle || namedSong || (matchScore === TITLE_PREFIX_MATCH_SCORE && titleMusicEvidence)) {
+    return 4;
+  }
+  const musicEvidence = result.categoryId === "10" || titleMusicEvidence;
   return musicEvidence ? 3 : 2;
 }
 
@@ -349,9 +355,9 @@ function normalizeSongComparableText(value: string) {
     .replace(/[()[\]{}<>]/g, " ")
     .replace(/[\u300a\u300b\u3008\u3009\u3010\u3011\uff08\uff09]/gu, " ")
     .replace(/[|/_-]+/g, " ")
-    .replace(/\b(official|mv|hd|hq|ktv|karaoke|version|instrumental|pinyin|lyrics|lyric|cover|live|audio)\b/gi, " ")
+    .replace(/\b(official|original|mv|hd|hq|ktv|karaoke|version|instrumental|pinyin|lyrics|lyric|cover|live|audio|radio)\b/gi, " ")
     .replace(/\u5361\u62c9\s*ok/giu, " ")
-    .replace(/(\u4f34\u594f|\u5b57\u5e55|\u9ad8\u6e05|\u5b8c\u6574|\u5b98\u65b9|\u7eaf\u97f3\u4e50|\u7248)/gu, " ")
+    .replace(/(\u4f34\u594f|\u5b57\u5e55|\u9ad8\u6e05|\u5b8c\u6574|\u5b98\u65b9|\u7eaf\u97f3\u4e50|原唱|歌词|翻唱|现场|\u7248)/gu, " ")
     .replace(/\s+/g, " ")
     .trim() || normalized;
 }

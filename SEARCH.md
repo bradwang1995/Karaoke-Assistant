@@ -24,7 +24,7 @@
   "schemaVersion": 1,
   "searchAlgorithmVersion": "rank-preserve-50-v2",
   "searchCacheVersion": "v4",
-  "recommendationsVersion": "v5",
+  "recommendationsVersion": "v6",
   "regionCode": "CA",
   "relevanceLanguage": "zh-Hans",
   "searchPageSize": 50,
@@ -249,7 +249,7 @@ KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 
 - 仅排序比较使用 Unicode NFKC 与 `opencc-js/t2cn` 简繁等价转换；标题展示、provider query、canonical query 和 family hash 均不变。不做拼音/语义扩展，不特判歌手或歌名。英文匹配保留词边界，例如 `One` 不命中 `Someone`，`live` 不命中 `lives`。
 - 总分 = `相关性层 × 1000 + query 匹配分 + clamp(意图分 + 通用负分, -40, 60) + 时长分`。各层之间不会被 metadata 标记叠加逆转。
-- 歌名模式第 3 层：标题命中，且有歌曲证据（去版本标记后仅剩歌名、分隔/书名号中的独立歌名、Music category、标题伴奏/歌词/翻唱/现场/MV 等）。KTV/卡拉OK 单独出现在叙事中不是证据；位于标题末尾或有独立歌名/其他音乐证据时才支持优先。没有 category/duration/tags 的歌曲仍可凭标题进入此层。
+- 歌名模式第 4 层：移除标题 hashtag 后，去版本标记只剩歌名、分隔/书名号中有独立歌名，或歌名开头且有标题音乐证据。第 3 层：仅标题包含 query，且有 Music category 或标题伴奏/歌词/翻唱/现场/MV 等音乐证据。另一首歌的歌词含 query 不因此获得第 4 层。KTV/卡拉OK 单独出现在叙事中不是证据；位于非 hashtag 标题末尾或有独立歌名/其他音乐证据时才支持优先。没有 category/duration/tags 的歌曲仍可凭标题进入高层。
 - 第 2 层：仅有标题文字命中，或标题带 reaction/tutorial/shorts；第 1 层：只在 channel/tags 命中；第 0 层：不匹配。
 - 歌手模式：title/channel/tags 或完整 token 命中为第 3 层，不匹配为第 0 层；同层沿用原有 metadata 权重。
 - live/cover 保留正常歌名匹配分，不再把匹配分一律降至 +10；仍有小幅版本偏好扣分。低相关结果全部留在后排。
@@ -299,7 +299,7 @@ KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 | --- | --- | --- | --- |
 | D1 `search_repository_entries` | 持久 exact response source | 是，优先级最高 | 无 TTL；管理员删除/清理或新版成功覆盖 |
 | KV `yt-search:v4:*` | exact family 加速与 D1 fallback | 是 | 默认 365 天 |
-| KV recommendations `v5` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
+| KV recommendations `v6` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
 | D1 `search_video_catalog` | 结构可用 provider candidates 的 analytics catalog | 否 | 无自动 TTL |
 | Mobile localStorage | 单个 room 的 UI 恢复 | 否，不作为服务端候选来源 | 24 小时 |
 
@@ -336,7 +336,7 @@ yt-search:v4:<familyHash>:CA:zh-Hans
 
 Entry 保存 query family、aliases、hash、created/expiry、source queries、最多 50 条 results、provider call stats、payload bytes、pruned count、hit count 和 last access。
 
-KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve-50-v2` family hash 仍隔离更早的 exact keys。本轮明确只重排旧候选，因此保留算法 family version。Recommendation key 单独 bump 到 `v5`，旧 `v4` pool 不再读取并按原 TTL 自然过期；从现有 exact family 重建时先按当前 scoring 重排，再取前 20 条。KV touch 同样先重排，避免旧顺序重新提升无关视频。不清空 exact 数据，也不触发 YouTube refill。
+KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve-50-v2` family hash 仍隔离更早的 exact keys。本轮明确只重排旧候选，因此保留算法 family version。Recommendation key 最终 bump 到 `v6`，旧 `v4` 和首次部署的 `v5` pool 不再读取并按原 TTL 自然过期；从现有 exact family 重建时先按当前 scoring 重排，再取前 20 条。KV touch 同样先重排，避免旧顺序重新提升无关视频。不清空 exact 数据，也不触发 YouTube refill。
 
 写入前只过滤结构不可用/重复结果并截断到 50 条；category、duration、tags 和完整 details 都不是 cache eligibility。JSON 超过 524,288 bytes 时从低分尾部逐条裁剪。KV touch 增加 hit count 和 last access，但保持原 expiration，不延长 family TTL。
 
@@ -356,7 +356,7 @@ KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve
 Key：
 
 ```txt
-yt-search-recommendations:v5:CA:zh-Hans
+yt-search-recommendations:v6:CA:zh-Hans
 ```
 
 更新顺序：本次结果前 20 条 → 现有 recommendation pool；不会把本次 exact search 的第 21–50 条弱尾部直接灌入推荐。按 video id 去重并截断到 200。真实点歌会把该 video 以高分 `recently queued` 信号推到最前。
@@ -507,6 +507,13 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 ## 14. 搜索算法变更协议
 
 ### 14.1 下一版变更提案
+
+### 真实缓存验收补充：标签和歌词误命中 [已实现，待重新发布 2026-10-23]
+
+- 生产 cacheOnly 样例显示：日常视频标题尾部的 `#打火机翻唱#ktv` 被当作音乐证据；另一首《唉》的歌词含“耍赖”，也能凭 Music metadata 得到歌曲高层级。
+- 仅排序修正：判断歌曲证据前移除标题 hashtag，区分独立/开头歌名与仅在歌词/叙事中出现的 query。独立歌名优先于有音乐 metadata 的普通包含匹配。保持结构准入、候选、provider query、family hash 和搜索预算不变。
+- 验收：使用本次读出的完整真实缓存 50 条做零网络回归；相关歌名的视频优先于 hashtag 日常视频和另一首歌的歌词，全部 50 条仍保留。重新 Room → Main 部署后以 cacheOnly 复核。
+- 推荐 key 升为 `v6`，隔离首次部署 `v5` 可能产生的旧顺序；exact 数据继续复用。
 
 ### 简繁等价与歌曲相关性优先排序 [已实现，本地验收通过，待发布 2026-10-23]
 

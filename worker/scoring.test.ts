@@ -1,8 +1,22 @@
 import { describe, expect, it } from "vitest";
 import { rankSearchResultsForQuery, scoreSearchResult } from "./scoring";
 import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
+import { cachedAmbiguousSongCandidates } from "./fixtures/cachedAmbiguousSong";
 
 describe("search scoring", () => {
+  it.each([false, true])("ranks actual cached song names above hashtag clips and another song's lyrics, original=%s", (includeOriginalVocal) => {
+    const results = rankSearchResultsForQuery(cachedAmbiguousSongCandidates, "耍赖", { includeOriginalVocal });
+    const ids = results.map((result) => result.videoId);
+    const matchingIds = ["-H5mMOf7quU", "00QDPHlWhvU", "jd4cllIyDHg", "IdMHKsoFNCI"];
+    expect(results).toHaveLength(50);
+    expect(new Set(ids).size).toBe(50);
+    expect(ids.slice(0, 4)).toEqual(expect.arrayContaining(matchingIds));
+    for (const id of matchingIds) {
+      expect(ids.indexOf(id)).toBeLessThan(ids.indexOf("3gWNf_S0sgI"));
+      expect(ids.indexOf(id)).toBeLessThan(ids.indexOf("rirN8F5qNns"));
+    }
+  });
+
   it.each([false, true])("ranks songs above screenshot distractions with original=%s, preserving fifty", (includeOriginalVocal) => {
     const ranked = rankSearchResultsForQuery(ambiguousSongCandidates(), "耍赖", { includeOriginalVocal });
 
@@ -47,7 +61,7 @@ describe("search scoring", () => {
   it.each(["Live", "Cover", "MV", "Ｔｈｅ Ｏｎｅ"])("preserves a title made of version words or full-width letters: %s", (query) => {
     const result = scoreSearchResult(candidate("song", query.normalize("NFKC"), "Channel"), query);
     expect(result.reasons).toContain("title exactly matches song query");
-    expect(result.reasons).toContain("query relevance tier 3");
+    expect(result.reasons).toContain("query relevance tier 4");
   });
 
   it("rewards strong song-title and KTV signals", () => {
