@@ -4,7 +4,7 @@ Last updated: 2026-10-24
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
-## 英文紧凑文案与下一首标题（本地验证，待用户审阅，未发布）— 2026-10-24
+## 英文紧凑文案与下一首标题（已发布）— 2026-10-24
 
 - 英文额度缩短为 `Searches remaining` 并禁止标签/数字换行；点歌使用 `Pick song`，推荐使用 `Cached songs`，缓存结果末尾保留 `All cached results shown`。
 - 手机英文顶部恢复 `Next: 数量` 与连接状态文字；空间不足时允许头部换行。不可用状态缩短为 `Disconnected`。
@@ -13,6 +13,11 @@ Last updated: 2026-10-24
 - `npm run typecheck`、翻译/覆盖与 roomReducer 三组聚焦测试（38 项）、`git diff --check` 通过。测试初次受沙箱 realpath EPERM 阻止，提权后原样通过。
 - 新建内置浏览器本地会话，确认英文文案、缓存末尾提示、点歌后 Next 数量及播放页实际下一首标题；未使用真实搜索或生产 API。Vite 本地额度 API 不可用，未做额度成功状态运行时验证；浏览器 viewport override 未反映在截图中，未声称完成窄屏验收；长标题完整动画周期与真实 WebSocket 状态未完成运行时验证。
 - 本地 Vite：`http://localhost:5176/create`，前端改动热更新。未提交、推送或部署。
+- 上述为本地阶段记录。用户随后授权 push/deploy；发布代码提交 `4f8c3fa` 已推送 `origin/codex/search-relevance-ranking`，未推送 main。
+- 发布前完整 `npm test`：30 文件、208 测试通过；typecheck、build、verify:search（13 文件、110 测试）、diff check 全部通过。
+- 按 Room → Main 使用 `--keep-vars` 部署，活动版本已用 deployments list 核对：Room `4444e848-d3de-4180-b66e-97437ee94e72`；Main `da3fba3b-3755-4329-8ab0-1322d0c121c1`，均 100%。
+- 生产 cacheOnly smoke：耍赖缓存命中 50 条，额度 used `2 → 2`，无外部搜索。首次 smoke ID 格式错误返回 400，改为八位 ID 后通过。
+- 新建内置浏览器会话确认线上 `Searches remaining: 98/100` 同行、`Up next / None` 右对齐及手机 `Next: 0`、`Pick song`、`Cached songs`。通过创建流程建立隔离验收房间 `3k0r6q50`，播放页确认 Connected、无 error/warn 日志；直接打开未创建房间时会重连，不作为连接验收依据。长标题完整动画周期和窄屏截图仍未验收。
 
 ## 冷门同名词歌曲排序修复（已发布）— 2026-10-23
 
