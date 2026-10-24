@@ -43,7 +43,9 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
 ### 界面语言
 
-英文品牌为 **KTV Assistant**。手机页不再展示房间名；英文顶部以歌单图标 + 数量和连接图标保持单行，完整状态仍可通过 hover / 辅助技术读取。搜索栏使用 `Song` / `Artist` 与 `Vocals` 短标签，原唱开关的完整说明为 `Include original vocals`。首页采用独立英文文案 `Your room. / Your stage.`、`Let your voice run wild.`，空播放状态为 `Ready when you are`；中文主体文案保留。
+英文品牌为 **KTV Assistant**。手机页不再展示房间名；英文顶部显示 `Next: 数量` 与连接状态文字，窄屏空间不足时允许头部换行。点歌使用 `Pick song`，缓存推荐使用 `Cached songs`，额度使用 `Searches remaining` 并保持数字同行。搜索栏使用 `Song` / `Artist` 与 `Vocals` 短标签，原唱开关的完整说明为 `Include original vocals`。首页采用独立英文文案 `Your room. / Your stage.`、`Let your voice run wild.`，空播放状态为 `Ready when you are`；中文主体文案保留。
+
+播放页中英文的“即将播放 / Up next”显示队列第一首歌名，空队列显示“暂无 / None”。标题限制在固定宽度内，短标题右对齐；溢出时从标题开头先停留 15 秒，再以不超过每秒 12 像素、至少 20 秒的速度向左滚动，末尾停留 5 秒后循环。短标题静止，系统减少动态效果偏好启用时关闭滚动；悬停可查看完整标题。
 
 - 现有创建房间、大屏、手机点歌、Admin 和调试页均支持中文 / English。首次使用读取 `navigator.language`：`zh` 及其地区、简繁变体使用简体中文，其他语言使用英文。
 - 页面右上角的无边框 `中 / EN` 按钮立即切换；手动选择保存在当前站点的 `localStorage`（`karaoke-assistant:language`），优先于浏览器语言，刷新后保留，同一浏览器配置中的同源标签页同步。

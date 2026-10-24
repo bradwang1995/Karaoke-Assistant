@@ -1,8 +1,18 @@
 # Project Progress
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
+
+## 英文紧凑文案与下一首标题（本地验证，待用户审阅，未发布）— 2026-10-24
+
+- 英文额度缩短为 `Searches remaining` 并禁止标签/数字换行；点歌使用 `Pick song`，推荐使用 `Cached songs`，缓存结果末尾保留 `All cached results shown`。
+- 手机英文顶部恢复 `Next: 数量` 与连接状态文字；空间不足时允许头部换行。不可用状态缩短为 `Disconnected`。
+- 后续微调：下一首短标题右对齐；保留宽度限制和仅溢出时滚动，长标题仍从开头展示。
+- 播放页中英文下一首区域显示实际队首标题或“暂无 / None”，限制宽度；溢出标题停留 15 秒后缓慢滚动，末尾停留 5 秒再循环，短标题静止，并尊重减少动态效果偏好。
+- `npm run typecheck`、翻译/覆盖与 roomReducer 三组聚焦测试（38 项）、`git diff --check` 通过。测试初次受沙箱 realpath EPERM 阻止，提权后原样通过。
+- 新建内置浏览器本地会话，确认英文文案、缓存末尾提示、点歌后 Next 数量及播放页实际下一首标题；未使用真实搜索或生产 API。Vite 本地额度 API 不可用，未做额度成功状态运行时验证；浏览器 viewport override 未反映在截图中，未声称完成窄屏验收；长标题完整动画周期与真实 WebSocket 状态未完成运行时验证。
+- 本地 Vite：`http://localhost:5176/create`，前端改动热更新。未提交、推送或部署。
 
 ## 冷门同名词歌曲排序修复（已发布）— 2026-10-23
 

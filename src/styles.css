@@ -346,8 +346,8 @@ html[lang="en"] .mobile-brand { font-size: 1rem; white-space: nowrap; }
 html[lang="en"] .mobile-header-actions { flex-wrap: nowrap; flex-shrink: 0; gap: 0.25rem; }
 html[lang="en"] .mobile-language-toggle { padding-inline: 0.25rem; font-size: 0.75rem; }
 html[lang="en"] .mobile-queue-description,
-html[lang="en"] .mobile-connection-label { display: none; }
-html[lang="en"] .mobile-queue-count { display: inline; }
+html[lang="en"] .mobile-connection-label { white-space: nowrap; }
+html[lang="en"] .mobile-heading-row { flex-wrap: wrap; }
 html[lang="en"] .mobile-connection { padding-inline: 0.375rem; }
 html[lang="en"] .mobile-search-controls {
   grid-template-columns: 5.25rem minmax(0, 1fr) 5.25rem 2.5rem;

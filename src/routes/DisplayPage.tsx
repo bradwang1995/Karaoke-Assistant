@@ -377,7 +377,7 @@ export default function DisplayPage() {
         </section>
 
         <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-2 shadow-2xl">
-          <div className="grid gap-4 text-sm lg:grid-cols-[18rem_minmax(0,1fr)_22rem] lg:items-center">
+          <div className="grid gap-4 text-sm lg:grid-cols-[22rem_minmax(0,1fr)_22rem] lg:items-center">
             <div className="flex min-w-0 items-center gap-3">
               <ConnectionBadge
                 status={roomSocket.status}
@@ -446,15 +446,57 @@ export default function DisplayPage() {
                   </button>
                 </div>
               ) : null}
-              <div className="border-l border-white/15 py-1 pl-3 text-right">
+              <div className="w-40 min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right sm:w-52">
                 <p className="text-xs text-slate-300">{t("即将播放")}</p>
-                <p className="text-lg font-semibold">{queuedItems.length} {t("首")}</p>
+                <NextSongTitle key={queuedItems[0]?.id ?? "empty"} title={queuedItems[0]?.title ?? t("暂无")} />
               </div>
             </div>
           </div>
         </section>
       </div>
     </main>
+  );
+}
+
+function NextSongTitle({ title }: { title: string }) {
+  const viewportRef = useRef<HTMLParagraphElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    const text = textRef.current;
+    if (!viewport || !text) return;
+    let animation: Animation | undefined;
+    const measure = () => {
+      animation?.cancel();
+      const overflow = text.scrollWidth - viewport.clientWidth;
+      if (overflow <= 0 || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      const travelMs = Math.max(20_000, overflow / 12 * 1000);
+      const duration = 15_000 + travelMs + 5_000;
+      animation = text.animate([
+        { transform: "translateX(0)", offset: 0 },
+        { transform: "translateX(0)", offset: 15_000 / duration },
+        { transform: `translateX(-${overflow}px)`, offset: (15_000 + travelMs) / duration },
+        { transform: `translateX(-${overflow}px)`, offset: 1 },
+      ], { duration, iterations: Infinity, easing: "linear" });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(viewport);
+    observer.observe(text);
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    motion.addEventListener("change", measure);
+    measure();
+    return () => {
+      animation?.cancel();
+      observer.disconnect();
+      motion.removeEventListener("change", measure);
+    };
+  }, [title]);
+
+  return (
+    <p ref={viewportRef} title={title} className="overflow-hidden text-right text-sm font-semibold">
+      <span ref={textRef} className="block w-max min-w-full whitespace-nowrap">{title}</span>
+    </p>
   );
 }
 
@@ -552,7 +594,7 @@ function YouTubeQuotaStatus({
         status.exhausted ? "text-amber-200" : "text-slate-400"
       }`}
     >
-      <p>{t("今日搜索剩余")}{status.remaining}/{status.dailyLimit}</p>
+      <p className="whitespace-nowrap">{t("今日搜索剩余")}{status.remaining}/{status.dailyLimit}</p>
       <p>{formatRelativeQuotaReset(status.resetAt, Date.now(), t)}</p>
     </div>
   );
