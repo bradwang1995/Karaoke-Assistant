@@ -631,7 +631,7 @@ Version bump 后必须新增测试证明旧 D1 `family_hash` 不会命中，并�
 
 ## 15. 代码地图
 
-### 界面双语（用户已验收，准备发布）
+### 界面双语（已发布）
 
 英文布局优化仅改变显示层：搜索类型短标签为 `Song` / `Artist`，原唱短标签为 `Vocals`（完整 aria-label / title 为 `Include original vocals`），英文搜索栏保持单行；推荐标题显示 `Song picks`，分页数量显示为 `8/8` 形式。界面短标签不改变提交值或搜索行为，不触发缓存版本变更。
 
