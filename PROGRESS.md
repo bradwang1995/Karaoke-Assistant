@@ -6,12 +6,15 @@ Last updated: 2026-10-24
 
 ## 英文紧凑文案与下一首标题（已发布）— 2026-10-24
 
-### 发布后的底栏高度修正（仅本地，未发布）
+### 发布后的底栏高度修正（已发布）
 
 - 用户指出加宽的 Up Next 挤出按钮换行，违背之前精调的底栏高度要求。将区域从 160/208px 缩到 80px，禁止右侧控制区和标签换行；右侧列仅调整横向宽度以容纳英文 Resume，保持按钮尺寸和底栏纵向 padding。
 - 新建内置浏览器验证本地 `http://localhost:5176/room/local-review/display`：1280×720 英文正常暂停状态底栏 74px，三个按钮 40px 且 top 相同，Up Next 宽 80px；中文也已截图确认按钮与下一首同排。自动播放被阻止时仍保留原有提示，提示会增加高度。
 - typecheck 与 diff check 通过；纯布局修正，未推送或部署。用户要求记住高度约束，已写入 memory 更新便笺。
 - 用户随后确认将 Up Next 宽度加倍至 160px；相应增加右侧列横向空间，保持同排和纵向尺寸。内置浏览器在 1280×720 英文 Resume 状态实测区域 160px、底栏 74px、按钮 40px 且 top 相同；typecheck、diff check 通过，仍仅本地。
+- 用户随后授权发布。代码提交 `c8b67b8` 已推送 `origin/codex/search-relevance-ranking`，未推送 main。发布前 full test 30 文件/208 测试、typecheck、build、verify:search 13 文件/110 测试、diff check 全部通过。
+- Room → Main 使用 `--keep-vars` 部署并核对最终活动版本均 100%：Room `dd918083-a7ae-49b8-9a20-1fd2ab7938e0`；Main `46fb6774-1898-4ee3-8e08-34ad377ed16e`。
+- 生产 cacheOnly 耍赖命中 50 条，额度 used `2 → 2`。新建内置浏览器与独立验收房间 `255p3r1d`，从缓存推荐点入两首歌，验证 Connected、队列同步、长标题；1280×720 英文 Resume 状态实测底栏 74px、Up Next 160px、三个按钮 40px 且 top 均 663.5px。验收播放已暂停；未调用冷文字搜索。窄屏和完整动画周期未验收。
 
 - 英文额度缩短为 `Searches remaining` 并禁止标签/数字换行；点歌使用 `Pick song`，推荐使用 `Cached songs`，缓存结果末尾保留 `All cached results shown`。
 - 手机英文顶部恢复 `Next: 数量` 与连接状态文字；空间不足时允许头部换行。不可用状态缩短为 `Disconnected`。
