@@ -377,7 +377,7 @@ export default function DisplayPage() {
         </section>
 
         <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-2 shadow-2xl">
-          <div className="grid gap-4 text-sm lg:grid-cols-[22rem_minmax(0,1fr)_22rem] lg:items-center">
+          <div className="grid gap-4 text-sm lg:grid-cols-[22rem_minmax(0,1fr)_31rem] lg:items-center">
             <div className="flex min-w-0 items-center gap-3">
               <ConnectionBadge
                 status={roomSocket.status}
@@ -408,9 +408,9 @@ export default function DisplayPage() {
                 />
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex min-w-0 flex-nowrap items-center justify-end gap-3">
               {currentItem ? (
-                <div className="flex items-center gap-1.5 rounded-xl border border-white/15 bg-white/[0.07] p-1.5 shadow-lg shadow-black/20">
+                <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] p-1.5 shadow-lg shadow-black/20">
                   <button
                     type="button"
                     onClick={(event) => {
@@ -446,8 +446,8 @@ export default function DisplayPage() {
                   </button>
                 </div>
               ) : null}
-              <div className="w-40 min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right sm:w-52">
-                <p className="text-xs text-slate-300">{t("即将播放")}</p>
+              <div className="w-40 min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right">
+                <p className="whitespace-nowrap text-xs text-slate-300">{t("即将播放")}</p>
                 <NextSongTitle key={queuedItems[0]?.id ?? "empty"} title={queuedItems[0]?.title ?? t("暂无")} />
               </div>
             </div>
