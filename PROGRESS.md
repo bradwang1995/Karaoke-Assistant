@@ -819,3 +819,18 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 - Production version 只在真实 deploy 后更新。
 - Test counts 只在完整 suite 实际运行后更新。
 - Pure docs changes do not redeploy。
+## 中英文界面 localization（用户已验收，准备发布）— 2026-10-23
+
+- 用户完成引言居中预览验收并明确授权 push and deploy。发布前全量 `npm test` 30 files / 208 tests、`npm run verify:search` 13 files / 110 tests（含 typecheck、禁止真实网络）、`npm run build`、`git diff --check` 均通过。此处尚未记录部署成功，真实版本与生产验收待发布后补充。
+
+- 创建页顶部引言改为独立居中：桌面三列布局左右等宽，中英文引言中心与 header 中心一致（内置 @Browser DOM 实测误差小于 0.01px）；640px 中等屏幕独立一行居中，375px 手机保留隐藏引言，无重叠。只调整 header 样式，未修改文案或行为。当前预览 `http://127.0.0.1:5185/create`；临时视口检查页已删除，截图保存在 `.wrangler/localization-preview/create-centered-quote.png`。`git diff --check` 通过，纯布局未重跑测试或构建；未部署。
+
+- 根据用户英文截图调整：统一英文品牌 `KTV Assistant` 和页面 title；移除手机页房间名，只改变展示、不改变房间数据。英文顶栏采用歌单图标 + 数字与连接图标（保留完整 aria-label / title），搜索栏采用 `Song` / `Artist` / `Vocals` 短标签并保持单行；原唱控件行为不变。移除之前强制英文顶栏和原唱开关换行的规则。首页重写为 `Your room. / Your stage.`、`Let your voice run wild.`，空播放状态为 `Ready when you are`；手机首页按钮说明移至按钮下方，768–1023px 英文首页用单列避免卡片挤压。中文主体文案保留。新建内置 @Browser、同源 iframe 实测点歌页 320 / 375 / 430px 和首页 375 / 768px，顶部/搜索栏均保持单行，无控件重叠。`npm test -- src/i18n` 2 files / 32 tests、`npm run typecheck` 通过。当前正常预览 `http://127.0.0.1:5184/create`，仍是 Vite mock 模式，待用户 review，未部署。
+
+- 创建房间、大屏、手机点歌、Admin（含登录、总览、搜索记录、资料库）和调试页接入中英文翻译。首次使用按 `navigator.language` 的 `zh` 变体选择简体中文，其他语言为英文；右上角无边框 `中 / EN` 支持 hover 阴影和键盘 focus。
+- 手动偏好仅保存在当前同源浏览器的 `karaoke-assistant:language`，同配置标签页通过 storage event 同步；不同设备/浏览器配置互不影响。不修改房间 snapshot、WebSocket、用户歌曲/频道/自定义房间名、搜索请求、YouTube 查询语言、缓存键与版本。禁用存储时降级为当前页内存偏好。
+- 现有文案集中到 `src/i18n/en.json`；动态 toast、播放器错误、确认弹窗、partial search 与 quota 倒计时随语言切换更新。英文搜索栏根据文案长度适配宽屏和窄屏。
+- 独立 localization 审查后，仅按用户要求修复第三项：Debug 刷新与清理 catch 保存原始错误/中文 fallback，在渲染时翻译，避免英文错误状态切回中文后仍保留英文。使用临时 Vite 插件令这两个 API reject 非 Error 值，在新建内置 @Browser 中验证了刷新错误英文 → 中文 → 英文及清理错误英文 → 中文，均即时更新。`npm test -- src/i18n` 2 files / 32 tests 通过；`npm run typecheck` 与 `git diff --check` 通过。其他两项审查发现未在本次修改中处理；当前仍待用户本地验收，未发布。此次正常预览实际端口为 `http://127.0.0.1:5183/create`，错误分支 mock 验证页为 `http://127.0.0.1:5182/room/3f1e3t3t/debug`，两者因端口不同而分别保存语言偏好；mock 配置及截图均位于忽略目录 `.wrangler/localization-preview/`，未改生产 API。
+- 聚焦测试：`npm test -- src/i18n src/lib/quotaReset.test.ts src/lib/searchExperience.test.ts` 4 files / 41 tests 通过，覆盖中文地区变体、非中文默认、手动优先、刷新保留、storage 同步/清除、独立 profile 隔离、存储禁用、插值与翻译 key 完整性。`npm run verify:search` 13 files / 110 tests、typecheck 均通过，强制无真实网络；最终 `npm run build` 与 `git diff --check` 通过。
+- 新建 Codex 内置 @Browser 会话实测：首页自动英文、手动切换与刷新保留；同浏览器手机页切换后大屏同步；搜索草稿和选中卡片保持；空歌单、URL placeholder、无效 URL 提示即时双语切换；Admin 登录页和调试页均可切换。用临时同源 iframe 实测 320px / 390px 手机视口，英文控件不重叠；临时验证页已删除。最终首页和手机页 console error 均为空，只有已有 React Router future flag warnings。截图保存于忽略目录 `.wrangler/localization-preview/`。
+- 预览服务运行于 `http://127.0.0.1:5181/create`，手机页为 `http://127.0.0.1:5181/room/3f1e3t3t/mobile`。Vite 源码热更新，无需 rebuild；关闭运行终端会停止服务。这是无 Worker 的本地 mock 模式，未验证真实 D1/KV/DO、真实播放、Admin 认证后的 live 数据；独立 profile 隔离由自动测试验证，未操作个人 Chrome。没有 commit、push、部署或生产 smoke。

@@ -1,3 +1,5 @@
+import { LanguageToggle } from "../components/LanguageToggle";
+import { translate as t, useLanguage } from "../i18n";
 import {
   ArrowUpToLine,
   Check,
@@ -26,7 +28,6 @@ import {
 import { classifySearchQuery } from "../lib/searchQuery";
 import { searchMockVideos } from "../lib/mockSearch";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
-import { visibleRoomDisplayName } from "../lib/roomName";
 import {
   quotaResetMessage,
   searchPartialMessage,
@@ -68,13 +69,13 @@ type SearchInputType = SearchType | "url";
 type MobileTab = "search" | "queue";
 
 export default function MobilePage() {
+  useLanguage();
   const { roomId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const roomSocket = useRoomSocket({ roomId, role: "mobile" });
   const snapshot = useRoomSnapshot(roomId);
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
-  const roomDisplayName = visibleRoomDisplayName(snapshot.room.displayName, roomId);
   const queueTargetRef = useRef<HTMLButtonElement | null>(null);
   const storedActiveTab = useMobileUiStore((state) => state.activeTab);
   const setStoredActiveTab = useMobileUiStore((state) => state.setActiveTab);
@@ -113,21 +114,22 @@ export default function MobilePage() {
       <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden border-x border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
         <header className="mobile-safe-header relative z-[60] shrink-0 overflow-hidden border-b border-white/10 bg-slate-950 px-4 pb-2 text-white">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(20,184,166,0.2),transparent_42%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.13),transparent_38%)]" />
-          <div className="relative flex items-center justify-between gap-3">
+          <div className="mobile-heading-row relative flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-baseline gap-2">
-              <h1 className="shrink-0 text-xl font-semibold tracking-normal">K歌助手</h1>
-              <p className="truncate text-sm text-slate-300">{roomDisplayName}</p>
+              <h1 className="mobile-brand shrink-0 text-xl font-semibold tracking-normal">{t("K歌助手")}</h1>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <div className="mobile-header-actions flex flex-wrap items-center justify-end gap-1.5">
+              <LanguageToggle className="mobile-language-toggle" />
               <button
                 type="button"
                 ref={queueTargetRef}
                 onClick={() => setActiveTab("queue")}
-                aria-label={`查看歌单，即将播放 ${queuedItems.length} 首`}
+                aria-label={t("查看歌单，即将播放 {0} 首", [queuedItems.length])}
                 className="inline-flex items-center gap-1.5 rounded-md border border-teal-200/20 bg-teal-300/10 px-2 py-1 text-xs font-semibold text-teal-100 transition hover:bg-teal-300/15 focus:outline-none focus:ring-2 focus:ring-teal-300/40"
               >
                 <ListMusic size={13} />
-                即将播放 {queuedItems.length} 首
+                <span className="mobile-queue-description">{t("即将播放 {0} 首", [queuedItems.length])}</span>
+                <span aria-hidden="true" className="mobile-queue-count hidden">{queuedItems.length}</span>
               </button>
               <ConnectionBadge
                 status={roomSocket.status}
@@ -140,13 +142,13 @@ export default function MobilePage() {
             <TabButton
               active={activeTab === "search"}
               icon={<Music2 size={17} />}
-              label="点歌"
+              label={t("点歌")}
               onClick={() => setActiveTab("search")}
             />
             <TabButton
               active={activeTab === "queue"}
               icon={<ListMusic size={17} />}
-              label="歌单"
+              label={t("歌单")}
               onClick={() => setActiveTab("queue")}
             />
           </div>
@@ -191,6 +193,7 @@ function TabButton({
   label: string;
   onClick: () => void;
 }) {
+  useLanguage();
   return (
     <button
       type="button"
@@ -222,6 +225,7 @@ function SearchTab({
   sendRoomMessage: (message: ClientToServerMessage) => boolean;
   queueTargetRef: RefObject<HTMLElement>;
 }) {
+  useLanguage();
   const [initialSearchState] = useState(() => readPersistedSearchState(roomId));
   const [query, setQuery] = useState(initialSearchState?.query ?? "");
   const [searchType, setSearchType] = useState<SearchInputType>(
@@ -354,7 +358,7 @@ function SearchTab({
         setToast({
           id: Date.now(),
           tone: "warning",
-          message: searchPartialMessage(response),
+          message: () => searchPartialMessage(response, t),
         });
         return;
       }
@@ -374,7 +378,7 @@ function SearchTab({
         setToast({
           id: Date.now(),
           tone: "warning",
-          message: searchPartialMessage(response),
+          message: () => searchPartialMessage(response, t),
         });
       }
     },
@@ -699,7 +703,7 @@ function SearchTab({
       return;
     }
 
-    showToast({ tone: "success", message: `已点歌成功：${result.title}` });
+    showToast({ tone: "success", message: () => t("已点歌成功：{0}", [result.title]) });
     startAddTrail(result.videoId);
     setDuplicateCandidate(null);
   };
@@ -707,15 +711,15 @@ function SearchTab({
   const isLoadingRecommendations =
     showingRecommendations && recommendationsQuery.isPending;
   const resultHeading = isSearching
-    ? "正在搜索"
+    ? t("正在搜索")
     : showingRecommendations
-      ? "缓存推荐"
-      : "搜索结果";
+      ? t("缓存推荐")
+      : t("搜索结果");
   const resultCountLabel = isSearching
-    ? "搜索中"
+    ? t("搜索中")
     : isLoadingRecommendations
-      ? "加载中"
-    : `${visibleResults.length}/${activeResults.length} 首`;
+      ? t("加载中")
+    : t("{0}/{1} 首", [visibleResults.length, activeResults.length]);
 
   return (
     <section className="relative isolate z-0 flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-950">
@@ -724,11 +728,11 @@ function SearchTab({
 
       <div className="z-50 isolate shrink-0 overflow-hidden border-b border-white/10 bg-slate-900 px-4 pb-2 pt-2.5 shadow-lg shadow-slate-950/15">
         <form onSubmit={submitSearch}>
-          <div className={`grid gap-1.5 sm:gap-2 ${searchType === "url"
+          <div data-url={searchType === "url"} className={`mobile-search-controls grid gap-1.5 sm:gap-2 ${searchType === "url"
             ? "grid-cols-[4.75rem_minmax(0,1fr)_3.25rem] sm:grid-cols-[5.25rem_minmax(0,1fr)_3.5rem]"
             : "grid-cols-[4.75rem_minmax(0,1fr)_5rem_3.25rem] sm:grid-cols-[5.25rem_minmax(0,1fr)_5.25rem_3.5rem]"}`}>
             <label className="sr-only" htmlFor="search-type">
-              搜索类型
+              {t("搜索类型")}
             </label>
             <select
               id="search-type"
@@ -736,38 +740,38 @@ function SearchTab({
               onChange={(event) => setSearchType(event.target.value as SearchInputType)}
               className="h-10 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-white outline-none transition focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             >
-              <option value="song">歌名</option>
-              <option value="artist">歌手</option>
+              <option value="song">{t("歌名")}</option>
+              <option value="artist">{t("歌手")}</option>
               <option value="url">URL</option>
             </select>
             <label className="sr-only" htmlFor="song-search">
-              {searchType === "url" ? "YouTube 视频链接" : "搜索歌曲"}
+              {searchType === "url" ? t("YouTube 视频链接") : t("搜索歌曲")}
             </label>
             <input
               id="song-search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={searchType === "url" ? "YouTube视频链接" : searchType === "artist" ? "歌手名" : "歌名"}
+              placeholder={searchType === "url" ? t("YouTube视频链接") : searchType === "artist" ? t("歌手名") : t("歌名")}
               inputMode={searchType === "url" ? "url" : "text"}
               enterKeyHint="search"
               className="h-10 min-w-0 rounded-lg border border-white/15 bg-slate-800 px-3 text-base text-white outline-none transition placeholder:text-slate-400 focus:border-teal-300 focus:ring-4 focus:ring-teal-300/15"
             />
             {searchType !== "url" && <PillToggle
-              label="原唱"
+              label={t("原唱")}
               checked={includeOriginalVocal}
               onChange={setIncludeOriginalVocal}
             />}
             <button
               type="submit"
-              aria-label="搜索"
-              title="搜索"
+              aria-label={t("搜索")}
+              title={t("搜索")}
               disabled={searchMutation.isPending}
               className="inline-flex h-10 w-[3.25rem] shrink-0 items-center justify-center rounded-lg bg-teal-300 text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-500 sm:w-14"
             >
               {isSearching ? (
                 <>
                   <LoaderCircle className="animate-spin" size={21} />
-                  <span className="sr-only">正在搜索</span>
+                  <span className="sr-only">{t("正在搜索")}</span>
                 </>
               ) : (
                 <Search size={21} />
@@ -793,8 +797,8 @@ function SearchTab({
             tone={searchMutation.error instanceof SearchRequestTimeoutError ? "warning" : "error"}
             title={
               searchMutation.error instanceof SearchRequestTimeoutError
-                ? "已停止搜索"
-                : "搜索失败"
+                ? t("已停止搜索")
+                : t("搜索失败")
             }
             appearance="dark"
             className="mt-4"
@@ -804,7 +808,7 @@ function SearchTab({
         ) : null}
 
         {recommendationsQuery.isError && showingRecommendations ? (
-          <StatusMessage tone="warning" title="推荐加载失败" appearance="dark" className="mt-4">
+          <StatusMessage tone="warning" title={t("推荐加载失败")} appearance="dark" className="mt-4">
             {searchErrorMessage(recommendationsQuery.error)}
           </StatusMessage>
         ) : null}
@@ -821,8 +825,8 @@ function SearchTab({
         !isLoadingRecommendations &&
         searchResponse?.cacheMeta?.quota?.exhausted &&
         activeResults.length === 0 ? (
-          <StatusMessage tone="warning" title="今日搜索额度已用完" appearance="dark" className="mt-5">
-            {quotaResetMessage(searchResponse.cacheMeta.quota.resetAt)}；已缓存的相同搜索仍可使用。
+          <StatusMessage tone="warning" title={t("今日搜索额度已用完")} appearance="dark" className="mt-5">
+            {quotaResetMessage(searchResponse.cacheMeta.quota.resetAt, t)}{t("；已缓存的相同搜索仍可使用。")}
           </StatusMessage>
         ) : null}
 
@@ -832,13 +836,13 @@ function SearchTab({
         !searchResponse.cacheMeta?.quota?.exhausted &&
         activeResults.length === 0 ? (
           <StatusMessage tone="info" appearance="dark" className="mt-5">
-            没有找到合适的视频。
+            {t("没有找到合适的视频。")}
           </StatusMessage>
         ) : null}
 
         {!isSearching && !isLoadingRecommendations && showingRecommendations && activeResults.length === 0 ? (
           <StatusMessage tone="info" appearance="dark" className="mt-5">
-            暂无推荐内容。
+            {t("暂无推荐内容。")}
           </StatusMessage>
         ) : null}
 
@@ -864,7 +868,7 @@ function SearchTab({
           <div ref={loadMoreRef} className="mt-4 min-h-12">
             {isLoadingMore ? (
               <StatusMessage tone="loading" appearance="dark">
-                {showingCachedResults ? "正在加载更多缓存结果" : "正在加载更多搜索结果"}
+                {showingCachedResults ? t("正在加载更多缓存结果") : t("正在加载更多搜索结果")}
               </StatusMessage>
             ) : canLoadMore ? (
               <button
@@ -872,11 +876,11 @@ function SearchTab({
                 onClick={loadMoreResults}
                 className="w-full rounded-lg border border-white/15 bg-white/[0.07] px-4 py-3 text-base font-semibold text-slate-100 transition hover:bg-white/10"
               >
-                加载更多
+                {t("加载更多")}
               </button>
             ) : (
               <p className="py-3 text-center text-sm text-slate-400">
-                {showingCachedResults ? "已经显示全部缓存结果" : "已经显示全部搜索结果"}
+                {showingCachedResults ? t("已经显示全部缓存结果") : t("已经显示全部搜索结果")}
               </p>
             )}
           </div>
@@ -892,18 +896,18 @@ function SearchTab({
           className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-base font-bold text-slate-950 transition hover:bg-teal-300 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
         >
           <Check size={21} />
-          点歌
+          {t("点歌")}
         </button>
         <p className="mt-1.5 text-center text-xs leading-4 text-slate-400">
-          搜索使用 YouTube Data API，视频仅通过 YouTube 嵌入播放器播放。
+          {t("搜索使用 YouTube Data API，视频仅通过 YouTube 嵌入播放器播放。")}
         </p>
       </footer>
 
       <ConfirmDialog
         open={duplicateCandidate !== null}
-        title="歌单里已经有这首歌"
+        title={t("歌单里已经有这首歌")}
         body={duplicateCandidate?.title}
-        confirmLabel="继续点歌"
+        confirmLabel={t("继续点歌")}
         appearance="dark"
         onCancel={() => setDuplicateCandidate(null)}
         onConfirm={() => {
@@ -919,7 +923,7 @@ function SearchTab({
 interface MobileToastState {
   id: number;
   tone: "success" | "warning";
-  message: string;
+  message: string | (() => string);
 }
 
 interface AddToQueueTrailState {
@@ -937,12 +941,15 @@ function PillToggle({
   checked: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  useLanguage();
   return (
     <button
       type="button"
       aria-pressed={checked}
+      aria-label={t("包含原唱")}
+      title={t("包含原唱")}
       onClick={() => onChange(!checked)}
-      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-slate-300 transition focus:outline-none focus:ring-4 focus:ring-teal-300/15"
+      className="mobile-vocal-toggle inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-white/15 bg-slate-800 px-2 text-base font-semibold text-slate-300 transition focus:outline-none focus:ring-4 focus:ring-teal-300/15"
     >
       <span className="whitespace-nowrap">{label}</span>
       <span
@@ -961,6 +968,7 @@ function PillToggle({
 }
 
 function MobileToast({ toast }: { toast: MobileToastState | null }) {
+  useLanguage();
   if (!toast) {
     return null;
   }
@@ -975,13 +983,14 @@ function MobileToast({ toast }: { toast: MobileToastState | null }) {
             : "bg-amber-400 text-amber-950"
         }`}
       >
-        {toast.message}
+        {typeof toast.message === "function" ? toast.message() : t(toast.message)}
       </div>
     </div>
   );
 }
 
 function AddToQueueTrail({ trail }: { trail: AddToQueueTrailState | null }) {
+  useLanguage();
   if (!trail) {
     return null;
   }
@@ -1021,6 +1030,7 @@ function CandidateVideoCard({
   duplicate: boolean;
   onSelect: () => void;
 }) {
+  useLanguage();
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== "Enter" && event.key !== " ") {
       return;
@@ -1036,7 +1046,7 @@ function CandidateVideoCard({
       role="button"
       tabIndex={0}
       aria-pressed={selected}
-      aria-label={`选择 ${result.title}`}
+      aria-label={t("选择 {0}", [result.title])}
       onPointerDownCapture={onSelect}
       onKeyDown={handleKeyDown}
       className={`relative isolate z-0 cursor-pointer overflow-hidden rounded-xl border bg-slate-900 text-left shadow-lg shadow-black/20 transition focus:outline-none focus:ring-4 ${
@@ -1062,12 +1072,12 @@ function CandidateVideoCard({
         <div className="pointer-events-none absolute right-1.5 top-1.5 z-[1] flex max-w-[calc(100%-0.75rem)] flex-col items-end gap-1">
           {duplicate ? (
             <span className="max-w-full truncate rounded-md bg-amber-100 px-1.5 py-1 text-[11px] font-semibold text-amber-800 shadow-sm ring-1 ring-amber-200">
-              已在歌单
+              {t("已在歌单")}
             </span>
           ) : null}
           {selected ? (
             <span className="max-w-full truncate rounded-md bg-teal-100 px-1.5 py-1 text-[11px] font-semibold text-teal-800 shadow-sm ring-1 ring-teal-200">
-              已选中
+              {t("已选中")}
             </span>
           ) : null}
         </div>
@@ -1085,6 +1095,7 @@ function CandidatePreview({
   active: boolean;
   pending: boolean;
 }) {
+  useLanguage();
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const playRetryTimeoutsRef = useRef<number[]>([]);
@@ -1252,12 +1263,12 @@ function CandidatePreview({
       {pending || loadStatus === "loading" ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/80 text-white">
           <LoaderCircle className="animate-spin" size={22} />
-          <span className="sr-only">预览加载中</span>
+          <span className="sr-only">{t("预览加载中")}</span>
         </div>
       ) : null}
       {loadStatus === "error" ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 px-2 text-center text-xs font-semibold text-white">
-          预览加载较慢，点一下重试
+          {t("预览加载较慢，点一下重试")}
         </div>
       ) : null}
     </div>
@@ -1279,6 +1290,7 @@ function QueueTab({
   canUseLocalFallback: boolean;
   sendRoomMessage: (message: ClientToServerMessage) => boolean;
 }) {
+  useLanguage();
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<
     | { type: "remove"; item: QueueItem }
@@ -1287,12 +1299,12 @@ function QueueTab({
     | null
   >(null);
 
-  const confirmTitle = useMemo(() => {
+  const confirmTitle = (() => {
     if (!confirmAction) return "";
-    if (confirmAction.type === "remove") return "确定要删除这首歌吗？";
-    if (confirmAction.type === "restart") return "确定要重唱当前歌曲吗？";
-    return "确定要切到下一首吗？";
-  }, [confirmAction]);
+    if (confirmAction.type === "remove") return t("确定要删除这首歌吗？");
+    if (confirmAction.type === "restart") return t("确定要重唱当前歌曲吗？");
+    return t("确定要切到下一首吗？");
+  })();
 
   const handleConfirm = () => {
     if (!confirmAction) return;
@@ -1353,13 +1365,13 @@ function QueueTab({
   return (
     <section className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-[radial-gradient(circle_at_16%_6%,rgba(20,184,166,0.10),transparent_32%),linear-gradient(#020617,#0f172a)] px-4 py-4 text-white scrollbar-soft-dark">
       {actionError ? (
-        <StatusMessage tone="warning" title="操作未完成" appearance="dark" className="mb-4">
-          {actionError}
+        <StatusMessage tone="warning" title={t("操作未完成")} appearance="dark" className="mb-4">
+          {t(actionError)}
         </StatusMessage>
       ) : null}
 
       <div className="rounded-xl border border-white/10 bg-white/[0.06] p-4 shadow-lg shadow-black/20">
-        <p className="text-base font-semibold text-teal-300">正在播放</p>
+        <p className="text-base font-semibold text-teal-300">{t("正在播放")}</p>
         {currentItem ? (
           <>
             <div className="mt-2 flex items-center gap-3">
@@ -1376,7 +1388,7 @@ function QueueTab({
                   {currentItem.title}
                 </h2>
                 <p className="mt-1 truncate text-sm text-slate-400">
-                  {currentItem.channelTitle ?? "未知频道"}
+                  {currentItem.channelTitle ?? t("未知频道")}
                 </p>
               </div>
             </div>
@@ -1387,7 +1399,7 @@ function QueueTab({
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.07] px-3 py-2.5 text-base font-semibold text-slate-100 transition hover:bg-white/10"
               >
                 <RotateCcw size={16} />
-                重唱
+                {t("重唱")}
               </button>
               <button
                 type="button"
@@ -1395,26 +1407,26 @@ function QueueTab({
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.07] px-3 py-2.5 text-base font-semibold text-slate-100 transition hover:bg-white/10"
               >
                 <SkipForward size={16} />
-                切歌
+                {t("切歌")}
               </button>
             </div>
           </>
         ) : (
-          <p className="mt-2 text-base text-slate-400">当前没有视频播放</p>
+          <p className="mt-2 text-base text-slate-400">{t("当前没有视频播放")}</p>
         )}
       </div>
 
       <div className="mt-5 flex items-center justify-between">
-        <h2 className="text-lg font-semibold tracking-normal">即将播放</h2>
+        <h2 className="text-lg font-semibold tracking-normal">{t("即将播放")} </h2>
         <span className="text-sm text-slate-400">
-          {queuedItems.length} 首
-        </span>
+          {queuedItems.length} {t("首")}
+              </span>
       </div>
 
       {queuedItems.length === 0 ? (
         <div className="mt-3 rounded-xl border border-dashed border-white/15 bg-white/[0.04] px-4 py-10 text-center">
           <ListMusic className="mx-auto text-slate-400" size={30} />
-          <p className="mt-2 text-base text-slate-400">歌单还是空的，去点第一首吧。</p>
+          <p className="mt-2 text-base text-slate-400">{t("歌单还是空的，去点第一首吧。")}</p>
         </div>
       ) : (
         <div className="mt-2 grid gap-1.5">
@@ -1451,6 +1463,7 @@ function QueueItemCard({
   onPromote: () => void;
   onRemove: () => void;
 }) {
+  useLanguage();
   return (
     <article
       className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)_5.75rem] items-center gap-2 overflow-hidden rounded-lg border border-white/10 bg-white/[0.06] p-2 shadow-md shadow-black/15"
@@ -1472,14 +1485,14 @@ function QueueItemCard({
         <h3 className="line-clamp-2 [overflow-wrap:anywhere] text-sm font-semibold leading-4 text-white">
           {item.title}
         </h3>
-        <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle ?? "未知频道"}</p>
+        <p className="mt-1 truncate text-xs text-slate-400">{item.channelTitle ?? t("未知频道")}</p>
       </div>
       <div className="flex gap-1">
         <button
           type="button"
           onClick={onPromote}
-          aria-label={`置顶 ${item.title}`}
-          title="置顶"
+          aria-label={t("置顶 {0}", [item.title])}
+          title={t("置顶")}
           className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-white/15 text-slate-200 transition hover:bg-white/10 active:scale-95"
         >
           <ArrowUpToLine size={18} />
@@ -1487,8 +1500,8 @@ function QueueItemCard({
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`删歌 ${item.title}`}
-          title="删歌"
+          aria-label={t("删歌 {0}", [item.title])}
+          title={t("删歌")}
           className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-rose-300/25 text-rose-200 transition hover:bg-rose-300/10 active:scale-95"
         >
           <Trash2 size={18} />
@@ -1505,13 +1518,17 @@ function ConnectionBadge({
   status: SocketStatus;
   canUseLocalFallback: boolean;
 }) {
+  useLanguage();
   const connected = status === "connected";
   const label = connectionLabel(status, canUseLocalFallback);
   const Icon = connected ? Wifi : WifiOff;
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ${
+      role="status"
+      aria-label={label}
+      title={label}
+      className={`mobile-connection inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ${
         connected
           ? "bg-emerald-300/15 text-emerald-200"
           : canUseLocalFallback
@@ -1520,17 +1537,17 @@ function ConnectionBadge({
       }`}
     >
       <Icon size={13} />
-      {label}
+      <span className="mobile-connection-label">{label}</span>
     </span>
   );
 }
 
 function connectionLabel(status: SocketStatus, canUseLocalFallback: boolean) {
-  if (canUseLocalFallback) return "本地模式";
-  if (status === "connected") return "实时已连接";
-  if (status === "connecting") return "正在连接";
-  if (status === "reconnecting") return "正在重连";
-  return "连接不可用";
+  if (canUseLocalFallback) return t("本地模式");
+  if (status === "connected") return t("实时已连接");
+  if (status === "connecting") return t("正在连接");
+  if (status === "reconnecting") return t("正在重连");
+  return t("连接不可用");
 }
 
 function runQueueAction({
@@ -1633,18 +1650,18 @@ function runPlaybackControl({
 
 function searchErrorMessage(error: unknown) {
   if (error instanceof SearchRequestTimeoutError) {
-    return error.message;
+    return t(error.message);
   }
 
   if (error instanceof ApiClientError && error.status === 429) {
-    return "搜索太频繁，当前结果已保留，请稍等一下再试。";
+    return t("搜索太频繁，当前结果已保留，请稍等一下再试。");
   }
 
   if (error instanceof ApiClientError) {
-    return error.message;
+    return t(error.message);
   }
 
-  return "请稍后再试。";
+  return t("请稍后再试。");
 }
 
 interface PersistedSearchState {

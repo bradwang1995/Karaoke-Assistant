@@ -1,4 +1,4 @@
-# Karaoke Assistant（K歌助手）
+# KTV Assistant（K歌助手）
 
 一个面向朋友聚会的 Web KTV 点歌助手：大屏负责播放，手机负责扫码点歌，同一房间通过 Cloudflare Worker、Durable Object 和 WebSocket 实时同步。
 
@@ -40,6 +40,17 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。待播项使用紧凑单行 card，不重复显示“第 N 首”；置顶/删歌先在本地乐观更新，再由房间 snapshot 确认。超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
 - WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
+
+### 界面语言
+
+英文品牌为 **KTV Assistant**。手机页不再展示房间名；英文顶部以歌单图标 + 数量和连接图标保持单行，完整状态仍可通过 hover / 辅助技术读取。搜索栏使用 `Song` / `Artist` 与 `Vocals` 短标签，原唱开关的完整说明为 `Include original vocals`。首页采用独立英文文案 `Your room. / Your stage.`、`Let your voice run wild.`，空播放状态为 `Ready when you are`；中文主体文案保留。
+
+- 现有创建房间、大屏、手机点歌、Admin 和调试页均支持中文 / English。首次使用读取 `navigator.language`：`zh` 及其地区、简繁变体使用简体中文，其他语言使用英文。
+- 页面右上角的无边框 `中 / EN` 按钮立即切换；手动选择保存在当前站点的 `localStorage`（`karaoke-assistant:language`），优先于浏览器语言，刷新后保留，同一浏览器配置中的同源标签页同步。
+- 不同设备、浏览器配置和隐私会话各自独立。语言不进入房间 snapshot、WebSocket、搜索请求或缓存键。歌名、频道、用户自定义房间名和调试 JSON 保持原文；旧默认房间名只在界面显示时本地化。
+- 浏览器禁用存储时仍可在当前页切换，但无法保证刷新保留或跨标签页同步。未手动选择时跟随浏览器语言变更；移除该偏好后恢复自动检测。
+- 翻译集中在 `src/i18n/en.json`，以现有中文文案作为 key。`useLanguage` 订阅本地语言状态，动态提示在渲染时翻译；Admin 日期、数字使用对应 locale。搜索配额的时间计算不变。
+- 本次没有新增产品介绍、Demo、设备推荐页面或 `/en`、`/zh` 路由，也没有修改 YouTube 查询语言。使用第 4.2 节 Vite 预览即可检查翻译；这不代表真实 Worker 端到端验证。
 
 ## 2. 技术架构
 

@@ -1,3 +1,4 @@
+import { interpolate, type Translator } from "../i18n/messages";
 import type { SearchResponse } from "../types/youtube";
 import { formatRelativeQuotaReset } from "./quotaReset";
 
@@ -13,26 +14,26 @@ export function shouldPreserveCurrentSearchResults(response: SearchResponse) {
   );
 }
 
-export function searchPartialMessage(response: SearchResponse) {
+export function searchPartialMessage(response: SearchResponse, t: Translator = interpolate) {
   if (response.cacheMeta?.quota?.exhausted) {
-    return `今日搜索额度已用完，${quotaResetMessage(response.cacheMeta.quota.resetAt)}；当前结果已保留。`;
+    return t("今日搜索额度已用完，{0}；当前结果已保留。", [quotaResetMessage(response.cacheMeta.quota.resetAt, t)]);
   }
 
   if (response.cacheMeta?.throttled) {
-    return "搜索太频繁，已保留当前结果，请稍等一下再试。";
+    return t("搜索太频繁，已保留当前结果，请稍等一下再试。");
   }
 
   if (response.cacheMeta?.providerRateLimited) {
     return response.results.length > 0
-      ? "YouTube 暂时限流，已返回当前找到的结果。"
-      : "YouTube 暂时限流，已保留当前结果。";
+      ? t("YouTube 暂时限流，已返回当前找到的结果。")
+      : t("YouTube 暂时限流，已保留当前结果。");
   }
 
   return response.results.length > 0
-    ? "已在 2 秒内返回当前找到的结果。"
-    : "搜索已在 2 秒停止，已保留当前结果。";
+    ? t("已在 2 秒内返回当前找到的结果。")
+    : t("搜索已在 2 秒停止，已保留当前结果。");
 }
 
-export function quotaResetMessage(resetAt?: string) {
-  return resetAt ? formatRelativeQuotaReset(resetAt) : "本地重置时间暂不可用";
+export function quotaResetMessage(resetAt?: string, t: Translator = interpolate) {
+  return resetAt ? formatRelativeQuotaReset(resetAt, Date.now(), t) : t("本地重置时间暂不可用");
 }

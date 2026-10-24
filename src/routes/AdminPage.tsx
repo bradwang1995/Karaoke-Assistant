@@ -1,3 +1,5 @@
+import { LanguageToggle } from "../components/LanguageToggle";
+import { translate as t, useLanguage, getLocale, translateServiceMessage } from "../i18n";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -62,6 +64,7 @@ const adminNav = [
 ] as const;
 
 export default function AdminPage() {
+  useLanguage();
   const queryClient = useQueryClient();
   const sessionQuery = useQuery({
     queryKey: adminSessionQueryKey,
@@ -88,6 +91,7 @@ export default function AdminPage() {
 }
 
 function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {
+  useLanguage();
   const [password, setPassword] = useState("");
   const loginMutation = useMutation({
     mutationFn: loginAdmin,
@@ -101,6 +105,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
 
   return (
     <main className="admin-surface relative grid min-h-screen place-items-center overflow-hidden px-5 py-12 text-slate-100">
+      <LanguageToggle className="absolute right-4 top-4" />
       <div className="pointer-events-none absolute left-1/2 top-[-12rem] h-[34rem] w-[34rem] -translate-x-1/2 rounded-full bg-teal-400/10 blur-[120px]" />
       <form
         onSubmit={submit}
@@ -111,15 +116,15 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
             <Music2 aria-hidden="true" className="h-6 w-6" />
           </span>
           <div>
-            <p className="text-sm font-medium text-teal-300">K歌助手</p>
-            <h1 className="text-2xl font-semibold tracking-tight">管理控制台</h1>
+            <p className="text-sm font-medium text-teal-300">{t("K歌助手")}</p>
+            <h1 className="text-2xl font-semibold tracking-tight">{t("管理控制台")}</h1>
           </div>
         </div>
         <p className="mb-6 text-sm leading-6 text-slate-400">
-          请输入管理员密码。登录状态仅保存在安全的 HttpOnly Cookie 中。
+          {t("请输入管理员密码。登录状态仅保存在安全的 HttpOnly Cookie 中。")}
         </p>
         <label className="block text-sm font-medium text-slate-200" htmlFor="admin-password">
-          管理员密码
+          {t("管理员密码")}
         </label>
         <div className="mt-2 flex items-center rounded-xl border border-white/10 bg-slate-900/80 px-4 focus-within:border-teal-300/60 focus-within:ring-2 focus-within:ring-teal-300/10">
           <LockKeyhole className="h-4 w-4 text-slate-500" aria-hidden="true" />
@@ -131,7 +136,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             className="w-full bg-transparent px-3 py-3.5 text-sm text-white outline-none placeholder:text-slate-600"
-            placeholder="输入密码"
+            placeholder={t("输入密码")}
           />
         </div>
         {loginMutation.isError ? (
@@ -145,7 +150,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
           className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-300 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-teal-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {loginMutation.isPending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
-          登录
+          {t("登录")}
         </button>
       </form>
     </main>
@@ -153,6 +158,7 @@ function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> 
 }
 
 function AdminShell() {
+  useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -208,20 +214,20 @@ function AdminShell() {
               <Music2 className="h-5 w-5" aria-hidden="true" />
             </span>
             <div>
-              <p className="font-semibold tracking-tight">K歌助手</p>
-              <p className="text-xs text-slate-500">管理控制台</p>
+              <p className="font-semibold tracking-tight">{t("K歌助手")}</p>
+              <p className="text-xs text-slate-500">{t("管理控制台")}</p>
             </div>
           </div>
           <button
             type="button"
-            title="退出登录"
+            title={t("退出登录")}
             onClick={() => logoutMutation.mutate()}
             className="rounded-lg p-2 text-slate-400 transition hover:bg-white/5 hover:text-white lg:hidden"
           >
             <LogOut className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
-        <nav className="mt-4 grid grid-cols-3 gap-2 lg:mt-10 lg:block lg:space-y-2" aria-label="管理页面">
+        <nav className="mt-4 grid grid-cols-3 gap-2 lg:mt-10 lg:block lg:space-y-2" aria-label={t("管理页面")}>
           {adminNav.map((item) => {
             const Icon = item.icon;
             const active = item.path === activeNav.path;
@@ -237,7 +243,7 @@ function AdminShell() {
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {item.label}
+                {t(item.label)}
               </button>
             );
           })}
@@ -248,7 +254,7 @@ function AdminShell() {
           className="mt-auto hidden items-center gap-2 rounded-xl px-3 py-3 text-sm text-slate-500 transition hover:bg-white/5 hover:text-slate-200 lg:flex"
         >
           <LogOut className="h-4 w-4" aria-hidden="true" />
-          退出登录
+          {t("退出登录")}
         </button>
       </aside>
 
@@ -257,9 +263,10 @@ function AdminShell() {
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.2em] text-teal-300/70">Admin</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
-              {activeNav.path === "/admin" ? "管理控制台" : activeNav.label}
+              {activeNav.path === "/admin" ? t("管理控制台") : t(activeNav.label)}
             </h1>
           </div>
+          <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => refreshMutation.mutate()}
@@ -267,8 +274,10 @@ function AdminShell() {
             className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-teal-300/30 hover:text-white"
           >
             <RefreshCw className={`h-4 w-4 ${fetchingCount || refreshMutation.isPending ? "animate-spin" : ""}`} aria-hidden="true" />
-            刷新数据
+            {t("刷新数据")}
           </button>
+          <LanguageToggle />
+          </div>
         </header>
 
         {activeNav.path === "/admin/searches" ? (
@@ -284,6 +293,7 @@ function AdminShell() {
 }
 
 function OverviewPage() {
+  useLanguage();
   const [range, setRange] = useState<AdminRange>("24h");
   const overviewQuery = useQuery({
     queryKey: ["admin-overview", range],
@@ -292,7 +302,7 @@ function OverviewPage() {
     refetchOnWindowFocus: true,
   });
 
-  if (overviewQuery.isPending) return <SectionLoader label="正在读取管理数据…" />;
+  if (overviewQuery.isPending) return <SectionLoader label={t("正在读取管理数据…")} />;
   if (overviewQuery.isError && !overviewQuery.data) {
     return <ErrorPanel error={overviewQuery.error} onRetry={() => overviewQuery.refetch()} />;
   }
@@ -307,12 +317,12 @@ function OverviewPage() {
           </span>
           <div>
             <h2 className="text-xl font-semibold sm:text-2xl">
-              {data.collectionStartedAt ? "系统运行正常" : "数据采集中"}
+              {data.collectionStartedAt ? t("系统运行正常") : t("数据采集中")}
             </h2>
             <p className="mt-1 text-sm text-slate-400">
               {data.collectionStartedAt
-                ? "搜索记录与持久资料库均可用。"
-                : "首批搜索发生后，这里会开始显示趋势与热门搜索。"}
+                ? t("搜索记录与持久资料库均可用。")
+                : t("首批搜索发生后，这里会开始显示趋势与热门搜索。")}
             </p>
           </div>
         </div>
@@ -336,15 +346,15 @@ function OverviewPage() {
       <Panel className="min-h-[260px]">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 className="font-semibold">用户搜索趋势</h3>
-            <p className="mt-1 text-xs text-slate-500">精确查询命中与外部 API 请求</p>
+            <h3 className="font-semibold">{t("用户搜索趋势")}</h3>
+            <p className="mt-1 text-xs text-slate-500">{t("精确查询命中与外部 API 请求")}</p>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-400">
-            <LegendDot color="bg-teal-300" label="精确查询命中" />
-            <LegendDot color="bg-violet-400" label="外部 API" />
+            <LegendDot color="bg-teal-300" label={t("精确查询命中")} />
+            <LegendDot color="bg-violet-400" label={t("外部 API")} />
           </div>
         </div>
-        <div className="relative h-[175px]" role="img" aria-label="用户搜索趋势图">
+        <div className="relative h-[175px]" role="img" aria-label={t("用户搜索趋势图")}>
           {data.searches.trend.length === 0 ? (
             <EmptyChart />
           ) : (
@@ -373,8 +383,8 @@ function OverviewPage() {
                   }}
                   labelStyle={{ color: "#94a3b8", marginBottom: 6 }}
                 />
-                <Area type="monotone" dataKey="repositoryHits" name="精确查询命中" stroke="#5eead4" fill="url(#repository-fill)" strokeWidth={2} />
-                <Area type="monotone" dataKey="externalRequests" name="外部 API" stroke="#a78bfa" fill="url(#external-fill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="repositoryHits" name={t("精确查询命中")} stroke="#5eead4" fill="url(#repository-fill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="externalRequests" name={t("外部 API")} stroke="#a78bfa" fill="url(#external-fill)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -390,6 +400,7 @@ function OverviewPage() {
 }
 
 function QuotaCard({ data }: { data: AdminOverview }) {
+  useLanguage();
   const usedPercentage = data.quota.dailyLimit
     ? Math.min((data.quota.used / data.quota.dailyLimit) * 100, 100)
     : 0;
@@ -397,20 +408,20 @@ function QuotaCard({ data }: { data: AdminOverview }) {
 
   return (
     <Panel>
-      <p className="text-sm font-semibold">今日外部搜索</p>
-      <p className="mt-1 text-xs text-slate-500">YouTube Data API 调用，本地耐久账本估算</p>
+      <p className="text-sm font-semibold">{t("今日外部搜索")}</p>
+      <p className="mt-1 text-xs text-slate-500">{t("YouTube Data API 调用，本地耐久账本估算")}</p>
       <div className="mt-6 grid grid-cols-3 divide-x divide-white/10 text-center">
         <div className="px-2">
           <p className="text-2xl font-semibold tabular-nums text-teal-300 sm:text-3xl">{formatNumber(data.quota.used)}</p>
-          <p className="mt-1 text-xs text-slate-500">已使用</p>
+          <p className="mt-1 text-xs text-slate-500">{t("已使用")}</p>
         </div>
         <div className="px-2">
           <p className="text-2xl font-semibold tabular-nums text-teal-300 sm:text-3xl">{formatNumber(data.quota.remaining)}</p>
-          <p className="mt-1 text-xs text-slate-500">剩余</p>
+          <p className="mt-1 text-xs text-slate-500">{t("剩余")}</p>
         </div>
         <div className="px-2">
           <p className="font-mono text-xl font-semibold tracking-tight text-slate-100 sm:text-2xl">{countdown}</p>
-          <p className="mt-1 text-xs text-slate-500">距重置</p>
+          <p className="mt-1 text-xs text-slate-500">{t("距重置")}</p>
         </div>
       </div>
       <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/[0.07]">
@@ -418,13 +429,14 @@ function QuotaCard({ data }: { data: AdminOverview }) {
       </div>
       <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
         <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-        每日上限 {formatNumber(data.quota.dailyLimit)}，于 {formatDateTime(data.quota.resetAt)} 重置（太平洋配额日）
+        {t("每日上限")}{formatNumber(data.quota.dailyLimit)}{t("，于")}{formatDateTime(data.quota.resetAt)} {t("重置（太平洋配额日）")}
       </p>
     </Panel>
   );
 }
 
 function RepositorySummary({ data }: { data: AdminOverview }) {
+  useLanguage();
   const d1 = data.storage.d1;
   const kv = data.storage.kv;
 
@@ -432,22 +444,22 @@ function RepositorySummary({ data }: { data: AdminOverview }) {
     <Panel>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold">持久资料库</p>
-          <p className="mt-1 text-xs text-slate-500">D1 精确查询结果，无自动过期</p>
+          <p className="text-sm font-semibold">{t("持久资料库")}</p>
+          <p className="mt-1 text-xs text-slate-500">{t("D1 精确查询结果，无自动过期")}</p>
         </div>
         <span className="grid h-10 w-10 place-items-center rounded-xl border border-teal-300/20 bg-teal-300/10 text-teal-300">
           <Database className="h-5 w-5" aria-hidden="true" />
         </span>
       </div>
       <div className="mt-6 grid grid-cols-4 divide-x divide-white/10 text-center">
-        <Metric label="查询" value={formatNumber(data.repository.totalQueries)} />
-        <Metric label="结果" value={formatNumber(data.repository.totalResults)} />
-        <Metric label="复用" value={formatNumber(data.repository.repositoryHits)} />
+        <Metric label={t("查询")} value={formatNumber(data.repository.totalQueries)} />
+        <Metric label={t("结果")} value={formatNumber(data.repository.totalResults)} />
+        <Metric label={t("复用")} value={formatNumber(data.repository.repositoryHits)} />
         <Metric
-          label="D1 容量"
+          label={t("D1 容量")}
           value={
             d1.capacityPercentage === null
-              ? "未知"
+              ? t("未知")
               : `${Math.round(d1.capacityPercentage)}%`
           }
         />
@@ -457,77 +469,76 @@ function RepositorySummary({ data }: { data: AdminOverview }) {
         <StorageResourceRow metric={kv} />
       </div>
       <p className="mt-4 border-t border-white/[0.07] pt-3 text-xs leading-5 text-slate-500">
-        应用记录估算：
-        {data.storage.repositoryEstimate.usedBytes === null
-          ? "暂时无法获取"
+        {t("应用记录估算：")}{data.storage.repositoryEstimate.usedBytes === null
+          ? t("暂时无法获取")
           : formatBytes(data.storage.repositoryEstimate.usedBytes)}
-        （仅搜索结果 payload，不是数据库体积） · 歌曲 {formatNumber(data.repository.uniqueSongs)} · 歌手 {formatNumber(data.repository.uniqueArtists)}
+        {t("（仅搜索结果 payload，不是数据库体积） · 歌曲")}{formatNumber(data.repository.uniqueSongs)} {t("· 歌手")}{formatNumber(data.repository.uniqueArtists)}
       </p>
     </Panel>
   );
 }
 
 function CatalogEfficiencySummary({ data }: { data: AdminOverview }) {
+  useLanguage();
   return (
     <Panel>
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold">候选采集与精确复用效率</p>
+          <p className="text-sm font-semibold">{t("候选采集与精确复用效率")}</p>
           <p className="mt-1 text-xs text-slate-500">
-            原始可嵌入候选被动写入 D1；在线搜索不会扫描候选目录
+            {t("原始可嵌入候选被动写入 D1；在线搜索不会扫描候选目录")}
           </p>
         </div>
         <p className="text-xs text-slate-500">
           {data.catalog.lastUpdatedAt
-            ? `目录更新于 ${formatDateTime(data.catalog.lastUpdatedAt)}`
-            : "目录尚未开始采集"}
+            ? t("目录更新于 {0}", [formatDateTime(data.catalog.lastUpdatedAt)])
+            : t("目录尚未开始采集")}
         </p>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-y-5 divide-white/10 sm:grid-cols-3 xl:grid-cols-6 xl:divide-x">
-        <Metric label="目录视频" value={formatNumber(data.catalog.totalVideos)} />
-        <Metric label="累计出现" value={formatNumber(data.catalog.totalAppearances)} />
-        <Metric label="精确复用" value={formatNumber(data.searches.externalCallsAvoided)} />
-        <Metric label="精确复用率" value={formatPercentage(data.searches.localReuseRate)} />
+        <Metric label={t("目录视频")} value={formatNumber(data.catalog.totalVideos)} />
+        <Metric label={t("累计出现")} value={formatNumber(data.catalog.totalAppearances)} />
+        <Metric label={t("精确复用")} value={formatNumber(data.searches.externalCallsAvoided)} />
+        <Metric label={t("精确复用率")} value={formatPercentage(data.searches.localReuseRate)} />
         <Metric
-          label="新增候选/额度"
+          label={t("新增候选/额度")}
           value={data.searches.usableVideosPerExternalCall.toFixed(1)}
         />
         <Metric
-          label="过滤前/后"
+          label={t("过滤前/后")}
           value={`${formatNumber(data.searches.candidateResults)}/${formatNumber(data.searches.filteredResults)}`}
         />
       </div>
       <p className="mt-5 border-t border-white/[0.07] pt-3 text-xs leading-5 text-slate-500">
-        当前范围内共调用 {formatNumber(data.searches.externalSearchCalls)} 次 search.list，
-        新增 {formatNumber(data.searches.uniqueCatalogVideosAdded)} 个独立候选。只有搜索文字、歌曲/歌手模式、
-        原唱开关和 artist 字段（如有）完全相同的查询才会直接复用。
+        {t("当前范围内共调用")}{formatNumber(data.searches.externalSearchCalls)} {t("次 search.list， 新增")}{formatNumber(data.searches.uniqueCatalogVideosAdded)} {t("个独立候选。只有搜索文字、歌曲/歌手模式、 原唱开关和 artist 字段（如有）完全相同的查询才会直接复用。")}
       </p>
     </Panel>
   );
 }
 
 function StorageResourceRow({ metric }: { metric: AdminStorageResourceMetric }) {
+  useLanguage();
   const value =
     metric.usedBytes === null
-      ? "暂时无法获取"
+      ? t("暂时无法获取")
       : metric.capacityBytes === null
-        ? `${formatBytes(metric.usedBytes)} · 容量上限未配置`
+        ? t("{0} · 容量上限未配置", [formatBytes(metric.usedBytes)])
         : `${formatBytes(metric.usedBytes)} / ${formatBytes(metric.capacityBytes)} · ${formatPercentage(metric.capacityPercentage)}`;
   const details = [
     storageUsageSourceLabel(metric.usageSource),
     metric.resource === "kv" && metric.keyCount !== null
-      ? `${formatNumber(metric.keyCount)} 个键`
+      ? t("{0} 个键", [formatNumber(metric.keyCount)])
       : null,
-    metric.measuredAt ? `测量于 ${formatDateTime(metric.measuredAt)}` : null,
-    metric.stale ? "过期数据" : null,
+    metric.measuredAt ? t("测量于 {0}", [formatDateTime(metric.measuredAt)]) : null,
+    metric.stale ? t("过期数据") : null,
   ].filter(Boolean);
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-2 text-xs">
       <div>
         <p className="font-medium text-slate-300">{metric.name}</p>
-        <p className="mt-1 text-slate-500">{details.join(" · ") || "暂时无法获取"}</p>
-        {metric.error ? <p className="mt-1 text-amber-300/90">{metric.error.message}</p> : null}
+        <p className="mt-1 text-slate-500">{details.join(" · ") || t("暂时无法获取")}</p>
+        {metric.error ? <p className="mt-1 text-amber-300/90">{t(metric.error.message)}</p> : null}
       </div>
       <p className="tabular-nums text-slate-300">{value}</p>
     </div>
@@ -535,21 +546,22 @@ function StorageResourceRow({ metric }: { metric: AdminStorageResourceMetric }) 
 }
 
 function TopSearches({ data }: { data: AdminOverview }) {
+  useLanguage();
   const hasSearches = data.searches.topSongs.length > 0 || data.searches.topArtists.length > 0;
   return (
     <Panel>
-      <h3 className="font-semibold">热门搜索</h3>
-      <p className="mt-1 text-xs text-slate-500">所选时间范围内的人工搜索</p>
+      <h3 className="font-semibold">{t("热门搜索")}</h3>
+      <p className="mt-1 text-xs text-slate-500">{t("所选时间范围内的人工搜索")}</p>
       {!hasSearches ? (
-        <EmptyState icon={<Search />} text="还没有可统计的搜索记录" />
+        <EmptyState icon={<Search />} text={t("还没有可统计的搜索记录")} />
       ) : (
         <div className="mt-5 grid gap-5 sm:grid-cols-2">
-          <TopDimensionList title="歌曲" items={data.searches.topSongs} />
-          <TopDimensionList title="歌手" items={data.searches.topArtists} />
+          <TopDimensionList title={t("歌曲")} items={data.searches.topSongs} />
+          <TopDimensionList title={t("歌手")} items={data.searches.topArtists} />
         </div>
       )}
       <p className="mt-4 border-t border-white/[0.07] pt-3 text-xs text-slate-500">
-        原唱分类：包含 {formatNumber(data.searches.originalPerformer.included)} · 不含 {formatNumber(data.searches.originalPerformer.excluded)} · 未知 {formatNumber(data.searches.originalPerformer.unknown)}
+        {t("原唱分类：包含")}{formatNumber(data.searches.originalPerformer.included)} {t("· 不含")}{formatNumber(data.searches.originalPerformer.excluded)} {t("· 未知")}{formatNumber(data.searches.originalPerformer.unknown)}
       </p>
     </Panel>
   );
@@ -562,11 +574,12 @@ function TopDimensionList({
   title: string;
   items: Array<{ label: string; count: number }>;
 }) {
+  useLanguage();
   return (
     <div>
       <p className="text-xs font-medium text-slate-500">{title}</p>
       {items.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-600">暂无</p>
+        <p className="mt-3 text-sm text-slate-600">{t("暂无")}</p>
       ) : (
         <ol className="mt-2 divide-y divide-white/[0.07]">
           {items.slice(0, 3).map((item, index) => (
@@ -583,6 +596,7 @@ function TopDimensionList({
 }
 
 function SystemNotices({ data }: { data: AdminOverview }) {
+  useLanguage();
   const d1 = data.storage.d1;
   const kv = data.storage.kv;
   const storageNotice =
@@ -593,52 +607,52 @@ function SystemNotices({ data }: { data: AdminOverview }) {
           d1.health === "critical"
             ? "text-rose-300 bg-rose-300/10"
             : "text-amber-300 bg-amber-300/10",
-        title: d1.health === "critical" ? "D1 存储达到关键线" : "D1 存储达到预警线",
-        body: `Cloudflare D1 API 当前报告 ${formatPercentage(d1.capacityPercentage)}。`,
+        title: d1.health === "critical" ? t("D1 存储达到关键线") : t("D1 存储达到预警线"),
+        body: t("Cloudflare D1 API 当前报告 {0}。", [formatPercentage(d1.capacityPercentage)]),
       }
       : d1.health === "stale"
         ? {
             icon: AlertTriangle,
             color: "text-amber-300 bg-amber-300/10",
-            title: "D1 指标已过期",
-            body: `继续显示 ${d1.lastSuccessfulAt ? formatDateTime(d1.lastSuccessfulAt) : "最近一次"} 的成功数据。`,
+            title: t("D1 指标已过期"),
+            body: t("继续显示 {0} 的成功数据。", [d1.lastSuccessfulAt ? formatDateTime(d1.lastSuccessfulAt) : "最近一次"]),
           }
         : d1.health === "unavailable"
           ? {
               icon: AlertTriangle,
               color: "text-amber-300 bg-amber-300/10",
-              title: "D1 指标暂时无法获取",
-              body: d1.error?.message ?? "请检查 Cloudflare 只读指标配置。",
+              title: t("D1 指标暂时无法获取"),
+              body: d1.error?.message ? t(d1.error.message) : t("请检查 Cloudflare 只读指标配置。"),
             }
           : {
               icon: CheckCircle2,
               color: "text-teal-300 bg-teal-300/10",
-              title: "D1 存储指标正常",
+              title: t("D1 存储指标正常"),
               body:
                 d1.capacityPercentage === null
-                  ? `当前使用 ${formatBytes(d1.usedBytes ?? 0)}；容量上限未配置。`
-                  : `当前 ${formatPercentage(d1.capacityPercentage)}，尚未触发存储预警。`,
+                  ? t("当前使用 {0}；容量上限未配置。", [formatBytes(d1.usedBytes ?? 0)])
+                  : t("当前 {0}，尚未触发存储预警。", [formatPercentage(d1.capacityPercentage)]),
             };
   const kvNotice =
     kv.health === "unavailable"
       ? {
           icon: AlertTriangle,
           color: "text-amber-300 bg-amber-300/10",
-          title: "KV 指标暂时无法获取",
-          body: kv.error?.message ?? "Cloudflare Analytics 尚未返回存储快照。",
+          title: t("KV 指标暂时无法获取"),
+          body: kv.error?.message ? t(kv.error.message) : t("Cloudflare Analytics 尚未返回存储快照。"),
         }
       : kv.health === "stale"
         ? {
             icon: AlertTriangle,
             color: "text-amber-300 bg-amber-300/10",
-            title: "KV 指标已过期",
-            body: `继续显示最近成功值 ${formatBytes(kv.usedBytes ?? 0)}。`,
+            title: t("KV 指标已过期"),
+            body: t("继续显示最近成功值 {0}。", [formatBytes(kv.usedBytes ?? 0)]),
           }
         : {
             icon: CheckCircle2,
             color: "text-sky-300 bg-sky-300/10",
-            title: "KV 加速层指标可用",
-            body: `Cloudflare Analytics 报告 ${formatBytes(kv.usedBytes ?? 0)}、${formatNumber(kv.keyCount ?? 0)} 个键。`,
+            title: t("KV 加速层指标可用"),
+            body: t("Cloudflare Analytics 报告 {0}、{1} 个键。", [formatBytes(kv.usedBytes ?? 0), formatNumber(kv.keyCount ?? 0)]),
           };
   const notices = [
     storageNotice,
@@ -647,20 +661,20 @@ function SystemNotices({ data }: { data: AdminOverview }) {
       ? {
           icon: AlertTriangle,
           color: "text-rose-300 bg-rose-300/10",
-          title: "外部搜索配额已用尽",
-          body: `将在 ${formatDateTime(data.quota.resetAt)} 重置。`,
+          title: t("外部搜索配额已用尽"),
+          body: t("将在 {0} 重置。", [formatDateTime(data.quota.resetAt)]),
         }
       : {
           icon: CheckCircle2,
           color: "text-teal-300 bg-teal-300/10",
-          title: "外部搜索配额充足",
-          body: `今日仍可使用 ${formatNumber(data.quota.remaining)} 次搜索调用。`,
+          title: t("外部搜索配额充足"),
+          body: t("今日仍可使用 {0} 次搜索调用。", [formatNumber(data.quota.remaining)]),
         },
   ];
 
   return (
     <Panel>
-      <h3 className="font-semibold">系统提醒</h3>
+      <h3 className="font-semibold">{t("系统提醒")}</h3>
       <div className="mt-4 divide-y divide-white/[0.07]">
         {notices.map((notice) => {
           const Icon = notice.icon;
@@ -682,6 +696,7 @@ function SystemNotices({ data }: { data: AdminOverview }) {
 }
 
 function SearchRecordsPage() {
+  useLanguage();
   const [range, setRange] = useState<AdminRange>("24h");
   const [page, setPage] = useState(1);
   const [draftQuery, setDraftQuery] = useState("");
@@ -703,7 +718,7 @@ function SearchRecordsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <form onSubmit={submitFilter} className="flex min-w-0 flex-1 flex-wrap gap-2">
-          <SearchField value={draftQuery} onChange={setDraftQuery} placeholder="搜索歌曲、歌手或关键词" />
+          <SearchField value={draftQuery} onChange={setDraftQuery} placeholder={t("搜索歌曲、歌手或关键词")} />
           <select
             value={source}
             onChange={(event) => {
@@ -711,15 +726,15 @@ function SearchRecordsPage() {
               setPage(1);
             }}
             className="admin-select"
-            aria-label="来源筛选"
+            aria-label={t("来源筛选")}
           >
-            <option value="">全部来源</option>
-            <option value="repository">资料库</option>
-            <option value="external">外部 API</option>
-            <option value="mock">模拟数据</option>
-            <option value="error">失败</option>
+            <option value="">{t("全部来源")}</option>
+            <option value="repository">{t("资料库")}</option>
+            <option value="external">{t("外部 API")}</option>
+            <option value="mock">{t("模拟数据")}</option>
+            <option value="error">{t("失败")}</option>
           </select>
-          <button type="submit" className="admin-primary-button">筛选</button>
+          <button type="submit" className="admin-primary-button">{t("筛选")}</button>
         </form>
         <RangeTabs value={range} onChange={(value) => { setRange(value); setPage(1); }} />
       </div>
@@ -734,17 +749,17 @@ function SearchRecordsPage() {
 
       <Panel className="overflow-hidden p-0">
         {recordsQuery.isPending ? (
-          <SectionLoader label="正在读取搜索记录…" />
+          <SectionLoader label={t("正在读取搜索记录…")} />
         ) : recordsQuery.isError && !recordsQuery.data ? (
           <ErrorPanel error={recordsQuery.error} onRetry={() => recordsQuery.refetch()} />
         ) : recordsQuery.data!.items.length === 0 ? (
-          <EmptyState icon={<Search />} text="没有符合条件的搜索记录" />
+          <EmptyState icon={<Search />} text={t("没有符合条件的搜索记录")} />
         ) : (
           <div className="overflow-x-auto">
             <table className="admin-table min-w-[880px]">
               <thead>
                 <tr>
-                  <th>时间</th><th>搜索内容</th><th>类型</th><th>原唱</th><th>来源</th><th>结果</th><th>状态</th>
+                  <th>{t("时间")}</th><th>{t("搜索内容")}</th><th>{t("类型")}</th><th>{t("原唱")}</th><th>{t("来源")}</th><th>{t("结果")}</th><th>{t("状态")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -753,13 +768,13 @@ function SearchRecordsPage() {
                     <td className="whitespace-nowrap text-slate-500">{formatDateTime(item.createdAt)}</td>
                     <td>
                       <p className="font-medium text-slate-200">{item.query}</p>
-                      {item.artist ? <p className="mt-1 text-xs text-slate-500">歌手：{item.artist}</p> : null}
+                      {item.artist ? <p className="mt-1 text-xs text-slate-500">{t("歌手：")}{item.artist}</p> : null}
                     </td>
-                    <td>{item.searchType === "artist" ? "歌手" : "歌曲"}</td>
-                    <td>{item.originalPerformerStatus === "true" ? "包含" : item.originalPerformerStatus === "false" ? "不含" : "未知"}</td>
+                    <td>{item.searchType === "artist" ? t("歌手") : t("歌曲")}</td>
+                    <td>{item.originalPerformerStatus === "true" ? t("包含") : item.originalPerformerStatus === "false" ? t("不含") : t("未知")}</td>
                     <td><SourceBadge source={item.source} /></td>
                     <td className="tabular-nums">{formatNumber(item.resultCount)}</td>
-                    <td>{item.success ? <span className="text-teal-300">成功</span> : <span className="text-rose-300">失败</span>}</td>
+                    <td>{item.success ? <span className="text-teal-300">{t("成功")}</span> : <span className="text-rose-300">{t("失败")}</span>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -773,6 +788,7 @@ function SearchRecordsPage() {
 }
 
 function RepositoryPage() {
+  useLanguage();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [draftQuery, setDraftQuery] = useState("");
@@ -838,14 +854,14 @@ function RepositoryPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <form onSubmit={submitFilter} className="flex min-w-0 flex-1 flex-wrap gap-2">
-          <SearchField value={draftQuery} onChange={setDraftQuery} placeholder="搜索已保存的查询" />
-          <select value={searchType} onChange={(event) => { setSearchType(event.target.value as SearchType | ""); setPage(1); }} className="admin-select" aria-label="类型筛选">
-            <option value="">全部类型</option><option value="song">歌曲</option><option value="artist">歌手</option>
+          <SearchField value={draftQuery} onChange={setDraftQuery} placeholder={t("搜索已保存的查询")} />
+          <select value={searchType} onChange={(event) => { setSearchType(event.target.value as SearchType | ""); setPage(1); }} className="admin-select" aria-label={t("类型筛选")}>
+            <option value="">{t("全部类型")}</option><option value="song">{t("歌曲")}</option><option value="artist">{t("歌手")}</option>
           </select>
-          <select value={sort} onChange={(event) => { setSort(event.target.value as typeof sort); setPage(1); }} className="admin-select" aria-label="排序">
-            <option value="recent">最近使用</option><option value="reuse">复用次数</option><option value="results">结果数量</option><option value="size">占用空间</option>
+          <select value={sort} onChange={(event) => { setSort(event.target.value as typeof sort); setPage(1); }} className="admin-select" aria-label={t("排序")}>
+            <option value="recent">{t("最近使用")}</option><option value="reuse">{t("复用次数")}</option><option value="results">{t("结果数量")}</option><option value="size">{t("占用空间")}</option>
           </select>
-          <button type="submit" className="admin-primary-button">筛选</button>
+          <button type="submit" className="admin-primary-button">{t("筛选")}</button>
         </form>
         <button
           type="button"
@@ -853,7 +869,7 @@ function RepositoryPage() {
           onClick={() => setConfirmDelete(true)}
           className="flex items-center gap-2 rounded-xl border border-rose-300/20 bg-rose-300/5 px-4 py-2.5 text-sm font-medium text-rose-300 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Trash2 className="h-4 w-4" />删除所选{selected.size ? `（${selected.size}）` : ""}
+          <Trash2 className="h-4 w-4" />{t("删除所选")}{selected.size ? `（${selected.size}）` : ""}
         </button>
       </div>
 
@@ -877,20 +893,20 @@ function RepositoryPage() {
       />
       <Panel className="overflow-hidden p-0">
         {repositoryQuery.isPending ? (
-          <SectionLoader label="正在读取资料库…" />
+          <SectionLoader label={t("正在读取资料库…")} />
         ) : repositoryQuery.isError && !repositoryQuery.data ? (
           <ErrorPanel error={repositoryQuery.error} onRetry={() => repositoryQuery.refetch()} />
         ) : items.length === 0 ? (
-          <EmptyState icon={<Database />} text="资料库中还没有符合条件的记录" />
+          <EmptyState icon={<Database />} text={t("资料库中还没有符合条件的记录")} />
         ) : (
           <div className="overflow-x-auto">
             <table className="admin-table min-w-[980px]">
               <thead>
                 <tr>
                   <th className="w-12">
-                    <input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))} aria-label="选择本页全部记录" />
+                    <input type="checkbox" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(items.map((item) => item.id)))} aria-label={t("选择本页全部记录")} />
                   </th>
-                  <th>查询</th><th>类型</th><th>结果</th><th>复用</th><th>大小</th><th>最近使用</th>
+                  <th>{t("查询")}</th><th>{t("类型")}</th><th>{t("结果")}</th><th>{t("复用")}</th><th>{t("大小")}</th><th>{t("最近使用")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -906,9 +922,9 @@ function RepositoryPage() {
 
       <ConfirmDialog
         open={confirmDelete}
-        title={`删除 ${selected.size} 条资料？`}
-        body="删除后，这些查询的持久结果与对应加速缓存都会移除；下一次搜索可能重新调用外部 API。"
-        confirmLabel={deleteMutation.isPending ? "删除中…" : "确认删除"}
+        title={t("删除 {0} 条资料？", [selected.size])}
+        body={t("删除后，这些查询的持久结果与对应加速缓存都会移除；下一次搜索可能重新调用外部 API。")}
+        confirmLabel={deleteMutation.isPending ? t("删除中…") : t("确认删除")}
         appearance="dark"
         destructive
         onCancel={() => !deleteMutation.isPending && setConfirmDelete(false)}
@@ -916,9 +932,9 @@ function RepositoryPage() {
       />
       <ConfirmDialog
         open={confirmCleanup}
-        title={`执行本批存储清理？`}
+        title={t("执行本批存储清理？")}
         body={cleanupConfirmationBody(cleanupPreviewQuery.data)}
-        confirmLabel={cleanupMutation.isPending ? "清理中…" : "确认执行"}
+        confirmLabel={cleanupMutation.isPending ? t("清理中…") : t("确认执行")}
         appearance="dark"
         destructive
         onCancel={() => !cleanupMutation.isPending && setConfirmCleanup(false)}
@@ -929,15 +945,16 @@ function RepositoryPage() {
 }
 
 function RepositoryRow({ item, selected, onToggle }: { item: AdminRepositoryItem; selected: boolean; onToggle: () => void }) {
+  useLanguage();
   return (
     <tr className={selected ? "bg-teal-300/[0.04]" : ""}>
-      <td><input type="checkbox" checked={selected} onChange={onToggle} aria-label={`选择 ${item.query}`} /></td>
+      <td><input type="checkbox" checked={selected} onChange={onToggle} aria-label={t("选择 {0}", [item.query])} /></td>
       <td className="max-w-md">
         <p className="truncate font-medium text-slate-200">{item.query}</p>
         <p className="mt-1 truncate text-xs text-slate-500">{item.artist ? `${item.artist} · ` : ""}{item.normalizedQuery}</p>
         {item.previewResults.length > 0 ? (
           <details className="mt-2 text-xs">
-            <summary className="cursor-pointer text-teal-300/80 hover:text-teal-200">查看结果预览</summary>
+            <summary className="cursor-pointer text-teal-300/80 hover:text-teal-200">{t("查看结果预览")}</summary>
             <ul className="mt-2 space-y-1.5 text-slate-500">
               {item.previewResults.map((result) => (
                 <li key={result.videoId} className="truncate">{result.title}</li>
@@ -946,7 +963,7 @@ function RepositoryRow({ item, selected, onToggle }: { item: AdminRepositoryItem
           </details>
         ) : null}
       </td>
-      <td>{item.searchType === "artist" ? "歌手" : "歌曲"}{item.includeOriginalVocal ? " · 含原唱" : ""}</td>
+      <td>{item.searchType === "artist" ? t("歌手") : t("歌曲")}{item.includeOriginalVocal ? t(" · 含原唱") : ""}</td>
       <td className="tabular-nums">{formatNumber(item.resultCount)}</td>
       <td className="tabular-nums text-teal-300">{formatNumber(item.accessCount)}</td>
       <td className="tabular-nums">{formatBytes(item.approxBytes)}</td>
@@ -974,16 +991,17 @@ function StorageCleanupPanel({
   onPreview: () => void;
   onCleanup: () => void;
 }) {
+  useLanguage();
   return (
     <Panel className="border-amber-300/10 bg-amber-300/[0.025]">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <HardDrive className="h-4 w-4 text-amber-300" aria-hidden="true" />
-            <h2 className="text-sm font-semibold text-slate-100">存储压力清理</h2>
+            <h2 className="text-sm font-semibold text-slate-100">{t("存储压力清理")}</h2>
           </div>
           <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-            仅在已配置容量且达到预警线时，按低复用、最久未用、最早创建的顺序生成有限批次；不会自动执行。
+            {t("仅在已配置容量且达到预警线时，按低复用、最久未用、最早创建的顺序生成有限批次；不会自动执行。")}
           </p>
         </div>
         <button
@@ -993,40 +1011,39 @@ function StorageCleanupPanel({
           className="admin-secondary-button"
         >
           {previewPending ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <RefreshCw className="h-4 w-4" aria-hidden="true" />}
-          {preview ? "重新预览" : "预览清理"}
+          {preview ? t("重新预览") : t("预览清理")}
         </button>
       </div>
 
       {previewError ? <p className="mt-4 text-sm text-rose-300" role="alert">{errorMessage(previewError)}</p> : null}
       {cleanupError ? <p className="mt-4 text-sm text-rose-300" role="alert">{errorMessage(cleanupError)}</p> : null}
-      {cleanupMessage ? <p className="mt-4 text-sm text-teal-300" role="status">{cleanupMessage}</p> : null}
+      {cleanupMessage ? <p className="mt-4 text-sm text-teal-300" role="status">{translateServiceMessage(cleanupMessage)}</p> : null}
 
       {preview ? (
         <div className="mt-4 rounded-xl border border-white/8 bg-slate-950/35 p-4">
-          <p className="text-xs leading-5 text-slate-400">{preview.policy}</p>
+          <p className="text-xs leading-5 text-slate-400">{translateServiceMessage(preview.policy)}</p>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            当前体积来源：{storageUsageSourceLabel(preview.usageSource)}
+            {t("当前体积来源：")}{storageUsageSourceLabel(preview.usageSource)}
             {preview.measuredAt ? ` · ${formatDateTime(preview.measuredAt)}` : ""}
-            {preview.stale ? " · 已过期" : ""}
+            {preview.stale ? t(" · 已过期") : ""}
             {" · "}
-            容量来源：{preview.capacitySource === "operator-config" ? "运维配置" : "暂时无法获取"}
+            {t("容量来源：")}{preview.capacitySource === "operator-config" ? t("运维配置") : t("暂时无法获取")}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Metric label="当前容量" value={preview.capacityPercentage === null ? "未知" : `${preview.capacityPercentage.toFixed(1)}%`} />
-            <Metric label="预警线" value={preview.thresholdPercentage === null ? "未配置" : `${preview.thresholdPercentage}%`} />
-            <Metric label="目标" value={preview.targetPercentage === null ? "未配置" : `${preview.targetPercentage}%`} />
-            <Metric label="本批候选" value={formatNumber(preview.candidates.length)} />
+            <Metric label={t("当前容量")} value={preview.capacityPercentage === null ? t("未知") : `${preview.capacityPercentage.toFixed(1)}%`} />
+            <Metric label={t("预警线")} value={preview.thresholdPercentage === null ? t("未配置") : `${preview.thresholdPercentage}%`} />
+            <Metric label={t("目标")} value={preview.targetPercentage === null ? t("未配置") : `${preview.targetPercentage}%`} />
+            <Metric label={t("本批候选")} value={formatNumber(preview.candidates.length)} />
           </div>
 
           {preview.actionNeeded ? (
             <div className="mt-4 flex flex-wrap items-end justify-between gap-4 border-t border-white/8 pt-4">
               <div className="min-w-0">
                 <p className="text-sm text-slate-300">
-                  预计移除 {formatBytes(preview.estimatedBytesToRemove)}；候选：
-                  {preview.candidates.slice(0, 5).map((candidate) => candidate.query).join("、")}
-                  {preview.candidates.length > 5 ? ` 等 ${preview.candidates.length} 条` : ""}
+                  {t("预计移除")}{formatBytes(preview.estimatedBytesToRemove)}{t("；候选：")}{preview.candidates.slice(0, 5).map((candidate) => candidate.query).join("、")}
+                  {preview.candidates.length > 5 ? t(" 等 {0} 条", [preview.candidates.length]) : ""}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">预览不会删除数据；执行时服务端会重新验证管理员身份并持有短期清理锁。</p>
+                <p className="mt-1 text-xs text-slate-500">{t("预览不会删除数据；执行时服务端会重新验证管理员身份并持有短期清理锁。")}</p>
               </div>
               <button
                 type="button"
@@ -1034,7 +1051,7 @@ function StorageCleanupPanel({
                 onClick={onCleanup}
                 className="rounded-xl border border-rose-300/20 bg-rose-300/5 px-4 py-2.5 text-sm font-medium text-rose-300 transition hover:bg-rose-300/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {cleanupPending ? "清理中…" : "执行本批清理"}
+                {cleanupPending ? t("清理中…") : t("执行本批清理")}
               </button>
             </div>
           ) : (
@@ -1045,11 +1062,11 @@ function StorageCleanupPanel({
 
           {preview.recentRuns.length > 0 ? (
             <div className="mt-4 border-t border-white/8 pt-4">
-              <p className="text-xs font-medium text-slate-400">最近清理记录</p>
+              <p className="text-xs font-medium text-slate-400">{t("最近清理记录")}</p>
               <ul className="mt-2 space-y-2 text-xs text-slate-500">
                 {preview.recentRuns.slice(0, 3).map((run) => (
                   <li key={run.id} className="flex flex-wrap justify-between gap-2">
-                    <span>{cleanupRunLabel(run.result)} · {run.affectedCount} 条{run.message ? ` · ${run.message}` : ""}</span>
+                    <span>{cleanupRunLabel(run.result)} · {run.affectedCount} {t("条")}{run.message ? ` · ${translateServiceMessage(run.message)}` : ""}</span>
                     <time dateTime={run.createdAt}>{formatDateTime(run.createdAt)}</time>
                   </li>
                 ))}
@@ -1064,30 +1081,30 @@ function StorageCleanupPanel({
 
 function cleanupUnavailableMessage(preview: AdminCleanupPreview) {
   return {
-    capacity_unknown: "数据库总容量未知，系统不会显示虚假百分比，也不会执行清理。",
-    measurement_unavailable: "Cloudflare D1 API 暂时无法提供实际体积，系统不会执行清理。",
-    measurement_stale: "Cloudflare D1 实际体积已经过期；刷新成功前不会执行清理。",
-    policy_incomplete: "请先在 Worker 配置容量、预警线和清理目标。",
-    policy_invalid: "清理目标必须低于预警线，请修正部署配置。",
-    below_threshold: "当前容量低于预警线，无需清理。",
-    repository_empty: "持久资料库为空，无需清理。",
+    capacity_unknown: t("数据库总容量未知，系统不会显示虚假百分比，也不会执行清理。"),
+    measurement_unavailable: t("Cloudflare D1 API 暂时无法提供实际体积，系统不会执行清理。"),
+    measurement_stale: t("Cloudflare D1 实际体积已经过期；刷新成功前不会执行清理。"),
+    policy_incomplete: t("请先在 Worker 配置容量、预警线和清理目标。"),
+    policy_invalid: t("清理目标必须低于预警线，请修正部署配置。"),
+    below_threshold: t("当前容量低于预警线，无需清理。"),
+    repository_empty: t("持久资料库为空，无需清理。"),
   }[preview.unavailableReason ?? "repository_empty"];
 }
 
 function cleanupConfirmationBody(preview: AdminCleanupPreview | undefined) {
   if (!preview || !preview.actionNeeded) {
-    return "当前没有可执行的清理候选。";
+    return t("当前没有可执行的清理候选。");
   }
 
-  return `系统将按已显示的保留策略删除本批 ${preview.candidates.length} 条低复用资料，并同步移除对应 KV 加速项。操作会写入审计记录；D1 物理容量统计可能延迟更新。`;
+  return t("系统将按已显示的保留策略删除本批 {0} 条低复用资料，并同步移除对应 KV 加速项。操作会写入审计记录；D1 物理容量统计可能延迟更新。", [preview.candidates.length]);
 }
 
 function cleanupRunLabel(result: AdminCleanupPreview["recentRuns"][number]["result"]) {
   return {
-    success: "已达到目标",
-    partial: "已完成本批",
-    skipped: "未执行",
-    failure: "执行失败",
+    success: t("已达到目标"),
+    partial: t("已完成本批"),
+    skipped: t("未执行"),
+    failure: t("执行失败"),
   }[result];
 }
 
@@ -1100,31 +1117,34 @@ function DataFreshness({
   fetching: boolean;
   error: unknown;
 }) {
+  useLanguage();
   if (error) {
     return (
       <p className="mt-2 text-xs text-amber-300" role="status">
-        更新失败，继续显示 {formatDateTime(updatedAt)} 的最近成功数据。
+        {t("更新失败，继续显示")}{formatDateTime(updatedAt)} {t("的最近成功数据。")}
       </p>
     );
   }
 
   return (
     <p className="mt-2 text-xs text-slate-500" role="status">
-      {fetching ? "正在更新…" : `更新于 ${formatDateTime(updatedAt)}`}
+      {fetching ? t("正在更新…") : t("更新于 {0}", [formatDateTime(updatedAt)])}
     </p>
   );
 }
 
 function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
+  useLanguage();
   return <section className={`rounded-2xl border border-white/10 bg-slate-900/55 p-5 shadow-xl shadow-slate-950/10 ${className}`}>{children}</section>;
 }
 
 function RangeTabs({ value, onChange }: { value: AdminRange; onChange: (value: AdminRange) => void }) {
+  useLanguage();
   return (
-    <div className="inline-flex rounded-xl border border-white/10 bg-slate-950/50 p-1" aria-label="时间范围">
+    <div className="inline-flex rounded-xl border border-white/10 bg-slate-950/50 p-1" aria-label={t("时间范围")}>
       {(["24h", "7d", "30d"] as const).map((range) => (
         <button key={range} type="button" onClick={() => onChange(range)} className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${value === range ? "bg-teal-300/15 text-teal-200" : "text-slate-500 hover:text-slate-300"}`}>
-          {range === "24h" ? "24 小时" : range === "7d" ? "7 天" : "30 天"}
+          {range === "24h" ? t("24 小时") : range === "7d" ? t("7 天") : t("30 天")}
         </button>
       ))}
     </div>
@@ -1132,6 +1152,7 @@ function RangeTabs({ value, onChange }: { value: AdminRange; onChange: (value: A
 }
 
 function SearchField({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+  useLanguage();
   return (
     <label className="flex min-w-[220px] flex-1 items-center rounded-xl border border-white/10 bg-slate-900/60 px-3 focus-within:border-teal-300/40">
       <Search className="h-4 w-4 text-slate-500" aria-hidden="true" />
@@ -1141,55 +1162,64 @@ function SearchField({ value, onChange, placeholder }: { value: string; onChange
 }
 
 function Pagination({ page, totalPages, total, onChange }: { page: number; totalPages: number; total: number; onChange: (page: number) => void }) {
+  useLanguage();
   return (
     <div className="flex items-center justify-between gap-4 text-sm text-slate-500">
-      <span>共 {formatNumber(total)} 条</span>
+      <span>{t("共")}{formatNumber(total)} {t("条")}</span>
       <div className="flex items-center gap-2">
-        <button type="button" disabled={page <= 1} onClick={() => onChange(page - 1)} className="admin-page-button" aria-label="上一页"><ChevronLeft className="h-4 w-4" /></button>
+        <button type="button" disabled={page <= 1} onClick={() => onChange(page - 1)} className="admin-page-button" aria-label={t("上一页")}><ChevronLeft className="h-4 w-4" /></button>
         <span className="min-w-20 text-center tabular-nums">{page} / {totalPages}</span>
-        <button type="button" disabled={page >= totalPages} onClick={() => onChange(page + 1)} className="admin-page-button" aria-label="下一页"><ChevronRight className="h-4 w-4" /></button>
+        <button type="button" disabled={page >= totalPages} onClick={() => onChange(page + 1)} className="admin-page-button" aria-label={t("下一页")}><ChevronRight className="h-4 w-4" /></button>
       </div>
     </div>
   );
 }
 
 function SourceBadge({ source }: { source: AdminResponseSource }) {
+  useLanguage();
   const styles = {
     repository: "bg-teal-300/10 text-teal-200",
     external: "bg-violet-300/10 text-violet-200",
     mock: "bg-sky-300/10 text-sky-200",
     error: "bg-rose-300/10 text-rose-200",
   }[source];
-  const label = { repository: "资料库", external: "外部 API", mock: "模拟", error: "错误" }[source];
+  const label = { repository: t("资料库"), external: t("外部 API"), mock: t("模拟"), error: t("错误") }[source];
   return <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${styles}`}>{label}</span>;
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
+  useLanguage();
   return <div className="px-2"><p className="text-lg font-semibold tabular-nums sm:text-xl">{value}</p><p className="mt-1 text-xs text-slate-500">{label}</p></div>;
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
+  useLanguage();
   return <span className="flex items-center gap-2"><span className={`h-2 w-2 rounded-full ${color}`} />{label}</span>;
 }
 
 function EmptyChart() {
-  return <div className="grid h-full place-items-center rounded-xl border border-dashed border-white/10 bg-slate-950/20 text-center"><div><Activity className="mx-auto h-6 w-6 text-slate-600" /><p className="mt-2 text-sm text-slate-500">等待首批搜索数据</p></div></div>;
+  useLanguage();
+  return <div className="grid h-full place-items-center rounded-xl border border-dashed border-white/10 bg-slate-950/20 text-center"><div><Activity className="mx-auto h-6 w-6 text-slate-600" /><p className="mt-2 text-sm text-slate-500">{t("等待首批搜索数据")}</p></div></div>;
 }
 
 function EmptyState({ icon, text }: { icon: ReactNode; text: string }) {
+  useLanguage();
   return <div className="grid min-h-48 place-items-center p-6 text-center text-slate-500"><div><span className="mx-auto block w-fit [&>svg]:h-6 [&>svg]:w-6">{icon}</span><p className="mt-3 text-sm">{text}</p></div></div>;
 }
 
 function SectionLoader({ label }: { label: string }) {
+  useLanguage();
   return <div className="grid min-h-48 place-items-center p-6 text-sm text-slate-500"><span className="flex items-center gap-2"><LoaderCircle className="h-4 w-4 animate-spin" />{label}</span></div>;
 }
 
 function FullPageLoader() {
-  return <main className="admin-surface grid min-h-screen place-items-center text-slate-400"><span className="flex items-center gap-3"><LoaderCircle className="h-5 w-5 animate-spin text-teal-300" />正在进入管理控制台…</span></main>;
+  useLanguage();
+  return <main className="admin-surface grid min-h-screen place-items-center text-slate-400"><LanguageToggle className="fixed right-4 top-4 text-white" /><span className="flex items-center gap-3"><LoaderCircle className="h-5 w-5 animate-spin text-teal-300" />{t("正在进入管理控制台…")}</span></main>;
 }
 
 function ErrorPanel({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  return <div className="grid min-h-48 place-items-center p-6 text-center"><div><AlertTriangle className="mx-auto h-6 w-6 text-rose-300" /><p className="mt-3 text-sm text-slate-300">{errorMessage(error)}</p><button type="button" onClick={onRetry} className="mt-4 text-sm font-medium text-teal-300 hover:text-teal-200">重新加载</button></div></div>;
+  useLanguage();
+  return <div className="grid min-h-48 place-items-center p-6 text-center"><div><AlertTriangle className="mx-auto h-6 w-6 text-rose-300" /><p className="mt-3 text-sm text-slate-300">{errorMessage(error)}</p><button type="button" onClick={onRetry} className="mt-4 text-sm font-medium text-teal-300 hover:text-teal-200">{t("重新加载")}</button></div></div>;
 }
 
 function useCountdown(target: string) {
@@ -1210,12 +1240,12 @@ function useCountdown(target: string) {
 function formatDateTime(value: string) {
   const date = new Date(value);
   return Number.isFinite(date.getTime())
-    ? new Intl.DateTimeFormat("zh-CN", { timeZone: "America/Toronto", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date)
+    ? new Intl.DateTimeFormat(getLocale(), { timeZone: "America/Toronto", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(date)
     : "—";
 }
 
 function formatNumber(value: number) {
-  return new Intl.NumberFormat("zh-CN").format(value);
+  return new Intl.NumberFormat(getLocale()).format(value);
 }
 
 function formatBytes(bytes: number) {
@@ -1226,20 +1256,20 @@ function formatBytes(bytes: number) {
 }
 
 function formatPercentage(value: number | null) {
-  return value === null ? "未知" : `${value.toFixed(value < 10 ? 1 : 0)}%`;
+  return value === null ? t("未知") : `${value.toFixed(value < 10 ? 1 : 0)}%`;
 }
 
 function storageUsageSourceLabel(source: AdminStorageUsageSource) {
   return {
     "cloudflare-d1-api": "Cloudflare D1 API",
     "cloudflare-analytics": "Cloudflare Analytics",
-    unavailable: "暂时无法获取",
+    unavailable: t("暂时无法获取"),
   }[source];
 }
 
 function errorMessage(error: unknown) {
   if (error instanceof ApiClientError) {
-    return error.status === 401 ? "登录已失效，请刷新页面后重新登录。" : error.message;
+    return error.status === 401 ? t("登录已失效，请刷新页面后重新登录。") : t(error.message);
   }
-  return error instanceof Error ? error.message : "请求失败，请稍后重试。";
+  return error instanceof Error ? t(error.message) : t("请求失败，请稍后重试。");
 }

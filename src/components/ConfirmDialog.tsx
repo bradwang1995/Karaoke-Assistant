@@ -1,3 +1,4 @@
+import { translate as t, useLanguage } from "../i18n";
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
@@ -14,13 +15,14 @@ export function ConfirmDialog({
   open,
   title,
   body,
-  confirmLabel = "确定",
-  cancelLabel = "取消",
+  confirmLabel = t("确定"),
+  cancelLabel = t("取消"),
   destructive = false,
   appearance = "light",
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
+  useLanguage();
   if (!open) return null;
 
   return (

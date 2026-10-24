@@ -1,3 +1,5 @@
+import { LanguageToggle } from "../components/LanguageToggle";
+import { translate as t, useLanguage } from "../i18n";
 import {
   ChevronDown,
   MonitorPlay,
@@ -38,13 +40,14 @@ import type { QueueItem } from "../types/room";
 import type { YouTubeQuotaStatus } from "../types/youtube";
 
 export default function DisplayPage() {
+  useLanguage();
   const { roomId = "" } = useParams();
   const roomSocket = useRoomSocket({ roomId, role: "display" });
   const snapshot = useRoomSnapshot(roomId);
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
   const [playRequestId, setPlayRequestId] = useState(0);
-  const [playerIssue, setPlayerIssue] = useState<string | null>(null);
+  const [playerIssue, setPlayerIssue] = useState<string | (() => string) | null>(null);
   const [playerProgress, setPlayerProgress] = useState<PlayerProgressSession>(() =>
     createPlayerProgressSession(null),
   );
@@ -193,7 +196,7 @@ export default function DisplayPage() {
   }, [currentItem, sendPlayerEnded]);
 
   const handlePlaybackError = useCallback((errorCode: number) => {
-    setPlayerIssue(`播放器错误 ${errorCode}`);
+    setPlayerIssue(() => () => t("播放器错误 {0}", [errorCode]));
   }, []);
 
   const handleAutoplayBlocked = useCallback(() => {
@@ -275,10 +278,10 @@ export default function DisplayPage() {
   const currentProgress = getPlayerProgressForItem(playerProgress, currentItem?.id ?? null);
   const pauseButtonLabel =
     playerStatus === "playing" || playerStatus === "buffering"
-      ? "暂停"
+      ? t("暂停")
       : playerStatus === "paused"
-        ? "继续"
-        : "播放";
+        ? t("继续")
+        : t("播放");
   const PauseButtonIcon =
     playerStatus === "playing" || playerStatus === "buffering" ? Pause : Play;
 
@@ -287,6 +290,7 @@ export default function DisplayPage() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(20,184,166,0.22),transparent_30%),radial-gradient(circle_at_78%_78%,rgba(251,113,133,0.18),transparent_28%)]" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
+        <LanguageToggle className="absolute right-5 top-4 z-30 bg-slate-950/80 text-white" />
         <div className="absolute right-5 top-16 z-30 hidden sm:block">
           {isQrCodeExpanded ? (
             <div className="qr-code-card rounded-2xl border border-white/15 bg-slate-950/90 p-3 text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur">
@@ -297,13 +301,13 @@ export default function DisplayPage() {
                   rel="noreferrer"
                   className="text-sm font-bold tracking-wide text-white transition hover:text-teal-200"
                 >
-                  扫码点歌
+                  {t("扫码点歌")}
                 </Link>
                 <button
                   type="button"
                   onClick={() => setIsQrCodeExpanded(false)}
-                  aria-label="收起二维码"
-                  title="收起二维码"
+                  aria-label={t("收起二维码")}
+                  title={t("收起二维码")}
                   className="grid h-7 w-7 place-items-center rounded-md text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-teal-300/60"
                 >
                   <ChevronDown size={17} />
@@ -313,7 +317,7 @@ export default function DisplayPage() {
                 to={`/room/${roomId}/mobile`}
                 target="_blank"
                 rel="noreferrer"
-                aria-label="打开扫码点歌手机页"
+                aria-label={t("打开扫码点歌手机页")}
                 className="qr-code-surface block rounded-lg bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
               >
                 <QRCodeCanvas
@@ -330,13 +334,13 @@ export default function DisplayPage() {
             <button
               type="button"
               onClick={() => setIsQrCodeExpanded(true)}
-              aria-label="展开二维码"
-              title="展开二维码"
+              aria-label={t("展开二维码")}
+              title={t("展开二维码")}
               className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-slate-950/90 px-3 text-sm font-semibold text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur transition hover:border-teal-200/40 hover:text-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-300/60"
             >
               <QrCode size={17} />
-              扫码点歌
-            </button>
+              {t("扫码点歌")}
+                </button>
           )}
         </div>
 
@@ -362,10 +366,10 @@ export default function DisplayPage() {
                   <MonitorPlay size={32} />
                 </div>
                 <h1 className="text-3xl font-semibold tracking-normal sm:text-5xl">
-                  当前没有视频播放
+                  {t("当前没有视频播放")}
                 </h1>
                 <p className="mt-4 text-base text-slate-300">
-                  让朋友扫码点歌，第一首会自动排到这里。
+                  {t("让朋友扫码点歌，第一首会自动排到这里。")}
                 </p>
               </div>
             </div>
@@ -392,7 +396,7 @@ export default function DisplayPage() {
                 </h2>
               ) : null}
               {playerIssue ? (
-                <p className="mt-2 text-sm font-medium text-rose-200">{playerIssue}</p>
+                <p className="mt-2 text-sm font-medium text-rose-200">{typeof playerIssue === "function" ? playerIssue() : t(playerIssue)}</p>
               ) : null}
               {currentItem ? (
                 <PlayerProgressControl
@@ -416,7 +420,7 @@ export default function DisplayPage() {
                     className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
                   >
                     <RotateCcw size={17} />
-                    重播
+                    {t("重播")}
                   </button>
                   <button
                     type="button"
@@ -438,13 +442,13 @@ export default function DisplayPage() {
                     className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/15 px-3 py-2 text-sm font-semibold text-rose-50 transition hover:bg-rose-300/25 focus:outline-none focus:ring-4 focus:ring-rose-300/20"
                   >
                     <SkipForward size={17} />
-                    下一首
+                    {t("下一首")}
                   </button>
                 </div>
               ) : null}
               <div className="border-l border-white/15 py-1 pl-3 text-right">
-                <p className="text-xs text-slate-300">即将播放</p>
-                <p className="text-lg font-semibold">{queuedItems.length} 首</p>
+                <p className="text-xs text-slate-300">{t("即将播放")}</p>
+                <p className="text-lg font-semibold">{queuedItems.length} {t("首")}</p>
               </div>
             </div>
           </div>
@@ -467,6 +471,7 @@ function PlayerProgressControl({
   onSeekChange: (seconds: number) => void;
   onSeekCommit: () => void;
 }) {
+  useLanguage();
   const safeDuration = Number.isFinite(duration) ? Math.max(duration, 0) : 0;
   const safeCurrentTime = Math.min(
     Number.isFinite(currentTime) ? Math.max(currentTime, 0) : 0,
@@ -501,7 +506,7 @@ function PlayerProgressControl({
             onSeekStart();
             onSeekChange(Number(event.target.value));
           }}
-          aria-label="播放进度"
+          aria-label={t("播放进度")}
           className="player-progress-range relative z-10 w-full disabled:opacity-40"
         />
       </div>
@@ -532,12 +537,13 @@ function YouTubeQuotaStatus({
   isLoading: boolean;
   isError: boolean;
 }) {
+  useLanguage();
   if (isLoading) {
-    return <p className="text-xs text-slate-400">搜索额度加载中</p>;
+    return <p className="text-xs text-slate-400">{t("搜索额度加载中")}</p>;
   }
 
   if (isError || !status) {
-    return <p className="text-xs text-slate-400">搜索额度暂不可用</p>;
+    return <p className="text-xs text-slate-400">{t("搜索额度暂不可用")}</p>;
   }
 
   return (
@@ -546,8 +552,8 @@ function YouTubeQuotaStatus({
         status.exhausted ? "text-amber-200" : "text-slate-400"
       }`}
     >
-      <p>今日搜索剩余 {status.remaining}/{status.dailyLimit}</p>
-      <p>{formatRelativeQuotaReset(status.resetAt)}</p>
+      <p>{t("今日搜索剩余")}{status.remaining}/{status.dailyLimit}</p>
+      <p>{formatRelativeQuotaReset(status.resetAt, Date.now(), t)}</p>
     </div>
   );
 }
@@ -576,6 +582,7 @@ function ConnectionBadge({
   status: SocketStatus;
   canUseLocalFallback: boolean;
 }) {
+  useLanguage();
   const connected = status === "connected";
   const Icon = connected ? Wifi : WifiOff;
 
@@ -596,9 +603,9 @@ function ConnectionBadge({
 }
 
 function connectionLabel(status: SocketStatus, canUseLocalFallback: boolean) {
-  if (canUseLocalFallback) return "本地模式";
-  if (status === "connected") return "实时已连接";
-  if (status === "connecting") return "正在连接";
-  if (status === "reconnecting") return "正在重连";
-  return "连接不可用";
+  if (canUseLocalFallback) return t("本地模式");
+  if (status === "connected") return t("实时已连接");
+  if (status === "connecting") return t("正在连接");
+  if (status === "reconnecting") return t("正在重连");
+  return t("连接不可用");
 }

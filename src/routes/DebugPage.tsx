@@ -1,3 +1,5 @@
+import { LanguageToggle } from "../components/LanguageToggle";
+import { translate as t, useLanguage } from "../i18n";
 import { Check, Copy, RefreshCw, Trash2, Wifi, WifiOff } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
@@ -10,6 +12,7 @@ import { hydrateRoomSnapshot, useRoomSnapshot } from "../lib/roomState";
 import type { RoomSnapshot } from "../types/room";
 
 export default function DebugPage() {
+  useLanguage();
   const { roomId = "" } = useParams();
   const roomSocket = useRoomSocket({ roomId, role: "display" });
   const localSnapshot = useRoomSnapshot(roomId);
@@ -76,9 +79,10 @@ export default function DebugPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-5 text-slate-950">
       <div className="mx-auto grid w-full max-w-5xl gap-4">
+        <LanguageToggle className="justify-self-end text-slate-800" />
         <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-teal-700">房间调试</p>
+            <p className="text-sm font-semibold text-teal-700">{t("房间调试")}</p>
             <h1 className="text-2xl font-semibold tracking-normal">{roomId}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -86,42 +90,42 @@ export default function DebugPage() {
               to={`/room/${roomId}/display`}
               className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              大屏
+              {t("大屏")}
             </Link>
             <Link
               to={`/room/${roomId}/mobile`}
               className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              手机
+              {t("手机")}
             </Link>
           </div>
         </header>
 
         <section className="grid gap-3 md:grid-cols-3">
-          <InfoPanel label="连接状态" value={socketLabel(roomSocket.status)}>
+          <InfoPanel label={t("连接状态")} value={socketLabel(roomSocket.status)}>
             {roomSocket.status === "connected" ? (
               <Wifi className="text-emerald-600" size={20} />
             ) : (
               <WifiOff className="text-amber-600" size={20} />
             )}
           </InfoPanel>
-          <InfoPanel label="当前状态" value={snapshot.playback.playerState} />
-          <InfoPanel label="队列数量" value={`${snapshot.queue.length} 首`} />
+          <InfoPanel label={t("当前状态")} value={snapshot.playback.playerState} />
+          <InfoPanel label={t("队列数量")} value={t("{0} 首", [snapshot.queue.length])} />
         </section>
 
         {statusMessage ? (
-          <StatusMessage tone="success" title="完成">
-            {statusMessage}
+          <StatusMessage tone="success" title={t("完成")}>
+            {t(statusMessage)}
           </StatusMessage>
         ) : null}
         {errorMessage ? (
-          <StatusMessage tone="error" title="出错了">
-            {errorMessage}
+          <StatusMessage tone="error" title={t("出错了")}>
+            {t(errorMessage)}
           </StatusMessage>
         ) : null}
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="text-base font-semibold tracking-normal">操作</h2>
+          <h2 className="text-base font-semibold tracking-normal">{t("操作")}</h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -130,7 +134,7 @@ export default function DebugPage() {
               className="inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               <RefreshCw size={16} className={isRefreshing ? "animate-spin" : ""} />
-              刷新远端 snapshot
+              {t("刷新远端 snapshot")}
             </button>
             <button
               type="button"
@@ -139,13 +143,13 @@ export default function DebugPage() {
               className="inline-flex items-center gap-2 rounded-md border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:text-slate-400"
             >
               <Trash2 size={16} />
-              清理已完成歌曲
+              {t("清理已完成歌曲")}
             </button>
           </div>
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="text-base font-semibold tracking-normal">链接</h2>
+          <h2 className="text-base font-semibold tracking-normal">{t("链接")}</h2>
           <div className="mt-3 grid gap-2">
             {Object.entries(links).map(([label, value]) => (
               <button
@@ -185,6 +189,7 @@ function InfoPanel({
   value: string;
   children?: ReactNode;
 }) {
+  useLanguage();
   return (
     <article className="rounded-lg border border-slate-200 bg-white p-4">
       <div className="flex items-start justify-between gap-3">
@@ -199,8 +204,8 @@ function InfoPanel({
 }
 
 function socketLabel(status: string) {
-  if (status === "connected") return "实时已连接";
-  if (status === "connecting") return "正在连接";
-  if (status === "reconnecting") return "正在重连";
-  return "未连接";
+  if (status === "connected") return t("实时已连接");
+  if (status === "connecting") return t("正在连接");
+  if (status === "reconnecting") return t("正在重连");
+  return t("未连接");
 }

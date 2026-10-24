@@ -631,6 +631,12 @@ Version bump 后必须新增测试证明旧 D1 `family_hash` 不会命中，并�
 
 ## 15. 代码地图
 
+### 界面双语（用户已验收，准备发布）
+
+英文布局优化仅改变显示层：搜索类型短标签为 `Song` / `Artist`，原唱短标签为 `Vocals`（完整 aria-label / title 为 `Include original vocals`），英文搜索栏保持单行；推荐标题显示 `Song picks`，分页数量显示为 `8/8` 形式。界面短标签不改变提交值或搜索行为，不触发缓存版本变更。
+
+本次仅增加搜索界面、加载、空状态、错误、partial response 与配额提示的中英翻译。手动语言偏好只保存在当前浏览器，不发送到搜索 API；输入、歌名/歌手/URL 模式、原唱意图、结果保留逻辑、两秒 deadline、推荐池与所有缓存键均保持现有契约。根据第 14 节矩阵，纯 UI copy 不调整 algorithm/cache/recommendations 版本，机器契约不变。中文 URL placeholder 保持 `YouTube视频链接`，英文为 `YouTube video link`。
+
 | 文件 | 职责 |
 | --- | --- |
 | `worker/router.ts` | Request validation、rate limit、search event、quota broadcast、HTTP errors |
