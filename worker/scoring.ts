@@ -307,11 +307,11 @@ function titleStartsWithQuery(title: string, query: string) {
   return Boolean(query) && title.startsWith(query) && containsQuery(title, query);
 }
 
-function normalizeRankingText(value: string) {
+export function normalizeRankingText(value: string) {
   return normalizeQuery(toSimplified(value.normalize("NFKC")));
 }
 
-function containsQuery(text: string, query: string) {
+export function containsQuery(text: string, query: string) {
   if (!query) return false;
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const start = /^[a-z0-9]/i.test(query) ? "(?<![a-z0-9])" : "";
@@ -348,7 +348,7 @@ function queryRelevanceTier(
   return musicEvidence ? 3 : 2;
 }
 
-function normalizeSongComparableText(value: string) {
+export function normalizeSongComparableText(value: string) {
   const normalized = normalizeRankingText(value);
   return normalized
     .replace(/&amp;/g, "&")

@@ -1,7 +1,7 @@
 # K歌助手搜索与缓存规范
 
-最后核实：2026-10-23（已发布，真实缓存与内置浏览器验收通过）
-代码基线：`482658f`；排序以本文件第 7 节和对应回归测试为准
+最后核实：2026-10-27（音乐展示与推荐准入已获用户批准，发布准备中）
+代码基线：成熟版本 `aa65a60` 与当前本地改动；回退记录见 `docs/SEARCH_BASELINE_2026-10-27.md`
 状态：当前实现的 source of truth
 
 ## 1. 这份文件如何使用
@@ -23,8 +23,9 @@
 {
   "schemaVersion": 1,
   "searchAlgorithmVersion": "rank-preserve-50-v2",
+  "searchResultPolicyVersion": "music-evidence-v1",
   "searchCacheVersion": "v4",
-  "recommendationsVersion": "v6",
+  "recommendationsVersion": "v7",
   "regionCode": "CA",
   "relevanceLanguage": "zh-Hans",
   "searchPageSize": 50,
@@ -50,15 +51,15 @@
 2. Main Worker 先对非空请求执行同 room + IP 的一分钟 rate limit。
 3. 服务端用完整规范化文字、可选 artist、歌名/歌手模式、KTV/原唱意图和算法版本生成唯一 family hash。
 4. D1 repository 与 KV family cache 并行读取，但 D1 命中优先；只读取当前 exact family，不跨文字、不跨模式、不跨原唱开关。
-5. Exact hit 只剔除结构不可用或重复的记录，按当前 scoring 重新排序后直接返回，不请求 YouTube。
+5. Exact hit 先保留完整结构可用候选并按当前 scoring 排序，再应用展示 policy；不请求 YouTube，即使筛后 0 条也不视为 cache miss。
 6. Exact miss 才进入 quota 检查。当前 production 最多预留并执行一次 `search.list`。
 7. 这一次查询固定取最多 50 个 YouTube video candidates；`videoEmbeddable=true` 在 provider 层排除不可播放结果，再用最多一次 `videos.list` 尝试补充 duration、category、tags 和 embeddable 状态。
-8. 普通搜索只剔除缺少可用 video id、缺少可显示标题、重复 id 或详情明确 `embeddable=false` 的候选；Music category、时长、title/artist match、KTV/原唱 marker 和 metadata 缺失都不再决定准入。
+8. 原始候选只剔除缺少可用 video id、缺少可显示标题、重复 id 或详情明确 `embeddable=false` 的记录；先保存完整候选，再按第 6 节过滤公开展示。
 9. 所有结构可用候选按 song/artist 与 KTV/原唱信号评分并稳定排序；低相关或错误意图结果留在后排，不被质量逻辑删除。
-10. 完整排序结果写入 D1 exact repository 和 KV exact family；recommendation pool 只摄入每次搜索的前 20 条，在增加可浏览歌曲的同时不把 exact search 的后 30 条弱尾部直接灌入推荐。
+10. 完整原始排序池写入 D1 exact repository 和 KV exact family；recommendations 先判断明确音乐/查询关联资格，再从合格项取最多 20 条，不补弱结果。
 11. Worker 的外部预算为 1600ms；浏览器在 2000ms 主动 abort。`videos.list` 缺失、失败或超时时使用已有 snippet，不延长等待。
 
-最重要的结论：**搜索完整性优先、排序第二、只有结构不可用才硬拒绝。** `maxResults=50` 是 provider 上限，不是数学保证；系统不会制造缺失结果，也不会翻页补满。但 provider 如果返回 50 个结构可用 candidates，本地质量逻辑通常保留全部 50 个。缓存保证相同 exact family 重用同一候选集合，并按当前分数重排。
+最重要的结论：**原始候选完整保留、公开搜索保守过滤、首页严格准入。** `maxResults=50` 是 provider 上限，不是保证展示数量。provider 返回 50 条结构可用候选时缓存仍保留 50 条，公开结果可能较少；不翻页补满，不因展示不足或为 0 而重搜。
 
 ## 3. 搜索入口与四种请求类型
 
@@ -146,6 +147,8 @@ rank-preserve-50-v2 | canonicalQuery | normalizedArtist | searchType | original-
 
 ### 4.3 算法版本的真实作用
 
+2026-10-27 起区分 raw candidate algorithm 与 response policy：本轮不改变 provider/原始准入/排序，保留 `rank-preserve-50-v2` family，避免失效旧候选；新增 `searchResultPolicyVersion=music-evidence-v1` 只标识公开返回视图。recommendations 单独为 `v7`。以下 family 升级规则仍适用于原始候选语义变化。
+
 算法版本只进入 family hash，不自动迁移数据：
 
 本轮准入语义从 `quality-fill-50-v1` 升为 `rank-preserve-50-v2`；两个版本的相同 query/options 必须得到不同 hash。
@@ -205,9 +208,9 @@ relevanceLanguage=zh-Hans
 - 整批 details 超时、429 或其他失败时，保留已经取得的 snippet candidates，不延长现有 deadline。
 - 只有详情明确 `embeddable=false` 时才剔除该 candidate。
 
-## 6. 候选准入：只做最小结构过滤
+## 6. 原始候选与公开展示分开
 
-普通文字搜索采用最小结构准入。搜索质量主要由 provider query 和 ranking 控制，不再通过激进的本地质量过滤控制。
+原始候选继续采用最小结构准入，完整池先持久化。公开返回在 service 最终 limit 之前应用独立 policy，既有 scoring 不变。
 
 当前唯一硬剔除条件：
 
@@ -216,7 +219,7 @@ relevanceLanguage=zh-Hans
 3. 与当前 candidate pool 中已有 video id 重复。
 4. `videos.list` 明确返回 `embeddable=false`。
 
-以下都不是硬剔除条件，只是 metadata 或 ranking signals：
+以下都不是原始缓存候选的剔除条件：
 
 - `categoryId` 不是 `10` 或完全缺失。
 - duration 缺失、无法解析、7 分钟、10 分钟、15 分钟或更长。
@@ -227,7 +230,14 @@ relevanceLanguage=zh-Hans
 - 没有 lyrics/original/MV/official/audio/radio marker。
 - KTV 模式出现 original/official/MV，或原唱模式出现 KTV/伴奏/cover。
 
-这些较弱或意图相反的结果会被降到后排，但仍可以浏览和点选。`maxResults=50` 表示 provider 最多返回 50；应用不会制造缺失的 provider 结果。但 provider 返回 50 个结构可用 candidates 时，本地质量逻辑通常保留全部 50 个。
+### 6.0 公开展示 policy `music-evidence-v1`
+
+- 仅当 category 明确为非 Music、且没有歌曲身份、录音格式或音乐/演出线索时隐藏。缺 category、明确歌曲身份、MV/Music Video/lyrics/伴奏/翻唱/karaoke 等录音线索均保留；hashtag、频道或 tags 中的音乐/演出提示只作为不确定保护，不足以自动推荐。
+- 非 Music 分类不会单独导致排除；不要求原歌手名字，不以时长、原唱开关、cover/live、详情失败或排序分数决定排除。
+- Music category、正文录音格式支持音乐证据；KTV/live 单词可能是场所/事件，仅在歌曲身份或录音标题结构中作为明确版本。仅 KTV 或表演 hashtag 的片段保守保留在搜索中，但不自动推荐。
+- 筛选为纯函数，输出保留候选的原顺序；不改变任何 score/reasons。raw D1/KV 全量池不删除、无需 migration，回退旧代码仍能读到所有候选。
+- response `cacheMeta.resultPolicyVersion` 标识视图；`candidateResultCount` 是本次 raw 池大小，`filteredResultCount` 为展示筛选后、limit 前大小；`hiddenNonMusicResultCount` 为隐藏数；`cachedResultCount` 仍表示已保存的原始池大小。
+- cacheOnly 与普通缓存命中都先根据 raw 池判断命中，筛后 0 条仍返回成功空视图、0 次外部调用；冷搜索先保存完整池再过滤返回，不增加补搜。
 
 ### 6.1 歌名模式
 
@@ -299,7 +309,7 @@ KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 | --- | --- | --- | --- |
 | D1 `search_repository_entries` | 持久 exact response source | 是，优先级最高 | 无 TTL；管理员删除/清理或新版成功覆盖 |
 | KV `yt-search:v4:*` | exact family 加速与 D1 fallback | 是 | 默认 365 天 |
-| KV recommendations `v6` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
+| KV recommendations `v7` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
 | D1 `search_video_catalog` | 结构可用 provider candidates 的 analytics catalog | 否 | 无自动 TTL |
 | Mobile localStorage | 单个 room 的 UI 恢复 | 否，不作为服务端候选来源 | 24 小时 |
 
@@ -310,11 +320,11 @@ KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 1. 生成唯一 family。
 2. 并行读取 D1 row 和 KV family key。
 3. 两边都有时使用 D1；只有 D1 miss/失败时才使用 KV。
-4. 对存储结果只执行结构可用性过滤与 video id 去重，再按当前 query/intent 重新打分排序。
-5. 重排后至少一条存在就立即返回；不会因为只有 1、8 或 12 条而 cold refill。
-6. 重排后为 0 才把该存储命中视为无效并进入 cold search。
+4. 对存储结果执行结构准入/去重与既有排序，保留 raw 池；最后对公开视图应用 music policy。
+5. raw 池至少一条即为命中；筛后 0、1、8 或 12 条都不 cold refill。
+6. 只有 raw 池本身结构不可用或为 0 时，才进入原有 miss 分支；cacheOnly miss 不会请求外部。
 
-因此 exact cache 保证“同一个候选池可复用”，不保证永远返回存入时完全相同的 score/reasons，也不保证数量达到 50。
+因此 exact cache 保证“同一个原始候选池可复用”，公开视图按当前 policy 计算，不保证显示数量为 50。
 
 ### 8.2 D1 repository
 
@@ -336,7 +346,7 @@ yt-search:v4:<familyHash>:CA:zh-Hans
 
 Entry 保存 query family、aliases、hash、created/expiry、source queries、最多 50 条 results、provider call stats、payload bytes、pruned count、hit count 和 last access。
 
-KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve-50-v2` family hash 仍隔离更早的 exact keys。本轮明确只重排旧候选，因此保留算法 family version。Recommendation key 最终 bump 到 `v6`，旧 `v4` 和首次部署的 `v5` pool 不再读取并按原 TTL 自然过期；从现有 exact family 重建时先按当前 scoring 重排，再取前 20 条。KV touch 同样先重排，避免旧顺序重新提升无关视频。不清空 exact 数据，也不触发 YouTube refill。
+KV schema version 保持 `v4`、raw family 保持 `rank-preserve-50-v2`；entry 仍保存完整候选。Recommendation key 为 `v7`，旧 `v6` 及更早池不读不覆盖、按旧 TTL 自然过期，供旧代码回退。新写入、touch 和历史重建都先重排，再用当前 query/family 判定音乐资格，最后最多取 20；不清空 exact 数据、不触发 YouTube refill。
 
 写入前只过滤结构不可用/重复结果并截断到 50 条；category、duration、tags 和完整 details 都不是 cache eligibility。JSON 超过 524,288 bytes 时从低分尾部逐条裁剪。KV touch 增加 hit count 和 last access，但保持原 expiration，不延长 family TTL。
 
@@ -346,9 +356,9 @@ KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve
 
 正常 cold response 的完整 structural result set 会并行写 D1 和 KV；production 使用 `ctx.waitUntil`，公开 API 不等待持久化完成。
 
-- 非空 structural results：完整排序池写 D1/KV；只有高分头部进入 recommendations。
+- 非空 structural results：完整排序池写 D1/KV；只有满足音乐与查询关联条件的头部进入 recommendations。
 - 完全零结果：不写 exact cache，即没有 negative caching。
-- details timeout、429、其他失败或遗漏 id 后基于 search snippet 返回的结果：只要结构可用就显示并持久化，exact repeat 可复现候选数量。
+- details timeout、429、其他失败或遗漏 id 后的 snippet：结构可用即持久化，缺 category 的候选保守显示，exact repeat 复用原始池。
 - 重复 cold miss 当前没有 request coalescing；并发相同 exact miss 可能分别预留额度和请求 YouTube。
 
 ### 8.5 Recommendations
@@ -356,10 +366,12 @@ KV schema version 保持 `v4`：stored entry shape 没有改变，`rank-preserve
 Key：
 
 ```txt
-yt-search-recommendations:v6:CA:zh-Hans
+yt-search-recommendations:v7:CA:zh-Hans
 ```
 
-更新顺序：本次结果前 20 条 → 现有 recommendation pool；不会把本次 exact search 的第 21–50 条弱尾部直接灌入推荐。按 video id 去重并截断到 200。真实点歌会把该 video 以高分 `recently queued` 信号推到最前。
+更新顺序：本次 raw 结果按 query/intent 重排 → 筛出明确音乐且与查询有关的项 → 取最多 20 → 与当前 v7 pool 按 video id 去重并截断到 200。不足 20 不凑数；零合格不写入任何弱项。歌名要求独立/结构化或开头的歌名身份；歌手要求正文标题/频道匹配（tags 单独匹配不足），均须 Music category 或明确音乐录音证据。
+
+真实点歌只提升已经在当前合格池里的视频，或正文标题自带歌名结构与明确音乐格式的录音；未知标题、普通 URL 兜底和日常片段不会因点歌直接进入全局推荐。点歌本身、URL 解析和播放不受这道推荐门槛限制，不为推荐补查 YouTube metadata。
 
 如果 recommendation key 不存在或数量不足，系统列出一批 KV family entries，先重建每个 entry 的当前 family hash 并排除旧 algorithm entries，再按：
 
@@ -367,7 +379,9 @@ yt-search-recommendations:v6:CA:zh-Hans
 lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 ```
 
-排序 family，再按当前 query/intent 重排每个 family 并取前 20 条，按第 1 名、第 2 名……轮转合并。由此保持 `exact search = permissive`、`recommendations = selective`，并让少量历史搜索也能提供更多可浏览推荐。
+排序 family，再重排/筛选每个 family 的合格项并取最多 20 条，轮转合并。不能先截 20 再筛，否则会漏掉下方有效音乐。旧 v6 pool 本身不参与重建，raw family 内部的弱结果也不能成为补足项。
+
+重建得到的合格结果与已存列表不同时，尽力保存到 v7 pool，使旧缓存迁移后已认可的纯歌名视频仍能在点歌时提升；保存前重读最新 pool，优先保留近期提升。不变时不重复写，刷新失败仍返回已经读到的歌曲，不增加外部调用。
 
 重要现状：常规 exact 查询通常由 D1 命中。D1 命中只 touch D1，不会自动 touch KV 或重新提升 recommendation pool；“每次 cache hit 都重提推荐头部”并不是当前通用事实。
 
@@ -444,6 +458,8 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 | `detailsEnrichmentFailed` | `videos.list` 非 timeout/429 失败；snippet candidates 已保留。 |
 | `quota` | 本地 ledger 的 before/after、exhausted 和 Pacific reset。 |
 | `cacheOnly` | 隐藏诊断模式确认。 |
+| `resultPolicyVersion` | 公开视图的资格版本；与 raw family algorithm 分开。旧浏览器搜索快照版本不符则不恢复结果，输入/模式仍保留。 |
+| `hiddenNonMusicResultCount` | 本次公开视图隐藏的明显非音乐项数量；raw D1/KV 不因此删除。 |
 | `servedFromExpandedCache` | 旧的多-family merge 字段；当前只读一个 exact family，正常情况下没有实际 expanded 语义。 |
 | `catalogResultCount` | 当前在线搜索不读 catalog，因此应为 0。 |
 
@@ -483,13 +499,13 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 - 6 条目标歌曲（伴奏、原唱、歌词、翻唱、现场、纯歌名）优先于干扰项；非原唱首项 KTV，原唱首项 Official MV。
 - D1/KV 已有错序结果重新搜索后同样修复，0 次外部请求；推荐从旧 family 重建时先重排再取前 20。
 
-这些是 `worker/searchQualityContract.test.ts` 与 service/cache/scoring 的零网络 contracts。它们同时验证 permissive inclusion 和 intelligent ordering，不代表真实 YouTube 每次一定返回 50 条或完整歌单。
+以上 50 条完整性样例描述 provider/raw 候选契约。公开 API 再执行第 6.0 节 policy，因此显示数量可能较少。`musicEligibility.test.ts` 与 service/cache 测试另验证音乐正例保留、筛后空命中、推荐不凑数、原始池不变。这些离线契约不代表真实 YouTube 每次一定返回 50 条或完整歌单。
 
 ## 13. 当前已知问题与维护风险
 
 以下是本次代码核实确认的事实，后续 investigate 应优先从这里开始：
 
-1. **完整性会带来弱尾部。** 低分、错意图或弱相关 candidates 现在保留在后排；这是 preserve-50 的明确取舍，不应再用 hard gate 隐藏。
+1. **不确定项仍可出现在搜索尾部。** 为保护召回率，只有明确非 Music 且无歌曲/音乐线索才隐藏；metadata 误标或含糊标题无法保证全自动零误判。首页门槛更严格，不用不确定项凑数。
 2. **YouTube 可能本来就少于 50。** `maxResults=50` 不是保证；provider 结果不足、重复、空 id/title 或明确不可嵌入时，应用不会制造缺失结果。
 3. **One-call 不补页。** Production aliases 实际没有 fallback；第一条 focused query 少于 50 时不会翻页或换 query，因为配额和两秒体验优先。
 4. **Helper 仍支持多调用。** `youtubeSearch.ts` 的显式 `maxSearchCalls>1` 能翻页/换 query；Room/Main 的 `=1` 配置、service 默认值和 verifier 是 production 保护。
@@ -497,7 +513,7 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 6. **零结果没有 negative cache。** 同一个冷门/无效 query 每次都可能重新消耗一次额度。
 7. **并发 miss 没有合并。** 同一 family 同时到达的 cold requests 可能重复消耗额度。
 8. **D1 identity 不含 region/language。** KV key 含 `CA/zh-Hans`，D1 unique key 不含；以后改变地区/语言必须 bump algorithm version 或迁移 schema。
-9. **Recommendation 与 exact cache 是两套行为。** Exact 保留最多 50；recommendations 只摄入每个 family 的前 20。常见 D1 hit 不会重新提升推荐。
+9. **Recommendation 与 exact cache 是两套行为。** Exact 保留最多 50；recommendations 只摄入每个 family 最多 20 条合格音乐。常见 D1 hit 不会重新提升推荐；不确定的已点视频可能只在歌单中可用，不自动出现在全局推荐。
 10. **Snippet fallback metadata 较少。** Details 失败时候选仍会缓存，但缺 duration/category/tags，排序只能使用 title/channel/snippet；后续 exact hit 不会主动补 enrichment。
 11. **浏览器 abort 不撤销 Worker。** 2000ms 客户端停止不保证 quota reservation、provider fetch 或 background persistence 被取消。
 12. **真实结果仍受 YouTube 变化影响。** Offline golden tests 固定算法规则，但不能覆盖 provider 排序、区域结果、删除视频、metadata 变化或 key 级实际 quota。
@@ -507,6 +523,16 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 ## 14. 搜索算法变更协议
 
 ### 14.1 下一版变更提案
+
+### 保守展示过滤与首页音乐准入 [已实现，用户已批准，待发布 2026-10-27]
+
+- 输入/输出：普通搜索只排除已知非 Music 且没有歌曲身份/音乐或演出线索的候选；MV、歌词、伴奏、翻唱、现场、短片、长串烧、非 Music 分类的音乐以及 metadata 不足的结果优先保留。原唱开关只调整现有排序。
+- 首页：必须有明确音乐证据和当前歌名/歌手关联，先判断资格再截取最多 20；不足不补弱结果。新写入、touch、旧 family 重建和点歌提升均应用准入，URL 点歌功能本身不变。
+- 缓存：原始候选的来源/结构准入/排序不变，仍以 algorithm `rank-preserve-50-v2`、exact KV `v4` 保存最多 50 条。新增独立的 response policy `music-evidence-v1`，只在公开 response 上过滤；因此不更改 raw family identity、不冷重填、不删除候选。此项明确区别于改变原始候选准入的 hard filter。
+- 推荐 key 从 `v6` 升为 `v7`，不读取旧池，从现有 exact family 重建合格项；保留旧池供原代码回退。浏览器旧 policy response 不恢复，保留输入和模式。筛后 0 条仍是 raw cache hit，禁止因此请求 YouTube。
+- 预算：provider query、每次最多 1 次 search.list、1600ms/2000ms、quota/rate limit、播放/队列、双语文案和布局不变，不增加依赖或外部 metadata 请求。
+- 基线：本地标签 `codex/baseline-before-music-eligibility-2026-10-27` 指向 `aa65a60`；修改前完整测试 30 files/208 tests、搜索专项 13 files/110 tests、typecheck、build 均通过。回退与测试详情另记基线文档。
+- 验收：真实 50 条缓存的原始排序/分数不变，减少明显非音乐展示；所有音乐正例保留；只贡献合格推荐且不得凑满 20；旧 KV/D1 复用、筛后空结果、失败/缺 metadata、四模式、URL、点歌提升、推荐重建、UI 旧状态与零外部调用回归。
 
 ### 真实缓存验收补充：标签和歌词误命中 [已发布 2026-10-23]
 
@@ -597,7 +623,8 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 | 改动 | `SEARCH_ALGORITHM_VERSION` | KV cache version | Recommendations version |
 | --- | --- | --- | --- |
 | Provider 第一 query、aliases、region/language | 必须 | 通常不必 | 视结果语义 |
-| Hard filter、intent gate、影响准入的 title/artist match | 必须 | 只有 entry schema 不兼容才改 | 视旧推荐是否安全 |
+| 改变 raw 候选准入的 hard filter、intent gate、title/artist match | 必须 | 只有 entry schema 不兼容才改 | 视旧推荐是否安全 |
+| 仅过滤公开视图，raw 候选来源/准入/排序不变 | 不必；必须升级独立 response policy | 不必 | 资格变化必须改 |
 | Score/排序改变 | 建议必须；除非明确只想重排旧候选 | 不必 | 旧推荐排序不安全时改 |
 | Family identity 字段改变 | 必须 | 可能必须 | 通常不必 |
 | KV entry schema/兼容校验改变 | 视候选语义 | 必须 | 不一定 |
@@ -645,6 +672,8 @@ Version bump 后必须新增测试证明旧 D1 `family_hash` 不会命中，并�
 | `worker/searchFamily.ts` | algorithm version、family hash、provider aliases/source queries |
 | `worker/youtubeSearch.ts` | search.list、videos.list、deadline、candidate detail pipeline |
 | `worker/songFilter.ts` | 历史文件名；当前只负责 video id/title 结构准入与去重，不过滤 category/duration |
+| `worker/musicEligibility.ts` | 独立的保守展示过滤、严格推荐资格，不改变原始缓存或排序 |
+| `src/lib/searchPolicyVersion.ts` | 服务端/浏览器共享的公开视图版本，失效旧结果快照 |
 | `worker/scoring.ts` | Query/intent 纯评分诊断与稳定排序，不决定 inclusion |
 | `worker/searchService.ts` | D1/KV read order、live fallback、persistence、recommendations、quota orchestration |
 | `worker/searchRepository.ts` | D1 exact repository、search events、Admin deletion/cleanup |

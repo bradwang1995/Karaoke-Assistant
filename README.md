@@ -36,7 +36,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - Mobile 支持 `歌名 / 歌手 / URL`、`带原唱`、高分缓存推荐、选中后立即从 30 秒静音自动播放的单个轻量 preview 和缓存内无限滚动；头部的“K歌助手 / K歌房”同行显示，原唱开启时只有内部 toggle 变绿；搜索 pending 只更新固定高度状态，不插入等待 panel；只有提交搜索按钮才会请求，输入和筛选变化不会擅自刷新结果。
 - URL 点歌：选择 `URL` 后，输入框提示 `YouTube视频链接`，输入单视频链接并提交；支持 `watch`、`youtu.be`、`shorts`、`live` 和 `embed` 等链接，隐藏原唱选项，无效输入在提交前提示。沿用现有 preview/点歌卡片，不消耗搜索次数，搜索额度耗尽仍可使用（视频 metadata 可能调用一次 `videos.list`）。
 - Search query、模式、结果、选中项、preview、scroll 和 tab 可恢复 24 小时。
-- 搜索排序在比较时识别简繁歌名/歌手（如“耍赖 / 耍賴”），优先相关歌曲、伴奏、翻唱与现场，再按原唱开关调整版本偏好；保留低相关候选供浏览。已有 exact 缓存重新搜索时按新规则重排，推荐从重排后的 family 头部重建。当前规则见 `SEARCH.md` 第 7–8 节。
+- 搜索比较识别简繁歌名/歌手，保留既有排序；原始候选缓存完整保存，公开结果保守隐藏明确非音乐项，音乐版本与信息不足项优先保留。首页只收明确音乐且与查询相关的合格项，不足数量不补弱结果。当前规则见 `SEARCH.md` 第 6–8 节；本轮回退基线见 `docs/SEARCH_BASELINE_2026-10-27.md`。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。待播项使用紧凑单行 card，不重复显示“第 N 首”；置顶/删歌先在本地乐观更新，再由房间 snapshot 确认。超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
 - WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
@@ -280,7 +280,7 @@ README 只保留产品级不变量：
 
 - Mobile 支持歌名/歌手与 KTV/原唱四种组合，只在用户显式提交时搜索。
 - 非空 exact family 优先复用本地结果；cold search 受严格调用预算和两秒体验上限保护。
-- 普通文字搜索以完整性优先：provider 返回的结构可用 candidates 通常全部保留，song/artist 与 KTV/原唱信号只控制排序；精确规则见 `SEARCH.md`。
+- 普通文字搜索完整保存 provider 的结构可用原始候选；展示过滤与首页推荐分别采用保守保留、严格准入规则，不因数量不足额外请求 YouTube。精确规则见 `SEARCH.md`。
 - 用户明确提供的 YouTube 单视频 URL 走隐藏兜底；其他 URL 不消耗搜索额度。
 - 搜索实现有零真实网络的 golden contracts；修改搜索前后必须运行 `npm run verify:search`。
 - `PROGRESS.md` 只记录历史 pass 和发布证据，不作为当前算法定义。

@@ -1,6 +1,7 @@
 import type { SearchResponse, SearchType, VideoSearchResult } from "../types/youtube";
 import { normalizeQuery } from "./queryNormalize";
 import { youtubeThumbnailUrl } from "./youtube";
+import { SEARCH_RESULT_POLICY_VERSION } from "./searchPolicyVersion";
 
 const MOCK_VIDEO_IDS = [
   "dQw4w9WgXcQ",
@@ -62,6 +63,12 @@ export async function searchMockVideos(
       normalizedQuery,
       cached: true,
       results: [],
+      cacheMeta: {
+        resultPolicyVersion: SEARCH_RESULT_POLICY_VERSION,
+        sourceQueryCount: 0,
+        cachedResultCount: 0,
+        servedFromExpandedCache: false,
+      },
     };
   }
 
@@ -100,5 +107,11 @@ export async function searchMockVideos(
     includeOriginalVocal: options.includeOriginalVocal ?? false,
     cached: true,
     results,
+    cacheMeta: {
+      resultPolicyVersion: SEARCH_RESULT_POLICY_VERSION,
+      sourceQueryCount: 0,
+      cachedResultCount: results.length,
+      servedFromExpandedCache: false,
+    },
   };
 }

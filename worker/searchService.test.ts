@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { searchVideos } from "./searchService";
-import { writeSearchCache } from "./kvCache";
+import { searchCacheFamilyKey, writeSearchCache } from "./kvCache";
 import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
 
 class MemoryKv {
@@ -39,7 +39,65 @@ describe("search service cache reuse", () => {
     vi.unstubAllGlobals();
   });
 
-  it.each(["D1", "KV"])("reranks an old %s candidate pool without refilling or losing any of fifty", async (source) => {
+  it("persists all cold candidates before filtering, retains missing metadata, and repeats without external calls", async () => {
+    const kv = new MemoryKv();
+    const items = [
+      { id: "news", title: "霸总喝醉耍赖", categoryId: "24" },
+      { id: "cover", title: "耍賴 Cover by 小林", categoryId: "22" },
+      { id: "snippet", title: "普通上传", categoryId: undefined },
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/search")) return Response.json({ items: items.map((item) => ({
+        id: { videoId: item.id }, snippet: { title: item.title, channelTitle: "测试频道" },
+      })) });
+      if (url.pathname.endsWith("/videos")) return Response.json({ items: items.filter((item) => item.categoryId).map((item) => ({
+        id: item.id, snippet: { categoryId: item.categoryId }, status: { embeddable: true },
+      })) });
+      throw new Error("Unexpected external request");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const options = { query: "耍赖", limit: 50, env: { SEARCH_CACHE: kv, YOUTUBE_API_KEY: "offline-key" } };
+    const first = await searchVideos(options);
+    expect(first.results.map((item) => item.videoId)).toEqual(["cover", "snippet"]);
+    expect(first.cacheMeta).toMatchObject({ sourceQueryCount: 1, candidateResultCount: 3, filteredResultCount: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const raw = JSON.parse(kv.values.get(searchCacheFamilyKey(buildSearchQueryFamily("耍赖").hash))!);
+    expect(raw.results).toHaveLength(3);
+    const repeat = await searchVideos(options);
+    expect(repeat.results.map((item) => item.videoId)).toEqual(["cover", "snippet"]);
+    expect(repeat.cacheMeta).toMatchObject({ sourceQueryCount: 0, candidateResultCount: 3, filteredResultCount: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["D1", "KV"])("returns a successful empty view from %s without spending quota or refilling", async (source) => {
+    const kv = new MemoryKv();
+    const db = new MemorySearchRepositoryD1();
+    const family = buildSearchQueryFamily("耍赖");
+    const stored = buildResponse("耍赖", family.normalizedQuery, [{
+      videoId: "news", title: "霸总喝醉耍赖", categoryId: "24", score: 0, reasons: [],
+    }]);
+    if (source === "D1") {
+      db.seedLegacyEntry({ normalizedQuery: "耍赖", originalQuery: "耍赖", response: stored });
+    } else {
+      await writeSearchCache(kv, family, stored);
+    }
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await searchVideos({
+      query: "耍赖", limit: 50,
+      env: { DB: db.database, SEARCH_CACHE: kv, YOUTUBE_API_KEY: "must-not-be-used" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(response.cached).toBe(true);
+    expect(response.results).toEqual([]);
+    expect(response.cacheMeta).toMatchObject({
+      candidateResultCount: 1, filteredResultCount: 0, hiddenNonMusicResultCount: 1,
+      sourceQueryCount: 0, externalCallAvoided: true,
+    });
+  });
+
+  it.each(["D1", "KV"])("filters the public view of an old %s pool without refilling or deleting raw candidates", async (source) => {
     const kv = new MemoryKv();
     const db = new MemorySearchRepositoryD1();
     const family = buildSearchQueryFamily("耍赖");
@@ -61,10 +119,15 @@ describe("search service cache reuse", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.cached).toBe(true);
-    expect(response.results).toHaveLength(50);
+    expect(response.results).toHaveLength(21);
     expect(response.results.slice(0, 6).every((item) => item.videoId.startsWith("song-"))).toBe(true);
     expect(response.results[0].videoId).toBe("song-ktv");
-    expect(response.cacheMeta).toMatchObject({ sourceQueryCount: 0, externalCallAvoided: true });
+    expect(response.cacheMeta).toMatchObject({ sourceQueryCount: 0, externalCallAvoided: true, candidateResultCount: 50, filteredResultCount: 21 });
+    if (source === "D1") {
+      expect(JSON.parse(db.findVariants(["耍赖", ""])[0].responseJson).results).toHaveLength(50);
+    } else {
+      expect(JSON.parse(kv.values.get(searchCacheFamilyKey(family.hash))!).results).toHaveLength(50);
+    }
   });
 
   it("uses only the cache for the exact text and search options", async () => {

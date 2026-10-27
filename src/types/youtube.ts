@@ -21,6 +21,8 @@ export interface SearchResponse {
   cached: boolean;
   results: VideoSearchResult[];
   cacheMeta?: {
+    resultPolicyVersion?: string;
+    hiddenNonMusicResultCount?: number;
     queryMode?: "youtube-url" | "blocked-url";
     sourceQueryCount: number;
     cachedResultCount: number;

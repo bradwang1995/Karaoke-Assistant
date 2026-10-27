@@ -32,6 +32,7 @@ import {
   quotaResetMessage,
   searchPartialMessage,
   shouldPreserveCurrentSearchResults,
+  isCurrentSearchResponse,
 } from "../lib/searchExperience";
 import {
   addSongToRoom,
@@ -1699,7 +1700,7 @@ function readPersistedSearchState(roomId: string): PersistedSearchState | null {
       query: typeof parsed.query === "string" ? parsed.query : "",
       searchType: parsed.searchType === "url" ? "url" : parsed.searchType === "artist" ? "artist" : "song",
       includeOriginalVocal: parsed.includeOriginalVocal === true,
-      response: isSearchResponse(parsed.response) ? parsed.response : null,
+      response: isSearchResponse(parsed.response) && isCurrentSearchResponse(parsed.response) ? parsed.response : null,
       visibleResultCount: clampVisibleResultCount(parsed.visibleResultCount),
       selectedVideoId:
         typeof parsed.selectedVideoId === "string" ? parsed.selectedVideoId : null,

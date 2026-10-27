@@ -4,10 +4,11 @@ import type { SearchResponse } from "../src/types/youtube";
 import { buildSearchQueryFamily, type SearchQueryFamily } from "./searchFamily";
 import { filterStructurallyUsableVideoResults } from "./songFilter";
 import { rankSearchResultsForQuery } from "./scoring";
+import { isSelfContainedMusicRecording, musicEligibility } from "./musicEligibility";
 
 const SEARCH_CACHE_VERSION = "v4";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v6";
+const SEARCH_RECOMMENDATIONS_VERSION = "v7";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
@@ -172,7 +173,7 @@ export async function writeSearchCache(
     expirationTtl: ttlSeconds,
   });
 
-  await updateSearchRecommendations(namespace, payload.entry.results, ttlSeconds);
+  await updateSearchRecommendations(namespace, eligibleFamilyRecommendations(payload.entry), ttlSeconds);
 
   return payload.entry;
 }
@@ -199,7 +200,30 @@ export async function readSearchRecommendations(
   }
 
   const familyResults = await readRecommendationsFromFamilyCaches(namespace, limit);
-  return uniqueResults([...storedResults, ...familyResults]).slice(0, limit);
+  const results = uniqueResults([...storedResults, ...familyResults]).slice(0, limit);
+  if (familyResults.length > 0 && !sameVideoOrder(storedResults, results)) {
+    // Persist rebuilt approvals so queueing a plain-titled song can still promote it.
+    // Re-read after the scan to preserve a more recent queued/search promotion.
+    try {
+      const latest = await namespace.get<SearchRecommendationsEntry>(searchRecommendationsKey(), { type: "json" });
+      const latestResults = isValidRecommendationsEntry(latest) ? latest.results : [];
+      const merged = uniqueResults([...latestResults, ...results]).slice(0, MAX_RECOMMENDED_SEARCH_RESULTS);
+      if (!sameVideoOrder(latestResults, merged)) {
+        await namespace.put(searchRecommendationsKey(), JSON.stringify({
+          updatedAt: new Date().toISOString(), results: merged,
+        } satisfies SearchRecommendationsEntry), { expirationTtl: DEFAULT_SEARCH_CACHE_TTL_SECONDS });
+      }
+      return merged.slice(0, limit);
+    } catch {
+      // An optional refresh failure must not turn available songs into a failed read.
+      console.error("search-recommendations-rebuild-write-failed");
+    }
+  }
+  return results;
+}
+
+function sameVideoOrder(a: SearchResponse["results"], b: SearchResponse["results"]) {
+  return a.length === b.length && a.every((result, index) => result.videoId === b[index].videoId);
 }
 
 export async function touchSearchCache(
@@ -237,7 +261,7 @@ export async function touchSearchCache(
 
   await updateSearchRecommendations(
     namespace,
-    nextEntry.results,
+    eligibleFamilyRecommendations(nextEntry),
     Math.max(Math.floor((expiresAtMs - Date.now()) / 1000), 60),
   );
 }
@@ -258,6 +282,11 @@ export async function recordQueuedSearchRecommendation(
   const existingResult = isValidRecommendationsEntry(existing)
     ? existing.results.find((result) => result.videoId === item.videoId)
     : undefined;
+
+  // Queueing and URL playback remain unrestricted; unknown clips do not become public songs.
+  if (!existingResult && !isSelfContainedMusicRecording(item.title)) {
+    return;
+  }
 
   await updateSearchRecommendations(
     namespace,
@@ -415,10 +444,7 @@ async function readRecommendationsFromFamilyCaches(
     .filter(isCurrentAlgorithmCacheEntry)
     .map((entry) => ({
       ...entry,
-      results: rankCachedResults(entry).slice(
-        0,
-        MAX_PROMOTED_RESULTS_PER_SEARCH,
-      ),
+      results: eligibleFamilyRecommendations(entry).slice(0, MAX_PROMOTED_RESULTS_PER_SEARCH),
     }))
     .filter((entry) => entry.results.length > 0);
   const rankedGroups = entries
@@ -461,6 +487,12 @@ function rankCachedResults(entry: SearchCacheEntry) {
     filterStructurallyUsableVideoResults(entry.results),
     entry.query,
     entry.queryFamily,
+  );
+}
+
+function eligibleFamilyRecommendations(entry: SearchCacheEntry) {
+  return rankCachedResults(entry).filter((result) =>
+    musicEligibility(result, entry.query, entry.queryFamily).recommendationEligible,
   );
 }
 

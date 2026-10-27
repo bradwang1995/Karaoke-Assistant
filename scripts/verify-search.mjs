@@ -109,6 +109,12 @@ if (/YOUTUBE_MUSIC_CATEGORY_ID|MAX_SONG_DURATION_SECONDS|categoryId|durationSeco
 }
 
 const scoring = readFileSync("worker/scoring.ts", "utf8");
+assertStringConstant(
+  readFileSync("src/lib/searchPolicyVersion.ts", "utf8"),
+  "SEARCH_RESULT_POLICY_VERSION",
+  searchContract.searchResultPolicyVersion,
+  "src/lib/searchPolicyVersion.ts",
+);
 if (/hasSongTitleMatch|isKaraokeIntentResult|isOriginalVocalIntentResult/.test(scoring)) {
   fail("Query/intent scoring 不得重新成为准入 hard gate。", { file: "worker/scoring.ts" });
 }
@@ -126,6 +132,7 @@ run("Search quality and experience contracts", [
   "vitest.search.config.ts",
   "worker/searchQualityContract.test.ts",
   "worker/scoring.test.ts",
+  "worker/musicEligibility.test.ts",
   "worker/searchFamily.test.ts",
   "worker/youtubeSearch.test.ts",
   "worker/searchService.test.ts",

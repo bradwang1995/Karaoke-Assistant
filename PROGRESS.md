@@ -1,8 +1,25 @@
 # Project Progress
 
-Last updated: 2026-10-24
+Last updated: 2026-10-27
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
+
+## 保守搜索展示与严格首页准入（用户已批准，发布准备中）— 2026-10-27
+
+- 回退基线：`aa65a603247bbb01f7b864e4ea08714a216570a0`，本地标签 `codex/baseline-before-music-eligibility-2026-10-27`；原工作区干净，已包含成熟双语与紧凑底栏。详情及回退步骤见 `docs/SEARCH_BASELINE_2026-10-27.md`。未覆盖此前功能或生产数据。
+- 修改前验证：完整 30 files/208 tests、搜索专项 13 files/110 tests、typecheck、build 通过。新增 fixture 记录基线真实 50 条候选顺序/分数，新实现逐项一致。
+- 展示规则：新增纯函数音乐资格判断，仅排除已知非 Music 且无歌曲/音乐/演出线索者；明确音乐版本、非 Music 分类音乐、metadata 不足、短片/长串烧优先保留。原唱开关、原有 scoring 与 provider query 不改。
+- 缓存分层：raw algorithm `rank-preserve-50-v2` 与 exact KV `v4` 不变，D1/KV 先保存全部 raw candidates，再过滤公开视图。独立 response policy `music-evidence-v1` 防止恢复旧浏览器结果；输入、模式与原唱选项保留。筛后零条仍是缓存命中，不冷重填。
+- 推荐 `v7`：新写、touch、历史重建统一先筛明确音乐与查询关联，再最多取 20 条；不足不补尾部。v6 池不读不覆盖，旧 raw 与推荐 key 支持代码回退。重建的合格结果尽力持久化，保持既有纯歌名歌曲的点歌提升；不变时不重复写，刷新故障不使可用读取失败。
+- 点歌提升：已认可推荐或自带清楚录音结构/版本的音乐可提升；未知 URL 兜底/日常视频不能自动进入全局首页，点歌/播放路径本身不加限制，不补查 metadata。
+- 最终验证：完整 31 files/240 tests、搜索专项 14 files/142 tests（真实网络禁止）、typecheck、build、`git diff --check` 通过。原有 URL、quota、deadline、四模式、结构准入、播放器/队列/i18n 测试仍通过。没有新增依赖或 schema migration。
+- 真实缓存离线回放：原始 50 条完整保留，公开显示 27、隐藏 23、推荐 4 条明确同名歌曲。保持非 Music 的《达尔文 伴奏》等音乐可搜，含糊 KTV/表演片段仍保守可搜；首页不含这些不确定项。不能仅凭 metadata 承诺所有未来视频零误判。
+- 本机独立双 Worker 使用 `.wrangler/state-music-eligibility` 与空 env 的 Main，无 YouTube key；本地迁移仅准备隔离库。旧 v4 KV 和 D1 的 50 条 fixture 经真实 Worker/API 返回 `cached=true`、`candidateResultCount=50`、`filteredResultCount=27`、`hiddenNonMusicResultCount=23`、`sourceQueryCount=0`、本地 quota used `0`。
+- 新建内置 @Browser 验证：创建房间、Connected、首页 `4/4`、普通/原唱搜索 `27`、刷新恢复原唱/结果、清空回推荐、中文/英文、点歌与房间同步、已点歌曲升到推荐首位。手机页 console warning/error 为空。实际 YouTube 播放未通过：样例视频返回播放器错误 150；播放页源码没有修改，未把点歌/同步通过冒充播放通过。
+- 本地预览运行中：`http://127.0.0.1:8793/room/0b2a5o4z/mobile`。初始推荐四首，搜索“耍赖”后最多显示 27 条；清空再按搜索返回推荐。这里只是固定缓存回放，非实时 YouTube 搜索。截图 `.wrangler/music-eligibility-preview/homepage.png` 未提交；验收播放页已关闭。
+- 前端由 dist 提供，改前端需 build 后刷新；Worker 源码自动重载，关闭运行终端停止服务。未改双语词库/样式/DisplayPage，构建 CSS 与成熟版同为 `index-BJfuVwz4.css`；未声称窄屏或完整真实播放验收。
+- 用户已检查并明确批准 push/deploy，计划在生产进行用户验收。发布前重复完整 240 项、搜索专项 142 项与 typecheck 均通过；发布版本和线上 cacheOnly 结果待实际完成后记录。只推送发布分支与回退标签，不推送 main。
+- 发布前只读核实线上回退版本：Room `dd918083-a7ae-49b8-9a20-1fd2ab7938e0`、Main `46fb6774-1898-4ee3-8e08-34ad377ed16e`，均为当前 100% 活动版本。
 
 ## 英文紧凑文案与下一首标题（已发布）— 2026-10-24
 

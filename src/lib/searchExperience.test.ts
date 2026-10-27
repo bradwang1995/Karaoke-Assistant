@@ -4,9 +4,16 @@ import {
   quotaResetMessage,
   searchPartialMessage,
   shouldPreserveCurrentSearchResults,
+  isCurrentSearchResponse,
 } from "./searchExperience";
+import { SEARCH_RESULT_POLICY_VERSION } from "./searchPolicyVersion";
 
 describe("search experience contracts", () => {
+  it("invalidates old unfiltered snapshots but restores current results and direct URLs", () => {
+    expect(isCurrentSearchResponse(response(["old"], {}))).toBe(false);
+    expect(isCurrentSearchResponse(response(["current"], { resultPolicyVersion: SEARCH_RESULT_POLICY_VERSION }))).toBe(true);
+    expect(isCurrentSearchResponse(response(["url"], { queryMode: "youtube-url" }))).toBe(true);
+  });
   it.each([
     { timedOut: true },
     { providerRateLimited: true },

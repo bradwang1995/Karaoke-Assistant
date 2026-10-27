@@ -21,6 +21,8 @@ import {
 import { rankSearchResultsForQuery } from "./scoring";
 import { readSearchRepositories, writeSearchRepository } from "./searchRepository";
 import { filterStructurallyUsableVideoResults } from "./songFilter";
+import { filterSearchResultsForDisplay } from "./musicEligibility";
+import { SEARCH_RESULT_POLICY_VERSION } from "../src/lib/searchPolicyVersion";
 import type { Env } from "./types";
 import {
   upsertVideoCatalog,
@@ -196,6 +198,7 @@ export async function searchVideos({
       cached: false,
       results: [],
       cacheMeta: {
+        resultPolicyVersion: SEARCH_RESULT_POLICY_VERSION,
         sourceQueryCount: 0,
         cachedResultCount: 0,
         servedFromExpandedCache: false,
@@ -266,6 +269,7 @@ function directQueryResponse(
     results,
     cacheMeta: {
       queryMode,
+      resultPolicyVersion: SEARCH_RESULT_POLICY_VERSION,
       sourceQueryCount: 0,
       cachedResultCount: results.length,
       servedFromExpandedCache: false,
@@ -291,7 +295,7 @@ function markCacheOnlyResponse(response: SearchResponse, cacheOnly: boolean) {
     cacheMeta: {
       ...response.cacheMeta,
       sourceQueryCount: 0,
-      cachedResultCount: response.results.length,
+      cachedResultCount: response.cacheMeta?.cachedResultCount ?? response.results.length,
       servedFromExpandedCache: response.cacheMeta?.servedFromExpandedCache ?? false,
       externalCallAvoided: true,
       cacheOnly: true,
@@ -576,6 +580,7 @@ export async function getSearchRecommendations({
     cached: true,
     results,
     cacheMeta: {
+      resultPolicyVersion: SEARCH_RESULT_POLICY_VERSION,
       sourceQueryCount: 0,
       cachedResultCount: results.length,
       servedFromExpandedCache: true,
@@ -707,15 +712,11 @@ async function searchLiveVideos({
 }
 
 function limitSearchResponse(response: SearchResponse, limit: number): SearchResponse {
+  // Persistence and hit/miss decisions use the full raw pool. Only the public view is filtered.
+  const visible = filterSearchResultsForDisplay(response);
   return {
-    ...response,
-    results: response.results.slice(0, limit),
-    cacheMeta: response.cacheMeta
-      ? {
-          ...response.cacheMeta,
-          cachedResultCount: response.cacheMeta.cachedResultCount,
-        }
-      : undefined,
+    ...visible,
+    results: visible.results.slice(0, limit),
   };
 }
 

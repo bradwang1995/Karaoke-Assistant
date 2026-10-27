@@ -1,6 +1,12 @@
 import { interpolate, type Translator } from "../i18n/messages";
 import type { SearchResponse } from "../types/youtube";
 import { formatRelativeQuotaReset } from "./quotaReset";
+import { SEARCH_RESULT_POLICY_VERSION } from "./searchPolicyVersion";
+
+export function isCurrentSearchResponse(response: SearchResponse) {
+  return response.cacheMeta?.resultPolicyVersion === SEARCH_RESULT_POLICY_VERSION ||
+    response.cacheMeta?.queryMode === "youtube-url";
+}
 
 export function shouldPreserveCurrentSearchResults(response: SearchResponse) {
   return (

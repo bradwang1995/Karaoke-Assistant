@@ -16,6 +16,7 @@
   },
   "include": [
     "src/lib/searchQuery.ts",
+    "src/lib/searchPolicyVersion.ts",
     "functions/**/*.ts",
     "worker/**/*.ts",
     "src/types/**/*.ts",

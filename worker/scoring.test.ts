@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { rankSearchResultsForQuery, scoreSearchResult } from "./scoring";
 import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
 import { cachedAmbiguousSongCandidates } from "./fixtures/cachedAmbiguousSong";
+import { baselineCachedSongRanking } from "./fixtures/searchRankingBaseline";
 
 describe("search scoring", () => {
+  it("preserves every raw candidate's order and score from the mature aa65a60 baseline", () => {
+    expect(rankSearchResultsForQuery(cachedAmbiguousSongCandidates, "耍赖")
+      .map(({ videoId, score }) => ({ videoId, score }))).toEqual(baselineCachedSongRanking);
+  });
   it.each([false, true])("ranks actual cached song names above hashtag clips and another song's lyrics, original=%s", (includeOriginalVocal) => {
     const results = rankSearchResultsForQuery(cachedAmbiguousSongCandidates, "耍赖", { includeOriginalVocal });
     const ids = results.map((result) => result.videoId);

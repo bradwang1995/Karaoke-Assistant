@@ -12,6 +12,7 @@ import {
 } from "./kvCache";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
+import { cachedAmbiguousSongCandidates } from "./fixtures/cachedAmbiguousSong";
 
 class MemoryKv {
   values = new Map<string, string>();
@@ -44,6 +45,64 @@ class MemoryKv {
 }
 
 describe("KV search cache", () => {
+  it("promotes only four actual matching songs on writes, touch and legacy rebuild, leaving v6 and fifty raw hits intact", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("耍赖");
+    const legacyKey = "yt-search-recommendations:v6:CA:zh-Hans";
+    const legacyPool = JSON.stringify({ updatedAt: new Date().toISOString(), results: cachedAmbiguousSongCandidates.slice(0, 20) });
+    kv.values.set(legacyKey, legacyPool);
+    await writeSearchCache(kv, family, buildResponse("耍赖", family.normalizedQuery, cachedAmbiguousSongCandidates));
+    const expected = ["-H5mMOf7quU", "00QDPHlWhvU", "jd4cllIyDHg", "IdMHKsoFNCI"];
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(expected);
+    const cached = await readSearchCache(kv, family);
+    expect(cached?.entry.results).toHaveLength(50);
+    await touchSearchCache(kv, family.hash, cached!.entry);
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(expected);
+    kv.values.delete(searchRecommendationsKey());
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(expected);
+    const writesAfterRebuild = kv.writes.length;
+    await readSearchRecommendations(kv, 200);
+    expect(kv.writes).toHaveLength(writesAfterRebuild);
+    await recordQueuedSearchRecommendation(kv, { videoId: "00QDPHlWhvU", title: "琳娜 - 耍賴" });
+    expect((await readSearchRecommendations(kv, 200))[0].videoId).toBe("00QDPHlWhvU");
+    expect((await readSearchCache(kv, family))?.entry.results).toHaveLength(50);
+    expect(kv.values.get(legacyKey)).toBe(legacyPool);
+  });
+
+  it("serves rebuilt songs even when the optional v7 write fails", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("Later");
+    await writeSearchCache(kv, family, buildResponse("Later", family.normalizedQuery, buildResults(3)));
+    kv.values.delete(searchRecommendationsKey());
+    kv.put = async () => { throw new Error("KV write unavailable"); };
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(["video-0", "video-1", "video-2"]);
+  });
+
+  it("checks eligibility before the twenty-item cap, including lower-ranked valid artist covers", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("林俊杰", undefined, { searchType: "artist" });
+    const interviews = buildResults(30).map((item) => ({
+      ...item, title: "林俊杰 专访", channelTitle: "林俊杰", tags: ["林俊杰"], categoryId: "24",
+    }));
+    const covers = buildResults(6, 100).map((item) => ({ ...item, title: "林俊杰 江南 Cover", tags: [] }));
+    await writeSearchCache(kv, family, buildResponse("林俊杰", family.normalizedQuery, [...interviews, ...covers]));
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(covers.map((item) => item.videoId));
+  });
+
+  it("never backfills a zero-eligible family or promotes unknown queued videos into the homepage", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("耍赖");
+    await writeSearchCache(kv, family, buildResponse("耍赖", family.normalizedQuery, [{
+      videoId: "news", title: "霸总喝醉耍赖", categoryId: "24", score: 9999, reasons: [],
+    }]));
+    await recordQueuedSearchRecommendation(kv, { videoId: "news", title: "霸总喝醉耍赖" });
+    await recordQueuedSearchRecommendation(kv, { videoId: "direct-url", title: "YouTube 视频" });
+    expect(await readSearchRecommendations(kv, 200)).toEqual([]);
+    expect((await readSearchCache(kv, family))?.entry.results).toHaveLength(1);
+    await recordQueuedSearchRecommendation(kv, { videoId: "new-cover", title: "小林 - 耍赖 Cover" });
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(["new-cover"]);
+  });
+
   it("builds stable v4 cache keys", () => {
     expect(searchCacheFamilyKey("abc123")).toBe("yt-search:v4:abc123:CA:zh-Hans");
     expect(searchCacheIndexKey("later ktv")).toBe(
@@ -175,12 +234,12 @@ describe("KV search cache", () => {
     const recommendations = await readSearchRecommendations(kv, 20);
 
     expect(kv.values.has(searchRecommendationsKey())).toBe(true);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v6:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v7:CA:zh-Hans");
     expect(recommendations).toHaveLength(10);
     expect(recommendations[0].videoId).toBe("video-0");
   });
 
-  it.each(["v4", "v5"])("ignores the previous recommendation pool version %s", async (version) => {
+  it.each(["v4", "v5", "v6"])("ignores the previous recommendation pool version %s", async (version) => {
     const kv = new MemoryKv();
     kv.values.set(
       `yt-search-recommendations:${version}:CA:zh-Hans`,
@@ -188,7 +247,7 @@ describe("KV search cache", () => {
     );
 
     await expect(readSearchRecommendations(kv, 20)).resolves.toEqual([]);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v6:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v7:CA:zh-Hans");
   });
 
   it("rebuilds recommendations from reranked legacy candidates before taking the top twenty", async () => {
@@ -201,13 +260,12 @@ describe("KV search cache", () => {
     }));
 
     const recommendations = await readSearchRecommendations(kv, 20);
-    expect(recommendations).toHaveLength(20);
-    expect(recommendations.slice(0, 6).every((item) => item.videoId.startsWith("song-"))).toBe(true);
+    expect(recommendations.map((item) => item.videoId)).toEqual(["song-ktv", "song-cover", "song-live", "song-official"]);
     expect((await readSearchCache(kv, family))?.entry.results).toHaveLength(50);
 
     const cached = await readSearchCache(kv, family);
     await touchSearchCache(kv, family.hash, cached!.entry);
-    expect((await readSearchRecommendations(kv, 20)).slice(0, 6).every((item) => item.videoId.startsWith("song-"))).toBe(true);
+    expect((await readSearchRecommendations(kv, 20)).map((item) => item.videoId)).toEqual(recommendations.map((item) => item.videoId));
   });
 
   it("keeps recommendations selective by using only the top twenty from each family", async () => {
@@ -218,7 +276,7 @@ describe("KV search cache", () => {
       const response = buildResponse(
         `Singer ${familyIndex}`,
         family.normalizedQuery,
-        buildResults(50, familyIndex * 50),
+        buildResults(50, familyIndex * 50, `Singer ${familyIndex}`),
       );
 
       await writeSearchCache(kv, family, response, {
@@ -262,12 +320,12 @@ describe("KV search cache", () => {
     await writeSearchCache(
       kv,
       earlierFamily,
-      buildResponse("Earlier Singer", earlierFamily.normalizedQuery, buildResults(12)),
+      buildResponse("Earlier Singer", earlierFamily.normalizedQuery, buildResults(12, 0, "Earlier Singer")),
     );
     await writeSearchCache(
       kv,
       latestFamily,
-      buildResponse("Latest Singer", latestFamily.normalizedQuery, buildResults(12, 100)),
+      buildResponse("Latest Singer", latestFamily.normalizedQuery, buildResults(12, 100, "Latest Singer")),
     );
 
     const recommendations = await readSearchRecommendations(kv, 24);
@@ -287,12 +345,12 @@ describe("KV search cache", () => {
     await writeSearchCache(
       kv,
       firstFamily,
-      buildResponse("First Singer", firstFamily.normalizedQuery, buildResults(12)),
+      buildResponse("First Singer", firstFamily.normalizedQuery, buildResults(12, 0, "First Singer")),
     );
     await writeSearchCache(
       kv,
       secondFamily,
-      buildResponse("Second Singer", secondFamily.normalizedQuery, buildResults(12, 100)),
+      buildResponse("Second Singer", secondFamily.normalizedQuery, buildResults(12, 100, "Second Singer")),
     );
 
     const cached = await readSearchCache(kv, firstFamily);
@@ -353,10 +411,10 @@ function buildResponse(
   };
 }
 
-function buildResults(count: number, offset = 0): VideoSearchResult[] {
+function buildResults(count: number, offset = 0, query = "Later"): VideoSearchResult[] {
   return Array.from({ length: count }, (_, index) => ({
     videoId: `video-${index + offset}`,
-    title: `Later KTV ${index + offset}`,
+    title: `${query} KTV ${index + offset}`,
     channelTitle: "Karaoke Studio",
     thumbnailUrl: `https://img.youtube.com/vi/video-${index + offset}/hqdefault.jpg`,
     durationSeconds: 240,
