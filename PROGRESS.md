@@ -2,9 +2,9 @@
 
 Last updated: 2026-10-27
 
-## 分类误伤、部分歌名与首页推荐更新（本地验证通过，未发布）— 2026-10-27
+## 分类误伤、部分歌名与首页推荐更新（已发布，用户实际使用验收待进行）— 2026-10-27
 
-- 用户批准修复四项生产验收问题。起点 `a6651fb` / 功能 `eae1d9d`，工作区干净；成熟回退节点继续见 `docs/SEARCH_BASELINE_2026-10-27.md`。没有提交、推送、部署或生产数据变更。
+- 用户批准修复四项生产验收问题。起点 `a6651fb` / 功能 `eae1d9d`，工作区干净；成熟回退节点继续见 `docs/SEARCH_BASELINE_2026-10-27.md`。本地实施阶段没有提交、推送、部署或生产数据变更；用户随后明确授权发布，结果见本节末尾。
 - 搜索展示需同时有非 Music 分类和肯定的非音乐内容线索，且无歌曲/音乐保护才排除；首唱、新歌、主题曲等纳入音乐证据，信息不足和歌手关联的录音结构优先保留。推荐支持明确歌名部分的部分匹配，继续排除仅歌词/hashtag 命中，不用弱项凑满 20。
 - policy 升为 `music-evidence-v2`、推荐池升为 `v8`；保留 raw algorithm `rank-preserve-50-v2` / exact KV v4、原始候选与分数顺序，不覆盖旧 v7 池。D1 命中在已有后台任务中提升合格推荐；历史重建每次最多五页/100 组，保存游标并正确处理空页，点歌不丢进度。
 - Mobile 搜索成功后失效/刷新推荐；清空后按搜索主动重新读取，保留已有卡片。后台持久化与 KV 最终一致性仍可能有短暂可见延迟，不承诺生产跨设备即时出现。
@@ -12,8 +12,13 @@ Last updated: 2026-10-27
 - 既有生产候选的最终离线重放：周深 artist 50→50（旧展示47），林俊杰 artist 50→50（旧49），周杰伦 artist 50→50；三国 song 原始50、展示49、合格推荐8（旧0），含三国恋/三国杀。耍赖的四条明确歌曲仍为唯一合格推荐，原始50条排序 golden 通过；保守展示允许更多不确定项留在搜索尾部。
 - 独立双 Worker 使用无密钥配置 `.wrangler/quality-investigation/{main,room}.local.toml` 与 `.wrangler/state-music-eligibility-v2`，仅本地迁移并预置六组既有公开视频 metadata，没有调用 YouTube。内置 @Browser 新会话创建房间 `323j5a0w`，Connected；初始推荐0，周深/林俊杰/周杰伦搜索总数均50，搜索后直接清空返回推荐，合格池逐步增至68，三国恋/三国杀出现在推荐前部，中文/英文均验证，console warn/error 为空。此验证证明真实本地 Worker/API 路径，未使用 Vite fallback。
 - 本地预览运行中：`http://127.0.0.1:8795/room/323j5a0w/mobile`。歌手模式搜索上述三位，或歌名模式搜索三国，再清空按搜索看首页；这里只回放已有缓存，非实时 YouTube。截图 `.wrangler/quality-investigation/recommendations-v2.png` 未提交。前端由已构建 dist 提供，后续前端修改需 build 后刷新；Ctrl+C 停止服务。
-- CSS 产物仍为 `index-BJfuVwz4.css`，没有改布局、双语词库、播放器或队列代码；本轮未进行真实视频播放或生产验收。
+- CSS 产物仍为 `index-BJfuVwz4.css`，没有改布局、双语词库、播放器或队列代码；本地阶段未进行真实视频播放或生产验收。
 - 用户已明确授权本批 push/redeploy，实际使用留待用户稍后验收。发布前只读确认当前线上 100% 回退版本：Room `ac92afe0-a8c5-4cce-ac01-5d6378d69427`、Main `ea599cd9-e959-4cb6-94f5-8db9890c09e6`，对应此前功能 `eae1d9d` / 记录 `a6651fb`。后续发布结果仅在远端验证后记录。
+- 发布前再次通过完整 31 files/264 tests、搜索专项 14 files/166 tests、typecheck、build 与 diff check。功能提交 `9b42ac3e66915f9392b1a7a5603df7ee519931c1` 已推送 `origin/codex/music-eligibility-cache` 并用 ls-remote 核实；没有推送 main。
+- 2026-10-27 22:41 UTC 按 Room → Main、两者均带 `--keep-vars` 发布；deployments status 已核实活动流量均为 100%：Room `54cc7914-fb88-46cf-bbb0-2b7570ffb9c2`，Main `c4afd566-4529-4163-a313-d35397f7b183`。没有生产 schema migration、原始缓存删除或密钥变更。
+- 生产 smoke 使用隔离的 search room id `qfix1027`，先 cacheOnly 耍赖，再 cacheOnly 周深/林俊杰/周杰伦 artist 与三国 song（原唱均关闭）。五组均为 repository 命中、raw50、policy v2、sourceQueryCount=0；展示分别45/50/50/50/49，三国合格推荐8，耍赖仍仅4。配额 used `4 → 4`；没有冷搜索、详情补查或触发播放。
+- 首页空查询返回200条全局推荐：上述三位歌手各自头20条全部可见，三国8/8和耍赖4/4均已进入池，四个已知剧情/日常/新闻视频 ID 均不存在。首次历史补建脚本端耗时1884ms，持久化后重复读取200条为172ms、sourceQueryCount=0（均不是浏览器性能测量）；不把这些计数当作全局歌曲总数或真实播放通过证据。原始 smoke 数据位于未提交的 `.wrangler/release-v2-production.json`。
+- 生产实际播放和进一步用户使用验收留待用户方便时进行。发布记录以独立 `[CI Skip]` 文档提交推送，刷新原页面后可使用新前端。
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
