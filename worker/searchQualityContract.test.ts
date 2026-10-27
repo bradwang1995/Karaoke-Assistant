@@ -3,6 +3,7 @@ import type { SearchType } from "../src/types/youtube";
 import { classifySearchQuery } from "../src/lib/searchQuery";
 import { searchYouTubeVideos } from "./youtubeSearch";
 import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
+import { filterSearchResultsForDisplay, musicEligibility } from "./musicEligibility";
 
 interface QualityCandidate {
   videoId: string;
@@ -93,6 +94,23 @@ const QUALITY_CONTRACTS: QualityContract[] = [
 ];
 
 describe("search quality release contracts", () => {
+  it.each([false, true])("preserves artist performances and recommends partial song names, original=%s", (includeOriginalVocal) => {
+    for (const [query, searchType, title, categoryId] of [
+      ["周深", "artist", "【中文版本】周深新歌《浮光》跨晩首唱！宿命感拉满", "24"],
+      ["周深", "artist", "#周深 封神之曲《达拉崩吧》", "29"],
+      ["林俊杰", "artist", "林俊傑 孤獨娛樂", "22"],
+      ["三国", "song", "TANK 呂建忠 - 三國戀 (伴奏 KTV Instrumental)", "10"],
+      ["三国", "song", "汪蘇瀧 三國殺 KTV版", "10"],
+    ] as const) {
+      const result = { videoId: "recording", title, categoryId, score: 42, reasons: ["unchanged ranking"] };
+      const raw = { query, normalizedQuery: query, searchType, includeOriginalVocal, cached: true, results: [result] };
+      expect(filterSearchResultsForDisplay(raw).results).toEqual([result]);
+      expect(raw.results[0]).toBe(result);
+      if (searchType === "song") expect(musicEligibility(result, query, raw).recommendationEligible).toBe(true);
+    }
+    expect(musicEligibility({ title: "王靖雯 - 唉『我好想看你耍賴』Lyrics", categoryId: "10" }, "耍赖").recommendationEligible).toBe(false);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

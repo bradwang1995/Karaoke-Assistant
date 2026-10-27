@@ -4,6 +4,45 @@ import { musicEligibility, isSelfContainedMusicRecording } from "./musicEligibil
 
 describe("conservative music search and selective recommendations", () => {
   it.each([
+    ["周深", "【中文版本】周深新歌《浮光》跨晩首唱！宿命感拉满", "24"],
+    ["周深", "【周深】周深不太会唱系列三 我试试", "24"],
+    ["周深", "#周深  封神之曲《达拉崩吧》", "29"],
+    ["林俊杰", "林俊傑 孤獨娛樂", "22"],
+    ["某歌手", "某歌手 - 灰姑娘", "24"],
+  ])("retains real artist uploads despite non-Music metadata: %s / %s", (query, title, categoryId) => {
+    expect(musicEligibility({ title, categoryId }, query, { searchType: "artist" }).searchEligible).toBe(true);
+  });
+
+  it("keeps an ambiguous non-Music upload searchable without recommending it", () => {
+    expect(musicEligibility({ title: "普通上传", categoryId: "22" }, "耍赖"))
+      .toEqual({ searchEligible: true, recommendationEligible: false });
+  });
+
+  it.each([
+    "[ KTV ] 三国恋 Tam Quốc Luyến - TANK Karaoke 伴奏",
+    "TANK 呂建忠 - 三國戀 Three Kingdom Love (伴奏 KTV Instrumental)",
+    "TANK.-.[三國戀].KTV.mpg",
+    "汪蘇瀧  三國殺  KTV版",
+    "歌手《恋三国》翻唱",
+  ])("recommends a partial query in a recording title: %s", (title) => {
+    expect(musicEligibility({ title, categoryId: "10" }, "三国").recommendationEligible).toBe(true);
+  });
+
+  it("preserves English word boundaries for partial recording titles", () => {
+    expect(musicEligibility({ title: "Artist - Someone Lyrics", categoryId: "10" }, "One").recommendationEligible).toBe(false);
+    expect(musicEligibility({ title: "Artist - One Day Lyrics", categoryId: "10" }, "One").recommendationEligible).toBe(true);
+  });
+
+  it.each([
+    { title: "王靖雯 - 唉『我好想看你耍賴』Lyrics", categoryId: "10" },
+    { title: "新闻采访 三国演员谈拍戏", categoryId: "24" },
+    { title: "日常生活 #三国恋 #MV", categoryId: "22" },
+  ])("does not promote a lyric, narrative or hashtag match: $title", (result) => {
+    const query = result.title.includes("耍賴") ? "耍赖" : "三国";
+    expect(musicEligibility(result, query).recommendationEligible).toBe(false);
+  });
+
+  it.each([
     ["陳楚生 - 耍賴 Official Music Video", "10"],
     ["陳楚生 - 耍賴 Lyrics", "24"],
     ["耍賴 Cover by 小林", "24"],

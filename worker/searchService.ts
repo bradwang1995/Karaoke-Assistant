@@ -9,6 +9,7 @@ import {
   MAX_CACHED_SEARCH_RESULTS,
   readSearchCache,
   readSearchRecommendations,
+  promoteSearchRecommendations,
   type SearchCacheNamespace,
   touchSearchCache,
   writeSearchCache,
@@ -170,6 +171,10 @@ export async function searchVideos({
       const backgroundTasks = kvHits
         .filter((hit) => !repositoryByFamily.has(hit.family.hash))
         .map((hit) => touchSearchCache(env.SEARCH_CACHE, hit.familyHash, hit.entry));
+
+      if (repositoryByFamily.has(family.hash)) {
+        backgroundTasks.push(promoteSearchRecommendations(env.SEARCH_CACHE, response, cacheTtlSeconds));
+      }
 
       if (
         response.cacheMeta?.servedFromExpandedCache ||

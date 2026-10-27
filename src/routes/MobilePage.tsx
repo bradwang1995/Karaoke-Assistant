@@ -13,7 +13,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode, RefObject } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -228,6 +228,7 @@ function SearchTab({
 }) {
   useLanguage();
   const [initialSearchState] = useState(() => readPersistedSearchState(roomId));
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState(initialSearchState?.query ?? "");
   const [searchType, setSearchType] = useState<SearchInputType>(
     initialSearchState?.searchType ?? "song",
@@ -365,6 +366,7 @@ function SearchTab({
       }
 
       setSearchResponse(response);
+      void queryClient.invalidateQueries({ queryKey: ["search-recommendations", roomId] });
       setVisibleResultCount(SEARCH_RESULT_PAGE_SIZE);
       setActivePreviewVideoId(null);
       setPendingPreviewVideoId(null);
@@ -626,6 +628,7 @@ function SearchTab({
     const trimmedQuery = nextQuery.trim();
 
     if (!trimmedQuery) {
+      void recommendationsQuery.refetch();
       latestSearchRequestRef.current += 1;
       searchMutation.reset();
       setSearchResponse(null);

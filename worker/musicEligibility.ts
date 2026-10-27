@@ -9,9 +9,11 @@ interface MusicQueryContext {
 }
 
 // Specific recording formats. KTV/live alone can also describe a venue or a news event.
-const RECORDING_SIGNALS = /\b(mv|music\s+video|lyrics?|instrumental|karaoke|cover|acoustic|a\s*cappella|official\s+audio)\b|伴奏|歌词|翻唱|纯音乐|卡拉\s*ok|演唱会|现场演唱|合唱/iu;
+const RECORDING_SIGNALS = /\b(mv|music\s+video|lyrics?|instrumental|karaoke|cover|acoustic|a\s*cappella|official\s+audio)\b|伴奏|歌词|翻唱|纯音乐|卡拉\s*ok|演唱会|现场演唱|合唱|首唱|独唱|新歌|主题曲|插曲|之曲/iu;
 const PERFORMANCE_HINTS = /\b(ktv|live|music|singing|song|concert|cover|karaoke|lyrics?|instrumental|mv)\b|伴奏|翻唱|歌词|卡拉\s*ok|演唱|唱歌|音乐|现场|舞台|演出|合唱/iu;
-const VERSION_LABEL = /(?:\bktv\b|\blive\b|现场)[\s\p{P}]*$/iu;
+const VERSION_LABEL = /(?:\bktv\b|\blive\b|现场)(?:\s*版(?:本)?)?[\s\p{P}]*$/iu;
+// A non-Music category is not proof of non-music content. Require positive context too.
+const NON_MUSIC_CONTENT = /新闻|采访|专访|访谈|剧情|短剧|霸总|灰姑娘|警察|醉汉|砸桌|大闹|鬼故事|都市传说|冷知识|搞笑|恶搞|游戏攻略|游戏实况|射箭|婚礼|女儿奴|啼啼大哭|自曝|历史解说/u;
 
 export function musicEligibility(
   result: Pick<VideoSearchResult, "title" | "channelTitle" | "categoryId" | "tags">,
@@ -22,6 +24,7 @@ export function musicEligibility(
   const contentTitle = title.replace(/#[^\s#]+/gu, " ").trim();
   const canonicalQuery = normalizeRankingText(normalizeSearchFamilyQuery(query));
   const songIdentity = options.searchType !== "artist" && hasSongIdentity(contentTitle, canonicalQuery);
+  const relatedSongTitle = options.searchType !== "artist" && hasRelatedSongTitle(contentTitle, canonicalQuery);
   const strongTitleMusic = RECORDING_SIGNALS.test(contentTitle) ||
     (VERSION_LABEL.test(contentTitle) && (songIdentity || hasRecordingStructure(contentTitle)));
   const music = result.categoryId === "10" || strongTitleMusic;
@@ -35,9 +38,10 @@ export function musicEligibility(
   );
 
   return {
-    // Unknown metadata or plausible performances remain searchable, regardless of vocal intent.
-    searchEligible: !knownNonMusic || music || songIdentity || hints,
-    recommendationEligible: music && (songIdentity || artistIdentity),
+    // Uncertain uploads remain searchable; exclusion needs affirmative non-music context.
+    searchEligible: !knownNonMusic || !NON_MUSIC_CONTENT.test(contentTitle) || music || songIdentity || hints ||
+      (artistIdentity && hasRecordingStructure(contentTitle)),
+    recommendationEligible: music && (songIdentity || relatedSongTitle || artistIdentity),
   };
 }
 
@@ -80,6 +84,25 @@ function hasSongIdentity(title: string, query: string) {
 function musicComparableText(value: string) {
   const withoutFormat = value.replace(/\b(?:official\s+)?music\s+video\b/giu, " ").trim();
   return normalizeSongComparableText(withoutFormat || value);
+}
+
+function hasRelatedSongTitle(title: string, query: string) {
+  if (!query) return false;
+  // These quotes conventionally introduce a lyric excerpt, not the recording's title.
+  const recordingTitle = title.split(/[『「]/u)[0];
+  const comparableQuery = musicComparableText(query);
+  // Partial matching is safe in an explicitly named song, including a suffix of its name.
+  if ([...recordingTitle.matchAll(/[《〈\[]([^》〉\]]+)[》〉\]]/gu)]
+    .some((match) => containsQuery(musicComparableText(match[1]), comparableQuery))) return true;
+
+  // Artist-title separators and title/version tokens support partial song names. Do not
+  // search the quoted lyrics or treat arbitrary Chinese substrings in sentences as names.
+  return recordingTitle.split(/[|/\[\]{}()<>《》〈〉【】:：–—-]+/u).some((segment) => {
+    const comparable = musicComparableText(segment);
+    return (comparable.startsWith(comparableQuery) && containsQuery(comparable, comparableQuery)) ||
+      ((RECORDING_SIGNALS.test(recordingTitle) || VERSION_LABEL.test(recordingTitle)) &&
+        comparable.split(/\s+/u).some((token) => token.startsWith(comparableQuery) && containsQuery(token, comparableQuery)));
+  });
 }
 
 function hasRecordingStructure(title: string) {

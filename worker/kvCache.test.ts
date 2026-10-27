@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import {
   readSearchCache,
@@ -35,16 +35,78 @@ class MemoryKv {
     this.writes.push({ key, value, options });
   }
 
-  async list(options: { prefix?: string } = {}) {
-    const keys = [...this.values.keys()]
+  async list(options: { prefix?: string; limit?: number; cursor?: string } = {}) {
+    const allKeys = [...this.values.keys()]
       .filter((key) => !options.prefix || key.startsWith(options.prefix))
+      .sort()
       .map((name) => ({ name }));
-
-    return { keys, list_complete: true };
+    const offset = Number(options.cursor ?? 0);
+    const next = offset + (options.limit ?? 1000);
+    return { keys: allKeys.slice(offset, next), list_complete: next >= allKeys.length,
+      cursor: next < allKeys.length ? String(next) : undefined };
   }
 }
 
 describe("KV search cache", () => {
+  it("rebuilds beyond the first twenty lexicographic families", async () => {
+    const kv = new MemoryKv();
+    for (let index = 0; index < 25; index += 1) {
+      const query = `Song ${index}`;
+      const family = buildSearchQueryFamily(query);
+      await writeSearchCache(kv, family, buildResponse(query, family.normalizedQuery, buildResults(1, index, query)));
+    }
+    kv.values.delete(searchRecommendationsKey());
+    const list = vi.spyOn(kv, "list");
+    const results = await readSearchRecommendations(kv, 200);
+    expect(new Set(results.map((result) => result.videoId)).size).toBe(25);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(list.mock.calls[1][0]).toMatchObject({ limit: 20, cursor: "20" });
+  });
+
+  it("saves progress after one hundred families and resumes even if the first pages have no songs", async () => {
+    const kv = new MemoryKv();
+    for (let index = 0; index < 120; index += 1) {
+      const query = `Archive ${index}`;
+      const family = buildSearchQueryFamily(query);
+      const result = { ...buildResults(1, index, query)[0], title: "普通上传", categoryId: "22" };
+      await writeSearchCache(kv, family, buildResponse(query, family.normalizedQuery, [result]));
+    }
+    const familyKeys = [...kv.values.keys()].filter((key) => key.startsWith("yt-search:v4:")).sort();
+    const lastKey = familyKeys.at(-1)!;
+    const entry = JSON.parse(kv.values.get(lastKey)!);
+    entry.results[0].title = `${entry.query} Karaoke`;
+    entry.results[0].categoryId = "10";
+    kv.values.set(lastKey, JSON.stringify(entry));
+    const list = vi.spyOn(kv, "list");
+    expect(await readSearchRecommendations(kv, 200)).toEqual([]);
+    expect(list).toHaveBeenCalledTimes(5);
+    expect(JSON.parse(kv.values.get(searchRecommendationsKey())!).familyRebuildCursor).toBe("100");
+    await recordQueuedSearchRecommendation(kv, { videoId: "queued-between-pages", title: "Artist - Later Cover" });
+    const results = await readSearchRecommendations(kv, 200);
+    expect(results.map((result) => result.videoId)).toEqual(["queued-between-pages", entry.results[0].videoId]);
+    expect(list.mock.calls[5][0]).toMatchObject({ cursor: "100" });
+    expect(JSON.parse(kv.values.get(searchRecommendationsKey())!).familyRebuildCursor).toBeUndefined();
+  });
+
+  it("does not scan history when the pool already satisfies the requested count", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("Later");
+    await writeSearchCache(kv, family, buildResponse("Later", family.normalizedQuery, buildResults(20)));
+    const list = vi.spyOn(kv, "list");
+    expect(await readSearchRecommendations(kv, 20)).toHaveLength(20);
+    expect(list).not.toHaveBeenCalled();
+  });
+
+  it("continues past an empty incomplete KV page", async () => {
+    const kv = new MemoryKv();
+    const family = buildSearchQueryFamily("Later");
+    await writeSearchCache(kv, family, buildResponse("Later", family.normalizedQuery, buildResults(1)));
+    kv.values.delete(searchRecommendationsKey());
+    const list = vi.spyOn(kv, "list").mockResolvedValueOnce({ keys: [], list_complete: false, cursor: "0" });
+    expect(await readSearchRecommendations(kv, 200)).toHaveLength(1);
+    expect(list).toHaveBeenCalledTimes(2);
+  });
+
   it("promotes only four actual matching songs on writes, touch and legacy rebuild, leaving v6 and fifty raw hits intact", async () => {
     const kv = new MemoryKv();
     const family = buildSearchQueryFamily("耍赖");
@@ -234,12 +296,12 @@ describe("KV search cache", () => {
     const recommendations = await readSearchRecommendations(kv, 20);
 
     expect(kv.values.has(searchRecommendationsKey())).toBe(true);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v7:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v8:CA:zh-Hans");
     expect(recommendations).toHaveLength(10);
     expect(recommendations[0].videoId).toBe("video-0");
   });
 
-  it.each(["v4", "v5", "v6"])("ignores the previous recommendation pool version %s", async (version) => {
+  it.each(["v4", "v5", "v6", "v7"])("ignores the previous recommendation pool version %s", async (version) => {
     const kv = new MemoryKv();
     kv.values.set(
       `yt-search-recommendations:${version}:CA:zh-Hans`,
@@ -247,7 +309,7 @@ describe("KV search cache", () => {
     );
 
     await expect(readSearchRecommendations(kv, 20)).resolves.toEqual([]);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v7:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v8:CA:zh-Hans");
   });
 
   it("rebuilds recommendations from reranked legacy candidates before taking the top twenty", async () => {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
 import { searchVideos } from "./searchService";
-import { searchCacheFamilyKey, writeSearchCache } from "./kvCache";
+import { readSearchRecommendations, searchCacheFamilyKey, searchRecommendationsKey, writeSearchCache } from "./kvCache";
 import { ambiguousSongCandidates } from "./fixtures/ambiguousSong";
 
 class MemoryKv {
@@ -24,12 +24,15 @@ class MemoryKv {
     this.values.set(key, value);
   }
 
-  async list(options: { prefix?: string } = {}) {
+  async list(options: { prefix?: string; limit?: number; cursor?: string } = {}) {
+    const keys = [...this.values.keys()]
+      .filter((key) => !options.prefix || key.startsWith(options.prefix)).sort();
+    const offset = Number(options.cursor ?? 0);
+    const next = offset + (options.limit ?? 1000);
     return {
-      keys: [...this.values.keys()]
-        .filter((key) => !options.prefix || key.startsWith(options.prefix))
-        .map((name) => ({ name })),
-      list_complete: true,
+      keys: keys.slice(offset, next).map((name) => ({ name })),
+      list_complete: next >= keys.length,
+      cursor: next < keys.length ? String(next) : undefined,
     };
   }
 }
@@ -37,6 +40,40 @@ class MemoryKv {
 describe("search service cache reuse", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it.each([false, true])("promotes qualified D1 hits with existing KV=%s without rewriting raw data or fetching", async (withKv) => {
+    const kv = new MemoryKv();
+    const db = new MemorySearchRepositoryD1();
+    const family = buildSearchQueryFamily("周杰伦", undefined, { searchType: "artist" });
+    const results = Array.from({ length: 25 }, (_, index) => ({
+      videoId: `jay-${index}`, title: `周杰伦 歌曲${index} Karaoke`, categoryId: "10", score: 0, reasons: [],
+    }));
+    const stored = { ...buildResponse("周杰伦", family.normalizedQuery, results), searchType: "artist" as const };
+    db.seedLegacyEntry({ normalizedQuery: "周杰伦", originalQuery: "周杰伦", searchType: "artist", response: stored });
+    if (withKv) await writeSearchCache(kv, family, stored);
+    kv.values.delete(searchRecommendationsKey());
+    const rawBefore = kv.values.get(searchCacheFamilyKey(family.hash));
+    const legacyKey = "yt-search-recommendations:v7:CA:zh-Hans";
+    kv.values.set(legacyKey, JSON.stringify({ results: [results[24]] }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const tasks: Promise<unknown>[] = [];
+    const response = await searchVideos({
+      query: "周杰伦", searchType: "artist", limit: 50, cacheOnly: true,
+      env: { DB: db.database, SEARCH_CACHE: kv, YOUTUBE_API_KEY: "must-not-be-used" },
+      waitUntil: (task) => tasks.push(task),
+    });
+    await Promise.all(tasks);
+    expect(response.results).toHaveLength(25);
+    expect(response.cacheMeta?.responseSource).toBe("repository");
+    const promoted = JSON.parse(kv.values.get(searchRecommendationsKey())!).results;
+    expect(promoted.map((result: VideoSearchResult) => result.videoId)).toEqual(response.results.slice(0, 20).map((result) => result.videoId));
+    expect(await readSearchRecommendations(kv, 20)).toEqual(promoted);
+    expect(kv.values.get(searchCacheFamilyKey(family.hash))).toBe(rawBefore);
+    expect(kv.values.get(legacyKey)).toBe(JSON.stringify({ results: [results[24]] }));
+    expect(db.entryCount).toBe(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("persists all cold candidates before filtering, retains missing metadata, and repeats without external calls", async () => {
@@ -119,10 +156,12 @@ describe("search service cache reuse", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(response.cached).toBe(true);
-    expect(response.results).toHaveLength(21);
+    expect(response.results).toHaveLength(31);
+    expect(response.results.map((item) => item.videoId)).toContain("unrelated-0"); // Ambiguous title stays searchable.
+    expect(response.results.map((item) => item.videoId)).not.toContain("unrelated-1"); // Explicit drama stays hidden.
     expect(response.results.slice(0, 6).every((item) => item.videoId.startsWith("song-"))).toBe(true);
     expect(response.results[0].videoId).toBe("song-ktv");
-    expect(response.cacheMeta).toMatchObject({ sourceQueryCount: 0, externalCallAvoided: true, candidateResultCount: 50, filteredResultCount: 21 });
+    expect(response.cacheMeta).toMatchObject({ sourceQueryCount: 0, externalCallAvoided: true, candidateResultCount: 50, filteredResultCount: 31 });
     if (source === "D1") {
       expect(JSON.parse(db.findVariants(["耍赖", ""])[0].responseJson).results).toHaveLength(50);
     } else {

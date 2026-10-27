@@ -8,7 +8,7 @@ import { isSelfContainedMusicRecording, musicEligibility } from "./musicEligibil
 
 const SEARCH_CACHE_VERSION = "v4";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v7";
+const SEARCH_RECOMMENDATIONS_VERSION = "v8";
 export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
@@ -70,6 +70,7 @@ export interface SearchCacheReadResult {
 interface SearchRecommendationsEntry {
   updatedAt: string;
   results: SearchResponse["results"];
+  familyRebuildCursor?: string;
 }
 
 export function searchCacheKey(familyHash: string, regionCode = "CA", language = "zh-Hans") {
@@ -199,18 +200,19 @@ export async function readSearchRecommendations(
     return storedResults.slice(0, limit);
   }
 
-  const familyResults = await readRecommendationsFromFamilyCaches(namespace, limit);
-  const results = uniqueResults([...storedResults, ...familyResults]).slice(0, limit);
-  if (familyResults.length > 0 && !sameVideoOrder(storedResults, results)) {
+  const previousCursor = isValidRecommendationsEntry(recommendations) ? recommendations.familyRebuildCursor : undefined;
+  const rebuilt = await readRecommendationsFromFamilyCaches(namespace, limit, previousCursor);
+  const results = uniqueResults([...storedResults, ...rebuilt.results]).slice(0, limit);
+  if (!sameVideoOrder(storedResults, results) || previousCursor !== rebuilt.cursor) {
     // Persist rebuilt approvals so queueing a plain-titled song can still promote it.
     // Re-read after the scan to preserve a more recent queued/search promotion.
     try {
       const latest = await namespace.get<SearchRecommendationsEntry>(searchRecommendationsKey(), { type: "json" });
       const latestResults = isValidRecommendationsEntry(latest) ? latest.results : [];
       const merged = uniqueResults([...latestResults, ...results]).slice(0, MAX_RECOMMENDED_SEARCH_RESULTS);
-      if (!sameVideoOrder(latestResults, merged)) {
+      if (!sameVideoOrder(latestResults, merged) || latest?.familyRebuildCursor !== rebuilt.cursor) {
         await namespace.put(searchRecommendationsKey(), JSON.stringify({
-          updatedAt: new Date().toISOString(), results: merged,
+          updatedAt: new Date().toISOString(), results: merged, familyRebuildCursor: rebuilt.cursor,
         } satisfies SearchRecommendationsEntry), { expirationTtl: DEFAULT_SEARCH_CACHE_TTL_SECONDS });
       }
       return merged.slice(0, limit);
@@ -401,6 +403,7 @@ async function updateSearchRecommendations(
   nextResults: SearchResponse["results"],
   ttlSeconds: number,
 ) {
+  if (nextResults.length === 0) return;
   const existing = await namespace.get<SearchRecommendationsEntry>(searchRecommendationsKey(), {
     type: "json",
   });
@@ -412,6 +415,7 @@ async function updateSearchRecommendations(
   const entry: SearchRecommendationsEntry = {
     updatedAt: new Date().toISOString(),
     results: mergedResults,
+    familyRebuildCursor: isValidRecommendationsEntry(existing) ? existing.familyRebuildCursor : undefined,
   };
 
   await namespace.put(searchRecommendationsKey(), JSON.stringify(entry), {
@@ -422,18 +426,24 @@ async function updateSearchRecommendations(
 async function readRecommendationsFromFamilyCaches(
   namespace: SearchCacheNamespace,
   limit: number,
+  cursor?: string,
 ) {
   if (!namespace.list) {
-    return [];
+    return { results: [], cursor };
   }
 
-  const listed = await namespace.list({
-    prefix: searchCacheFamilyKeyPrefix(),
-    limit: Math.min(Math.max(Math.ceil(limit / 10), 20), 1_000),
-  });
+  const keys: Array<{ name: string }> = [];
+  // At most 100 family reads / five list calls per request. Save progress if more
+  // remain, including empty pages whose list_complete flag is false.
+  for (let page = 0; page < 5; page += 1) {
+    const listed = await namespace.list({ prefix: searchCacheFamilyKeyPrefix(), limit: 20, cursor });
+    keys.push(...listed.keys);
+    cursor = listed.list_complete ? undefined : listed.cursor;
+    if (listed.list_complete || !cursor) break;
+  }
   const entries = (
     await Promise.all(
-      listed.keys.map((key) =>
+      keys.map((key) =>
         namespace.get<SearchCacheEntry>(key.name, {
           type: "json",
         }),
@@ -464,12 +474,24 @@ async function readRecommendationsFromFamilyCaches(
       }
 
       if (interleavedResults.length >= limit) {
-        return interleavedResults.slice(0, limit);
+        return { results: interleavedResults.slice(0, limit), cursor };
       }
     }
   }
 
-  return interleavedResults.slice(0, limit);
+  return { results: interleavedResults.slice(0, limit), cursor };
+}
+
+export async function promoteSearchRecommendations(
+  namespace: SearchCacheNamespace | undefined,
+  response: SearchResponse,
+  ttlSeconds = DEFAULT_SEARCH_CACHE_TTL_SECONDS,
+) {
+  if (!namespace) return;
+  const eligible = response.results.filter((result) =>
+    musicEligibility(result, response.query, response).recommendationEligible,
+  );
+  await updateSearchRecommendations(namespace, eligible, ttlSeconds);
 }
 
 function isValidSearchCacheEntry(value: SearchCacheEntry | null): value is SearchCacheEntry {
