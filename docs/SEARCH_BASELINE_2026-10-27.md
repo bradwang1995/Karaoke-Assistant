@@ -6,7 +6,7 @@
 
 - 基线 commit：`aa65a603247bbb01f7b864e4ea08714a216570a0`；tree：`3b71f93471407ccb7428bad9f8dba41bccd2fbc4`。
 - 原分支：`codex/search-relevance-ranking`；实施分支：`codex/music-eligibility-cache`。
-- 本地回退 tag：`codex/baseline-before-music-eligibility-2026-10-27`。用户已批准本轮发布，tag 将随发布分支推送保存。
+- 回退 tag：`codex/baseline-before-music-eligibility-2026-10-27`。已随 `codex/music-eligibility-cache` 发布分支推送远程，并核实指向上述成熟 commit。
 - 开始前 `git status --short` 为空；已包含双语界面与已批准的紧凑底栏（160px 下一首区域）。
 - 2026-10-27 本次发布前已用 deployments status 只读核实回退版本：Room `dd918083-a7ae-49b8-9a20-1fd2ab7938e0`，Main `46fb6774-1898-4ee3-8e08-34ad377ed16e`，均 100% 活动。
 
@@ -51,4 +51,4 @@
 - 真实 raw 50 条顺序/分数与基线逐项一致；公开显示 27，推荐 4，所有原始候选仍可由原代码读取。
 - 本地双 Worker 验证首页、搜索/原唱、刷新恢复、中英、点歌、房间同步与提升；quota used 0，未请求生产。
 - 真实 YouTube 播放未通过：固定样例播放器错误 150；播放器源码未修改。没有把自动测试与点歌同步验收外推为真实播放通过。
-- 用户已批准发布；准确提交、部署版本与验证过程见 PROGRESS.md。
+- 用户已批准发布，功能提交 `eae1d9d`；新 Room `ac92afe0-a8c5-4cce-ac01-5d6378d69427`、Main `ea599cd9-e959-4cb6-94f5-8db9890c09e6` 已核实为 100% 活动版本。生产 cacheOnly 原始 50/展示 27，quota 0 → 0。实际播放由用户继续生产验收；完整过程见 PROGRESS.md。

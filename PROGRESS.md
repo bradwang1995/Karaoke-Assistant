@@ -4,7 +4,7 @@ Last updated: 2026-10-27
 
 这份文件记录 implementation status、历史修复、验证结果和剩余工作。搜索的当前算法与缓存规范只以根目录 `SEARCH.md` 为准；产品、总体架构、手动配置、部署和通用测试见 `README.md`。
 
-## 保守搜索展示与严格首页准入（用户已批准，发布准备中）— 2026-10-27
+## 保守搜索展示与严格首页准入（已发布，用户生产验收中）— 2026-10-27
 
 - 回退基线：`aa65a603247bbb01f7b864e4ea08714a216570a0`，本地标签 `codex/baseline-before-music-eligibility-2026-10-27`；原工作区干净，已包含成熟双语与紧凑底栏。详情及回退步骤见 `docs/SEARCH_BASELINE_2026-10-27.md`。未覆盖此前功能或生产数据。
 - 修改前验证：完整 30 files/208 tests、搜索专项 13 files/110 tests、typecheck、build 通过。新增 fixture 记录基线真实 50 条候选顺序/分数，新实现逐项一致。
@@ -18,8 +18,13 @@ Last updated: 2026-10-27
 - 新建内置 @Browser 验证：创建房间、Connected、首页 `4/4`、普通/原唱搜索 `27`、刷新恢复原唱/结果、清空回推荐、中文/英文、点歌与房间同步、已点歌曲升到推荐首位。手机页 console warning/error 为空。实际 YouTube 播放未通过：样例视频返回播放器错误 150；播放页源码没有修改，未把点歌/同步通过冒充播放通过。
 - 本地预览运行中：`http://127.0.0.1:8793/room/0b2a5o4z/mobile`。初始推荐四首，搜索“耍赖”后最多显示 27 条；清空再按搜索返回推荐。这里只是固定缓存回放，非实时 YouTube 搜索。截图 `.wrangler/music-eligibility-preview/homepage.png` 未提交；验收播放页已关闭。
 - 前端由 dist 提供，改前端需 build 后刷新；Worker 源码自动重载，关闭运行终端停止服务。未改双语词库/样式/DisplayPage，构建 CSS 与成熟版同为 `index-BJfuVwz4.css`；未声称窄屏或完整真实播放验收。
-- 用户已检查并明确批准 push/deploy，计划在生产进行用户验收。发布前重复完整 240 项、搜索专项 142 项与 typecheck 均通过；发布版本和线上 cacheOnly 结果待实际完成后记录。只推送发布分支与回退标签，不推送 main。
+- 用户已检查并明确批准 push/deploy，计划在生产进行用户验收。发布前重复完整 240 项、搜索专项 142 项、typecheck、build、diff check 均通过。
 - 发布前只读核实线上回退版本：Room `dd918083-a7ae-49b8-9a20-1fd2ab7938e0`、Main `46fb6774-1898-4ee3-8e08-34ad377ed16e`，均为当前 100% 活动版本。
+- 功能提交 `eae1d9d60ecc01742fc3c892843756c2b88c8f57` 已推送 `origin/codex/music-eligibility-cache`；成熟回退标签 `codex/baseline-before-music-eligibility-2026-10-27` 也已推送并用 ls-remote 核实指向 `aa65a603247bbb01f7b864e4ea08714a216570a0`。未推送 main。
+- 按 Room → Main 使用 `--keep-vars` 发布，实际活动版本均经 deployments status 确认 100%：Room `ac92afe0-a8c5-4cce-ac01-5d6378d69427`；Main `ea599cd9-e959-4cb6-94f5-8db9890c09e6`。没有生产 schema migration 或缓存删除。
+- 生产 cacheOnly 验证：房间 `0e0k0s2b`、查询“耍赖”，命中原始 50 条，公开返回 27、隐藏 23，policy 为 `music-evidence-v1`，sourceQueryCount=0，quota used `0 → 0`。前四条仍为目标同名歌曲，包括两条陈楚生《耍賴》。
+- 首页空查询本地缓存读取返回 56 条（多历史 family 的合格项，不能拿单 family 的 4 条作为全局首页上限），检查的四个已知剧情/日常/新闻视频 ID 均未进入首页。没有运行新的 YouTube 搜索或详情调用；未替用户触发播放，实际播放与进一步生产测试留给用户验收。
+- 发布记录以独立 `[CI Skip]` 文档提交推送，保持线上代码来源明确。用户应刷新原页面后再开始生产测试；旧浏览器结果快照按新 policy 作废，输入与模式保留。
 
 ## 英文紧凑文案与下一首标题（已发布）— 2026-10-24
 
