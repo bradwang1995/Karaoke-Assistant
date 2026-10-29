@@ -39,6 +39,8 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - 搜索比较识别简繁歌名/歌手，保留既有排序；原始候选缓存完整保存，公开结果保守隐藏明确非音乐项，音乐版本与信息不足项优先保留。首页只收明确音乐且与查询相关的合格项，不足数量不补弱结果。当前规则见 `SEARCH.md` 第 6–8 节；本轮回退基线见 `docs/SEARCH_BASELINE_2026-10-27.md`。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。待播项使用紧凑单行 card，不重复显示“第 N 首”；置顶/删歌先在本地乐观更新，再由房间 snapshot 确认。超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
+- Display 与手机预览同时允许 YouTube 原生控件、键盘、全屏及链接交互；KTV 自有控制保留。二维码和语言按钮放在视频上方，不覆盖播放器；活动预览占两列且至少 200px 高，以容纳原生控件。用户暂停后停止自动播放重试，预览开始后允许向前拖动到 30 秒之前。
+- YouTube iframe 在加载前配置 sandbox：允许正常脚本、同源存储、表单、投屏及独立弹窗，不允许替换顶层 KTV 页面。YouTube 自己以新窗口打开的链接可正常打开；跨域播放器内部的链接目标不受应用控制，无法保证所有推荐都开新标签页，推荐仍可能在 iframe 内换视频。`rel=0` 不能禁用推荐。本次只处理播放器交互，未作整体合规认证；依据 [YouTube 最低功能规范](https://developers.google.com/youtube/terms/required-minimum-functionality) 与 [播放器参数](https://developers.google.com/youtube/player_parameters)。
 - WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
 
 ### 界面语言

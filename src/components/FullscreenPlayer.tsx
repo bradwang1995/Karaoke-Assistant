@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { createYouTubeIframe } from "../lib/youtube";
 import {
   loadYouTubeIframeApi,
   YOUTUBE_PLAYER_STATE,
@@ -225,33 +226,28 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     }
 
     shell.replaceChildren();
-    const host = document.createElement("div");
-    host.className = "h-full w-full";
-    shell.appendChild(host);
-
     loadYouTubeIframeApi()
       .then((api) => {
         if (cancelled) {
           return;
         }
 
+        const playerVars = {
+          autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
+          controls: 1,
+          cc_load_policy: 0,
+          disablekb: 0,
+          enablejsapi: 1,
+          fs: 1,
+          iv_load_policy: 3,
+          playsinline: 1,
+          rel: 0,
+          start: DISPLAY_PLAYBACK_START_SECONDS,
+          origin: window.location.origin,
+        };
+        const host = createYouTubeIframe(videoId, playerVars);
+        shell.appendChild(host);
         const player = new api.Player(host, {
-          width: "100%",
-          height: "100%",
-          videoId,
-          playerVars: {
-            autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
-            controls: 0,
-            cc_load_policy: 0,
-            disablekb: 1,
-            enablejsapi: 1,
-            fs: 0,
-            iv_load_policy: 3,
-            playsinline: 1,
-            rel: 0,
-            start: DISPLAY_PLAYBACK_START_SECONDS,
-            origin: window.location.origin,
-          },
           events: {
             onReady: handleReady,
             onStateChange: handleStateChange,
@@ -331,6 +327,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) {
+        pendingPlayRef.current = false;
+        clearPlayRetryTimeouts();
         reportProgress(event.target);
         updateStatus("paused");
         return;
@@ -372,9 +370,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   return (
     <div
       ref={shellRef}
-      className={`absolute inset-0 h-full w-full bg-black [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full ${
-        status === "ended" || status === "error" ? "invisible" : ""
-      }`}
+      data-player-status={status}
+      className="absolute inset-0 h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full"
     />
   );
   },

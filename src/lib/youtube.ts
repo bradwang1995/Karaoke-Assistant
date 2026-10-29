@@ -18,9 +18,9 @@ export function youtubeEmbedUrl(
   const params = new URLSearchParams({
     playsinline: "1",
     rel: "0",
-    controls: "0",
-    disablekb: "1",
-    fs: "0",
+    controls: "1",
+    disablekb: "0",
+    fs: "1",
     iv_load_policy: "3",
     start: String(options.start ?? 0),
   });
@@ -42,10 +42,10 @@ export function youtubePreviewPlayerVars(origin: string) {
   return {
     autoplay: 1,
     cc_load_policy: 1,
-    controls: 0,
-    disablekb: 1,
+    controls: 1,
+    disablekb: 0,
     enablejsapi: 1,
-    fs: 0,
+    fs: 1,
     iv_load_policy: 3,
     mute: 1,
     playsinline: 1,
@@ -53,6 +53,23 @@ export function youtubePreviewPlayerVars(origin: string) {
     start: MOBILE_PREVIEW_START_SECONDS,
     origin,
   };
+}
+
+// Set restrictions before navigation: allow YouTube popups without allowing
+// the cross-origin player to replace the KTV page. Link targets remain YouTube's.
+export function createYouTubeIframe(videoId: string, playerVars: Record<string, string | number>) {
+  const iframe = document.createElement("iframe");
+  iframe.className = "h-full w-full";
+  iframe.title = "YouTube video player";
+  iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-presentation allow-popups allow-popups-to-escape-sandbox");
+  iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+  iframe.allowFullscreen = true;
+  iframe.referrerPolicy = "strict-origin-when-cross-origin";
+  const params = new URLSearchParams(
+    Object.entries(playerVars).map(([key, value]) => [key, String(value)]),
+  );
+  iframe.src = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?${params}`;
+  return iframe;
 }
 
 export function hasYouTubePreviewReachedStart(player: YouTubePlayer) {

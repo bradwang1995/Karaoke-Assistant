@@ -290,59 +290,61 @@ export default function DisplayPage() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(20,184,166,0.22),transparent_30%),radial-gradient(circle_at_78%_78%,rgba(251,113,133,0.18),transparent_28%)]" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <LanguageToggle className="absolute right-5 top-4 z-30 bg-slate-950/80 text-white" />
-        <div className="absolute right-5 top-16 z-30 hidden sm:block">
-          {isQrCodeExpanded ? (
-            <div className="qr-code-card rounded-2xl border border-white/15 bg-slate-950/90 p-3 text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur">
-              <div className="mb-2 flex items-center justify-between gap-3">
+        <header className="flex shrink-0 items-start justify-end gap-3 bg-slate-950 px-5 py-3">
+          <LanguageToggle className="bg-slate-950/80 text-white" />
+          <div className="hidden sm:block">
+            {isQrCodeExpanded ? (
+              <div className="qr-code-card rounded-2xl border border-white/15 bg-slate-950/90 p-3 text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <Link
+                    to={`/room/${roomId}/mobile`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-bold tracking-wide text-white transition hover:text-teal-200"
+                  >
+                    {t("扫码点歌")}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setIsQrCodeExpanded(false)}
+                    aria-label={t("收起二维码")}
+                    title={t("收起二维码")}
+                    className="grid h-7 w-7 place-items-center rounded-md text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-teal-300/60"
+                  >
+                    <ChevronDown size={17} />
+                  </button>
+                </div>
                 <Link
                   to={`/room/${roomId}/mobile`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-sm font-bold tracking-wide text-white transition hover:text-teal-200"
+                  aria-label={t("打开扫码点歌手机页")}
+                  className="qr-code-surface block rounded-lg bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
                 >
-                  {t("扫码点歌")}
+                  <QRCodeCanvas
+                    value={mobileUrl}
+                    size={140}
+                    level="H"
+                    bgColor="#ffffff"
+                    fgColor="#000000"
+                    className="qr-code-canvas"
+                  />
                 </Link>
-                <button
-                  type="button"
-                  onClick={() => setIsQrCodeExpanded(false)}
-                  aria-label={t("收起二维码")}
-                  title={t("收起二维码")}
-                  className="grid h-7 w-7 place-items-center rounded-md text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-teal-300/60"
-                >
-                  <ChevronDown size={17} />
-                </button>
               </div>
-              <Link
-                to={`/room/${roomId}/mobile`}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={t("打开扫码点歌手机页")}
-                className="qr-code-surface block rounded-lg bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsQrCodeExpanded(true)}
+                aria-label={t("展开二维码")}
+                title={t("展开二维码")}
+                className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-slate-950/90 px-3 text-sm font-semibold text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur transition hover:border-teal-200/40 hover:text-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-300/60"
               >
-                <QRCodeCanvas
-                  value={mobileUrl}
-                  size={140}
-                  level="H"
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                  className="qr-code-canvas"
-                />
-              </Link>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIsQrCodeExpanded(true)}
-              aria-label={t("展开二维码")}
-              title={t("展开二维码")}
-              className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-slate-950/90 px-3 text-sm font-semibold text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur transition hover:border-teal-200/40 hover:text-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-300/60"
-            >
-              <QrCode size={17} />
-              {t("扫码点歌")}
-                </button>
-          )}
-        </div>
+                <QrCode size={17} />
+                {t("扫码点歌")}
+                  </button>
+            )}
+          </div>
+        </header>
 
         <section className="relative min-h-[360px] flex-1 bg-black">
           {currentItem ? (

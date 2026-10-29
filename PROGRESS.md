@@ -1,3 +1,17 @@
+## YouTube 原生交互发布准备 — 2026-10-28
+
+- 用户明确授权仅发布本次 YouTube 播放器修复；在独立 worktree / codex/youtube-native-controls 分支提取 5 个代码与测试文件和对应文档。排除所有 Phase 1 首页、政策、About 入口、翻译与素材，原工作区未改动。
+- 发布前全量测试 31 文件 / 265 项、typecheck、build、verify:search 14 文件 / 167 项及 git diff --check 全部通过。真实播放验收仍由用户在生产进行；先前本地视频 error 150 的限制保留。
+
+## YouTube 原生交互恢复（本地验证，待用户验收，未发布）— 2026-10-27
+
+- 大屏和手机预览恢复 controls、键盘、全屏与 iframe 点击；保留 KTV 进度、重播、播放/暂停、切歌和队列。暂停清除播放重试；首次起播仍从大屏 0 秒、手机预览 30 秒开始，预览开始后允许用户向前拖动。
+- 加载前创建带 sandbox 的 iframe，允许 popup 及 popup 脱离 sandbox，禁止 top navigation。YouTube 内部跨域链接无法统一强制 target；推荐可能在 iframe 内换视频。二维码/语言移到视频上方；活动预览占两列、至少 200px 高；不覆盖 YouTube 加载/错误界面。
+- 新建 Codex 内置浏览器会话，Vite `http://127.0.0.1:5173/room/youtube-review/display` 与 `/mobile`：实测 iframe pointer-events=auto、controls=1、disablekb=0、fs=1，预览高度至少 200px；点击原生 Watch on YouTube 打开独立 YouTube 标签页，KTV 页 URL 保持；本地添加两首、Next 切到第二首、二维码收起通过。未请求真实 YouTube 搜索，无生产/远程存储操作。
+- 两个 mock 视频均返回 YouTube 不可播放（大屏 error 150）；临时页面对比无 sandbox 与有 sandbox 的同视频也都不可播放，已删除临时页面。真实播放、原生暂停/音量/进度/全屏、推荐点击及真实 Worker 同步尚未运行时验证；不声称整体合规认证。
+- 初次 Vite 受沙箱 realpath EPERM 阻止，允许后启动成功。Vite 正在运行，前端热更新；Ctrl+C 停止。不提交、推送或部署。
+- 最终 `npm run typecheck`、三组聚焦测试 16 项通过；`git diff --check` 通过。截图保存在本轮 visualization 目录。
+
 # Project Progress
 
 Last updated: 2026-10-27
