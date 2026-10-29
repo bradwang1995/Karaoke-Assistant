@@ -1,3 +1,72 @@
+## 底栏与二维码改版发布准备 — 2026-10-29
+
+- 用户明确授权只发布本次改动。隔离 worktree 的 codex/youtube-native-controls 分支仅纳入 11 个文件：底栏/扫码与语言组件、固定 200×200 静音手动预览、短加入链接、对应测试、README/SEARCH/PROGRESS。原工作区其他 agent 的首页、政策、隐私、字体、数据保留、迁移与 Worker 配置均未纳入或修改。
+- 发布前全量测试 32 文件 / 267 项、typecheck、build、verify:search 14 文件 / 167 项及 git diff --check 全部通过。构建入口 assets/index-Bhov9apd.js。本次不进行真实播放或有声测试，二维码白边 2 格的实机扫描距离仍需用户验收。
+
+## 二维码白边减半、圆角与右侧贴边（本地验证，未发布）— 2026-10-29
+
+- 按用户要求直接将生成参数 marginSize 从 4 减至 2，无需图像裁剪；72px 尺寸与 M 纠错保持，生产短链接图案每格从约 1.756px 增至 1.946px。此白边低于通常 4 格建议，真实扫描成功率仍待手机确认。
+- Canvas 加 2px 圆角，链接通过 -mr-4 抵消底栏右侧留白。全新内置 @Browser 固定 1280×720 验证：二维码 72×72、右侧外部间隙 0、圆角 2px、底栏仍 74px，上下间隙约 1px，无媒体 iframe 或声音。截图 qr-rounded-local.png 位于本轮 visualization 目录。
+- typecheck 与 git diff --check 通过；临时验证页已删除。预览 http://127.0.0.1:5175/room/qrround1/display，Vite 运行中、前端热更新；未提交、推送或部署。
+
+## 二维码降密度与贴近底栏边缘（本地验证，未发布）— 2026-10-29
+
+- 新增同源短入口 /j/:roomId，直接复用 MobilePage；原 /room/:roomId/mobile 保留。二维码仅编码短入口，不使用第三方短链、不新增存储、请求、过期时间或 Worker 逻辑。roomJoin.ts 共享路由与 URL 生成，原房间 id 保持一致。
+- 使用当前二维码库实测生产域名 + 8 位房间 id：payload 67 → 57 字符，图案 37×37 → 33×33 modules；纠错等级仍 M，保留四格 quiet zone。显示从 56px 增至 72px，每格边长约 1.244px → 1.756px，增加约 41%。
+- 移除 QR 外部额外上下间距，使用 QR 链接局部 -my-2 抵消底栏 padding，不改变其他控制。明确 marginSize=4，保留识别必需白边，图像不再裁圆角。固定 1280×720 内置浏览器验证：底栏 74px、二维码 72×72px、上下外部间隙各 1px，无媒体 iframe。
+- 新增短链路由与二维码密度回归 2 项通过，typecheck、git diff --check 通过。内置浏览器直接打开 /j/qrshort1，显示原手机点歌页和本地模式，未调用冷搜索、未播放视频或声音。截图 qr-optimized-local.png 在本轮 visualization 目录。
+- 本轮仅本地，未提交/推送/部署；真实手机扫码距离、生产域名短入口仍待发布后验收。本地二维码指向 127.0.0.1，不能代表手机可跨设备加入。Vite http://127.0.0.1:5175/room/qrshort1/display，前端热更新；临时固定视口页面已删除。
+
+## 扫码按钮去边框与收紧留白（本地验证，未发布）— 2026-10-29
+
+- 扫码按钮与语言切换统一默认透明背景、零边框，仅 hover 出现相同的半透明背景与青色阴影；保留 focus-visible 键盘焦点提示。移除展开态常驻底色、边框和方向渐变。
+- 左右 padding 降至各 2px，并收紧 Chevron 的 SVG 水平 viewBox，保持 24px 高、12px 宽，避免图标自身留白造成视觉上 padding 过大。无文字的收起箭头按钮实际宽 16px。
+- typecheck、git diff --check 通过；全新内置 @Browser 无视频页面实测：展开按钮背景 rgba(0,0,0,0)、边框 0px、左右 padding 各 2px、SVG 12×24px。二维码切换正常，无视频或声音。截图 qr-compact-local.png 位于本轮 visualization 目录。
+- 本地预览 http://127.0.0.1:5175/room/padqr026/display，服务运行中、前端热更新；未提交、推送或部署。
+
+## 扫码按钮文字/箭头分状态（本地验证，未发布）— 2026-10-29
+
+- 按用户微调，箭头从 48px 缩至 24px。收起态只显示竖排扫码文字，不显示箭头；展开态显示二维码，按钮只保留箭头用于收起，不显示扫码文字。保留 title、aria-expanded 与键盘切换。
+- typecheck、git diff --check 通过。新建内置 @Browser 无视频页实测收起态文字“扫码点歌”、SVG 数 0；点击展开后按钮文字为空、SVG 高 24px，二维码出现。全程无媒体/声音；截图 qr-state-local.png 在本轮 visualization 目录。
+- 本地预览 http://127.0.0.1:5175/room/qrstate1/display，Vite 运行中、热更新；未提交、推送或部署。
+
+## 竖排去斜线与大箭头（本地验证，未发布）— 2026-10-29
+
+- 竖排语言只保留“中”和“EN”，移除斜线；其他页面横排仍保留斜线。扫码箭头图标从 10px 放大到 48px，可见箭头路径约 24px 高（约两行文字），保留展开/收起旋转与悬停效果。
+- typecheck、git diff --check 通过；新建内置浏览器固定 1280×720 无视频页验证：语言文字为中EN、箭头 SVG 高 48px、展开二维码后底栏仍为 74px，iframe 数量为 0，无声音。截图 footer-big-arrow.png 保存于本轮 visualization 目录；临时页面已删除。
+- 未提交、推送或部署。预览 http://127.0.0.1:5175/room/bigarrow/display，Vite 运行中、前端热更新。
+
+## 竖排 EN 恢复与扫码方向提示（本地验证，未发布）— 2026-10-29
+
+- 按用户更正，竖排语言始终使用“中 / EN”，不再把 EN 替换成汉字“英”。
+- 扫码按钮添加 10px 左箭头：收起朝左、展开旋转朝右；悬停提供对应方向青色渐变、边框强调与轻微箭头位移，减少动态效果偏好下关闭箭头过渡。展开状态保留青色背景；title 提示当前展开/收起动作。仍在底栏中显示二维码，不覆盖播放器。
+- typecheck、git diff --check 通过。全新内置 @Browser 无视频页面验证中/EN、双语扫码文字、点击展开/收起、title 和箭头旋转状态；固定 1280×720 本地视口下底栏仍为 74px。没有加载或播放任何视频、声音。临时固定视口页面验证后删除；截图 vertical-footer-arrow.png 在本轮 visualization 目录。
+- 本地预览 http://127.0.0.1:5175/room/arrow027/display，Vite 运行中、前端热更新；本轮未提交、推送或部署。
+
+## 底栏竖排语言与扫码开关（本地验证，未发布）— 2026-10-29
+
+- 用户要求竖排节省宽度：Display 使用 LanguageToggle 的可选 vertical 模式，“中 / 英”逐行显示，移至连接状态（含本地模式）左侧；其他页面默认横排不变。
+- 右侧扫码入口改为竖排 button，中文“扫 / 码 / 点 / 歌”，英文“Scan / to / join”；默认二维码不挂载，点击、Enter 或 Space 切换 56px 二维码。展开区域仍在底栏内，无覆盖视频的浮层。新增 aria-expanded / aria-controls；Display 空格播放快捷键忽略按钮与链接，避免切换语言或二维码时误触播放。
+- typecheck、语言与翻译覆盖 2 文件 / 32 项、git diff --check 通过。全新 Codex 内置 @Browser 本地验证 1280×720：中/斜线/英沿竖向排列、位于连接状态左边；中英文扫码分别逐字/逐词排列；默认 0 个 canvas，Space 展开为 1 个、Enter 收起回到 0 个，两种状态底栏均 74px，无横向溢出。测试页无 iframe，全程不加载视频、不播放声音。
+- 本地 Vite 已重启并运行于 http://127.0.0.1:5175/room/vjoin026/display；前端热更新，Ctrl+C 停止。底栏截图为本轮 visualization 目录 vertical-footer-zh.png。未提交、推送或部署；二维码手机实扫距离仍待验收。
+
+## 常驻底栏二维码与固定 200×200 预览（本地实施，未发布）— 2026-10-28
+
+- 用户确认新方案，取代上一轮未发布的右侧栏和过小卡片外部预览。Display 移除 header/aside、二维码缩放状态与按钮；56px 二维码含白色留白、M 纠错，与“扫码点歌”和中英切换一起常驻底栏。保留播放控制文字和 40px 按钮；Up Next 由 160px 改为 110px，标题/进度区域最大 320px。桌面底栏最小高度 74px，窄屏允许分行，不覆盖播放器。
+- 点歌卡片固定 200×200px 预览区域，边框与标题另计，网格按 202px 整列自动排列。390px/320px 验证单列且无水平溢出，桌面现有 768px 容器显示三列；选中前后尺寸/位置不变。只有 active card 挂载 iframe；恢复/选择卡片不触发播放，autoplay=0、mute=1、start=30，ready/CUED 只设置静音，不自动 play。原生播放由用户操作。SEARCH.md 同步界面契约，搜索算法、缓存版本、额度与请求不变。
+- 内置 @Browser 用可用的官方示例验证 200×200 iframe、原生 Play 按钮，实际 video paused=true、muted=true；未按播放按钮，也未播放声音。底栏使用临时媒体全禁 CSP 和播放器替身检查，不启动真实视频；这不是实际 Worker/媒体播放验收。
+- 1280×720 下正常额度与英文 Resume 状态实测：视频 top=0、1280×646px，底栏 74px，三个按钮 40px 且 top=663px；56px 二维码常驻、无侧栏和横向溢出，中英文切换正常。证据截图 footer-qr-local.png、cards-200-local.png（本轮 visualization 目录）。
+- 聚焦播放器/队列/翻译 4 文件 / 25 项、typecheck、零网络 verify:search 14 文件 / 167 项通过。临时验证文件结束后删除；二维码远距离手机扫描、真实手动播放与全屏未验收。
+- 本次在独立 worktree 本地修改，未提交、推送或部署，原项目中另一个 agent 的介绍页/政策改动未触碰。Vite 预览 http://127.0.0.1:5175/room/footer26/display 与 /room/cardsize/mobile，服务运行中、前端热更新；Ctrl+C 停止。
+
+## 右侧栏与固定点歌卡片（本地验证，未发布）— 2026-10-28
+
+- 按生产反馈将 Display header 改为视频右侧栏，展开 208px、收起 80px；紧凑按钮仅二维码图标和左箭头，展开时右箭头收起。1280×720 有视频状态实测：视频 top=0、高 646px，展开/收起只把宽度从 1072px 改为 1200px，底栏仍为 74px。
+- 删除活动点歌卡片的 col-span-2 和 200px 最小尺寸，恢复原网格与 16:9。用户明确选择：尺寸小于官方 200×200 要求时只显示缩略图，提供另开 YouTube 的预览链接；符合尺寸时保留内嵌原生播放器。ResizeObserver 在调整视口后重新判断，过小不加载 iframe。
+- 390px / 320px 同源本地测试视口验证：选中切换前后卡片位置及尺寸不变，390px 卡片 169×151.94px（包含标题）；320px 无水平溢出、无内嵌 iframe。Enter 打开 Preview on YouTube 在新标签页，原点歌页保留；卡片键盘处理不拦截子链接。
+- 官方可播放示例 M7lc1UVf-VE 的应用 embed 和普通 native embed 对照均能自动隐藏控件；大屏实际 playing 状态观察到 ytp-autohide，标题、中央按钮和进度条不常驻。当前未复现用户特定生产环境的常显原因，未加入遮罩、隐藏 iframe、模拟内部事件或已废弃的 autohide 参数，不宣称该症状根因已修复。
+- 聚焦尺寸边界、播放器、队列和翻译测试 4 文件 / 26 项通过；typecheck、git diff --check 通过。Vite 独立 worktree 预览 http://127.0.0.1:5175/room/ytlayout/display 与 /mobile，前端热更新；不是 Worker 同步验证，未进行生产操作、冷搜索、提交、推送或部署。临时对照页验证后删除。
+
 ## YouTube 原生交互恢复（已发布，播放体验待用户验收）— 2026-10-28
 
 - 代码提交 85e7ac93547c3f75b6b3fd75f8bfa95af9f15530 已推送 origin/codex/youtube-native-controls，远端 SHA 已核对。发布基线 609157c；只包含本次播放器修复及对应测试/文档。未推 main，未包含另一个 agent 的首页、设备指南、政策、About 入口、翻译或素材；原工作区内容未改动。

@@ -6,6 +6,7 @@ import CreateRoomPage from "./routes/CreateRoomPage";
 import DebugPage from "./routes/DebugPage";
 import DisplayPage from "./routes/DisplayPage";
 import MobilePage from "./routes/MobilePage";
+import { ROOM_JOIN_ROUTE } from "./lib/roomJoin";
 
 const AdminPage = lazy(() => import("./routes/AdminPage"));
 
@@ -17,6 +18,7 @@ export default function App() {
       <Route path="/create" element={<CreateRoomPage />} />
       <Route path="/room/:roomId/display" element={<DisplayPage />} />
       <Route path="/room/:roomId/mobile" element={<MobilePage />} />
+      <Route path={ROOM_JOIN_ROUTE} element={<MobilePage />} />
       <Route path="/room/:roomId/debug" element={<DebugPage />} />
       <Route
         path="/admin/*"
