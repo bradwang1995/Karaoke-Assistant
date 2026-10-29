@@ -1,3 +1,12 @@
+## YouTube 原生交互恢复（已发布，播放体验待用户验收）— 2026-10-28
+
+- 代码提交 85e7ac93547c3f75b6b3fd75f8bfa95af9f15530 已推送 origin/codex/youtube-native-controls，远端 SHA 已核对。发布基线 609157c；只包含本次播放器修复及对应测试/文档。未推 main，未包含另一个 agent 的首页、设备指南、政策、About 入口、翻译或素材；原工作区内容未改动。
+- 隔离 worktree 构建并按 Room → Main 使用 --keep-vars 部署；再次读取 deployment history 确认 Room 99ab30e4-9fba-49a8-a336-bba5e0e3bfde、Main 8c98de71-97aa-447f-8182-dfb74ec717a7 均承接 100% 流量。
+- 发布前全量测试 31 文件 / 265 项、typecheck、build、verify:search 14 文件 / 167 项、git diff --check 全部通过。
+- 生产 cacheOnly 耍赖返回 45 条，sourceQueryCount=0、externalCallAvoided=true，额度 used 0 → 0。第一次 smoke 因房间 ID 格式错误 HTTP 400，改用合法 8 位 ID 后通过；未执行冷搜索。
+- 全新 Codex 内置 @Browser 打开生产 /create，实际加载 /assets/index-BWK0OXcQ.js，与隔离构建一致；创建验收房间 6l232z6l，Display 显示 Connected、剩余额度 100/100，console error 为空。未选歌或启动播放，真实原生暂停、音量、拖动、全屏、推荐交互及连续播放仍待用户验收。
+- 生产截图保存于本轮 visualization 目录 youtube-production-release.png。刷新已有生产页面或从 /create 新建房间即可测试；用户反馈后另行修改与授权发布。
+
 ## YouTube 原生交互发布准备 — 2026-10-28
 
 - 用户明确授权仅发布本次 YouTube 播放器修复；在独立 worktree / codex/youtube-native-controls 分支提取 5 个代码与测试文件和对应文档。排除所有 Phase 1 首页、政策、About 入口、翻译与素材，原工作区未改动。
