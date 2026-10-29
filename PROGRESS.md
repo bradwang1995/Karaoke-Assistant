@@ -1,3 +1,13 @@
+## 底栏与二维码改版（已发布，扫码距离待用户实测）— 2026-10-29
+
+- 代码提交 afa9aabbd331d4aff66cd14858991ba76c2c6328 已推送 origin/codex/youtube-native-controls，远端 SHA 已核对。仅提交本轮独立 worktree 的 11 个文件，未推 main；原工作区其他 agent 的公开首页、政策、隐私、字体、数据保留及 Worker/迁移改动未包含、未触碰。
+- 发布前全量测试 32 文件 / 267 项、typecheck、build、verify:search 14 文件 / 167 项、git diff --check 全部通过。
+- 按 Room → Main、--keep-vars 部署并再次读取最终活动记录确认均 100%：Room 3eb7c642-6638-44f3-bdd4-296e8b3a7d00；Main 6e4dea65-94b5-431a-85c6-14a2d5dd8aa0。Dashboard 管理变量保留，未改配置或 secrets。
+- 生产 cacheOnly 耍赖命中 45 条，sourceQueryCount=0、externalCallAvoided=true，额度 used 0 → 0；未运行冷搜索。
+- 新建 Codex 内置 @Browser 验证生产 /create 加载 /assets/index-Bhov9apd.js，与隔离构建一致。创建空验收房间 4245553a，Display Connected；扫码按钮展开后实测 1280×720 下底栏 74px、QR 72×72px、右侧间隙 0、圆角 2px，console error 为空，无 iframe。
+- 生产 /j/4245553a 成功显示同一房间手机页并 Connected；缓存推荐卡片前三项预览区均 200×200px。未点击候选/点歌/播放，手机页 iframe 数 0，全程未播放视频或声音。截图 qr-footer-production.png 在本轮 visualization 目录。
+- 原生手动播放、连续切歌及二维码 2 格白边在不同手机/电视距离下的扫描成功率留给用户验收。本次仅验证部署、连接、入口、布局和零额度缓存路径，不声称完成实机媒体/扫码验收。
+
 ## 底栏与二维码改版发布准备 — 2026-10-29
 
 - 用户明确授权只发布本次改动。隔离 worktree 的 codex/youtube-native-controls 分支仅纳入 11 个文件：底栏/扫码与语言组件、固定 200×200 静音手动预览、短加入链接、对应测试、README/SEARCH/PROGRESS。原工作区其他 agent 的首页、政策、隐私、字体、数据保留、迁移与 Worker 配置均未纳入或修改。
