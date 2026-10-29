@@ -34,10 +34,10 @@ export default function HomePage() {
           <div className="grid items-start gap-7 md:grid-cols-[minmax(0,1fr)_220px]">
             <figure className="min-w-0 space-y-3">
               <img
-                src="/product/display-room.jpg"
-                alt={t("大屏空房间：右上角加入二维码与等待点歌提示")}
-                width={1265}
-                height={712}
+                src="/product/display-room.png"
+                alt={t("大屏空房间：底栏右侧加入二维码与等待点歌提示")}
+                width={1280}
+                height={720}
                 loading="lazy"
                 className="h-auto w-full rounded-2xl border border-white/10"
               />
@@ -45,7 +45,7 @@ export default function HomePage() {
             </figure>
             <figure className="mx-auto w-full max-w-[220px] space-y-3">
               <img
-                src="/product/mobile-queue.jpg"
+                src="/product/mobile-queue.png"
                 alt={t("手机歌单页：当前播放与待播队列的空状态")}
                 width={390}
                 height={844}

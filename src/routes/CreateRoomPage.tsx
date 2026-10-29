@@ -63,7 +63,7 @@ export default function CreateRoomPage() {
         <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-white/10 pb-5 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
           <SiteBrand />
           <LanguageToggle className="site-header-control col-start-2 row-start-1 justify-self-end lg:col-start-3" />
-          <div className="col-span-2 row-start-2 hidden items-center justify-self-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-center text-xs font-medium text-slate-300 sm:flex lg:col-span-1 lg:col-start-2 lg:row-start-1">
+          <div className="col-span-2 row-start-2 hidden h-14 items-center justify-self-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-center text-xs font-medium text-slate-300 sm:flex lg:col-span-1 lg:col-start-2 lg:row-start-1">
             <Quote size={15} className="shrink-0 text-rose-300" />
             {t("在这个世界上，只有在唱歌的时候，我是绝对自由的。")}
           </div>

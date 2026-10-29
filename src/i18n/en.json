@@ -361,7 +361,7 @@
   "先用电脑和手机体验。麦克风、混音器和音箱需要另外连接；本服务不会把手机变成麦克风。视频由 YouTube 官方嵌入播放器提供，部分视频可能无法嵌入播放。": "Try it with a computer and phone first. Microphones, mixers and speakers connect separately; this service does not turn phones into microphones. Videos use the official YouTube embed, and some videos may restrict embedded playback.",
   "看看实际界面": "See the actual interface",
   "以下为本地空房间的实际截图，展示英文界面。大屏显示加入二维码，手机查看共享歌单；截图中的二维码仅用于本地预览，请创建自己的房间后再扫码。": "Actual screenshots of an empty local room, shown in English. The big screen displays the join code; phones show the shared queue. The pictured QR code is for local preview only. Create your own room to get a working join code.",
-  "大屏空房间：右上角加入二维码与等待点歌提示": "Empty big-screen room with a join QR code at the top right and a waiting message",
+  "大屏空房间：底栏右侧加入二维码与等待点歌提示": "Empty big-screen room with a join QR code on the right of the footer and a waiting message",
   "大屏：亮出二维码，等待朋友点歌。": "Big screen: show the code and wait for friends to pick songs.",
   "手机歌单页：当前播放与待播队列的空状态": "Phone queue showing empty now-playing and up-next states",
   "手机：查看当前播放与下一首。": "Phone: see what is playing and what comes next.",
