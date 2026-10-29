@@ -1,3 +1,28 @@
+## 底栏、双列点歌及政策弹窗发布准备 — 2026-10-29
+
+- 用户已确认本轮界面并授权 push/deploy；发布仅包含 Display 底栏宽度与紧凑按钮、Mobile 双列卡片、政策弹窗 X/撤回文字及内部留白关闭修复，无搜索算法、存储或 Worker 逻辑改动。
+- 发布检查：npm test 35 文件 / 283 项、typecheck、build、verify:search 14 文件 / 167 项、git diff --check 全部通过。构建入口 assets/index-CteU80QN.js、样式 assets/index-Bof-8tIV.css。
+- 推送当前 codex/music-eligibility-cache 分支，不推 main；按 Room → Main 使用 --keep-vars。部署后记录实际版本及零配额 smoke。
+
+## 政策弹窗留白误关闭修复（本地验证，未发布）— 2026-10-29
+
+- 原判断仅检查 click target 是否为 dialog，导致点击 dialog 自身 padding 也关闭；改为同时检查点击坐标是否位于 dialog 边界外。保留 X、原生 Escape 与撤回操作。
+- 撤回入口前说明文字的下间距从 20px 缩至 8px，其余布局不变。
+- 全新内置 Browser 临时组件页实测：左侧内部 padding、底部内部 padding 点击均保持打开；外部点击和 X 均关闭并恢复焦点。typecheck、git diff --check 通过；临时文件已清理。未提交、推送或部署；Vite http://127.0.0.1:5180/ 仍在运行。
+
+## 政策弹窗按钮样式（本地验证，未发布）— 2026-10-29
+
+- 移除底部高亮关闭按钮，改为标题右侧 32px 圆角细边框 X 按钮，提供 hover 与键盘焦点样式及本地化关闭标签。
+- 撤回同意入口改为青色下划线文字，复用首次隐私提示的链接色彩；保留原有关闭与撤回行为，政策链接不变。
+- 全新内置 Browser 临时组件页目视验证通过，X 点击及 Escape 均关闭弹窗并恢复入口焦点；未执行实际撤回。typecheck 与 git diff --check 通过。临时文件已删除；本地 Vite http://127.0.0.1:5180/ 继续热更新，未提交、推送或部署。
+
+## 底栏宽度与手机双列卡片（本地验证，未发布）— 2026-10-29
+
+- 标题/进度宽度上限从 320px 提升至 896px，移除按钮组背景/边框/padding，按钮水平 padding 12→8px、图标文字间距 8→4px，下一首改为切歌（英文 Skip），即将播放宽度 110→140px。
+- 手机结果与加载骨架固定两列 202px 卡片，4px 列间距与左右 padding；内层播放器保持 200×200。640px 起自动列数；小于容纳宽度时结果区允许横向滚动，不压缩播放器。
+- 全新内置 Browser 使用临时本地组件页与 mock 推荐检查：440×956 下前两卡片 x=11/217、同 y=204，卡片宽 202、播放器 200×200；目视双列通过。2559 与 1280 宽度底栏按钮保持同排，2559 下标题宽 896。mock 视频出现 YouTube error 150，不作为真实播放验证。临时预览文件已删除。
+- verify:search 14 文件 / 167 项及 typecheck 通过（受限 Windows realpath EPERM 后沙箱外重跑）；git diff --check 通过。Vite http://127.0.0.1:5180/ 正在运行，前端热更新；未提交、推送或部署。
+
 ## 品牌与产品截图已发布 — 2026-10-29
 
 - 发布源码 f390223fcb8fd3c3e44e857f0d93b0f45139262c 已推 origin/codex/music-eligibility-cache 并通过 ls-remote 核对；未推 main。

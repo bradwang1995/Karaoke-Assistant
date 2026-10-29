@@ -796,7 +796,7 @@ function SearchTab({
       <div
         ref={scrollContainerRef}
         aria-busy={isSearching}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[radial-gradient(circle_at_18%_8%,rgba(20,184,166,0.10),transparent_34%),radial-gradient(circle_at_88%_82%,rgba(251,113,133,0.08),transparent_32%)] px-4 pb-3 scrollbar-soft-dark"
+        className="min-h-0 flex-1 overflow-auto overscroll-contain bg-[radial-gradient(circle_at_18%_8%,rgba(20,184,166,0.10),transparent_34%),radial-gradient(circle_at_88%_82%,rgba(251,113,133,0.08),transparent_32%)] px-1 pb-3 scrollbar-soft-dark"
       >
         {searchMutation.isError ? (
           <StatusMessage
@@ -820,7 +820,7 @@ function SearchTab({
         ) : null}
 
         {isLoadingRecommendations ? (
-          <div className="mt-3 grid grid-cols-[repeat(auto-fit,202px)] justify-center gap-2">
+          <div className="mt-3 grid min-w-[408px] grid-cols-[repeat(2,202px)] justify-center gap-1 sm:grid-cols-[repeat(auto-fit,202px)]">
             {Array.from({ length: SEARCH_RESULT_PAGE_SIZE }, (_, item) => (
               <div key={item} className="h-[258px] animate-pulse rounded-xl bg-slate-800" />
             ))}
@@ -856,7 +856,7 @@ function SearchTab({
           <>
           <div
             ref={resultsGridRef}
-            className="relative z-0 mt-3 grid grid-cols-[repeat(auto-fit,202px)] justify-center gap-2"
+            className="relative z-0 mt-3 grid min-w-[408px] grid-cols-[repeat(2,202px)] justify-center gap-1 sm:grid-cols-[repeat(auto-fit,202px)]"
           >
             {visibleResults.map((result, index) => (
               <CandidateVideoCard

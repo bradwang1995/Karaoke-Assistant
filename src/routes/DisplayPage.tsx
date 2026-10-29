@@ -338,7 +338,7 @@ export default function DisplayPage() {
               />
               <SiteInfoButton compact />
             </div>
-            <div className="mx-auto w-full min-w-0 max-w-xs text-center">
+            <div className="mx-auto w-full min-w-0 max-w-4xl text-center">
               {currentItem ? (
                 <h2 className="truncate text-base font-semibold tracking-normal">
                   {currentItem.title}
@@ -359,14 +359,14 @@ export default function DisplayPage() {
             </div>
             <div className="flex min-w-0 flex-nowrap items-center justify-end gap-3">
               {currentItem ? (
-                <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-white/15 bg-white/[0.07] p-1.5 shadow-lg shadow-black/20">
+                <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
                   <button
                     type="button"
                     onClick={(event) => {
                       handleRestart();
                       event.currentTarget.blur();
                     }}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
+                    className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-white/15 bg-white/10 px-2 py-2 text-sm font-semibold text-white transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20"
                   >
                     <RotateCcw size={17} />
                     {t("重播")}
@@ -377,7 +377,7 @@ export default function DisplayPage() {
                       handlePauseToggle();
                       event.currentTarget.blur();
                     }}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-teal-400 px-3 py-2 text-sm font-bold text-slate-950 transition hover:bg-teal-300 focus:outline-none focus:ring-4 focus:ring-teal-300/30"
+                    className="inline-flex min-h-10 items-center gap-1 rounded-lg bg-teal-400 px-2 py-2 text-sm font-bold text-slate-950 transition hover:bg-teal-300 focus:outline-none focus:ring-4 focus:ring-teal-300/30"
                   >
                     <PauseButtonIcon size={17} />
                     {pauseButtonLabel}
@@ -388,14 +388,14 @@ export default function DisplayPage() {
                       handleNext();
                       event.currentTarget.blur();
                     }}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-rose-300/25 bg-rose-300/15 px-3 py-2 text-sm font-semibold text-rose-50 transition hover:bg-rose-300/25 focus:outline-none focus:ring-4 focus:ring-rose-300/20"
+                    className="inline-flex min-h-10 items-center gap-1 rounded-lg border border-rose-300/25 bg-rose-300/15 px-2 py-2 text-sm font-semibold text-rose-50 transition hover:bg-rose-300/25 focus:outline-none focus:ring-4 focus:ring-rose-300/20"
                   >
                     <SkipForward size={17} />
-                    {t("下一首")}
+                    {t("切歌")}
                   </button>
                 </div>
               ) : null}
-              <div className="w-[110px] min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right">
+              <div className="w-[140px] min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right">
                 <p className="whitespace-nowrap text-xs text-slate-300">{t("即将播放")}</p>
                 <NextSongTitle key={queuedItems[0]?.id ?? "empty"} title={queuedItems[0]?.title ?? t("暂无")} />
               </div>
@@ -519,7 +519,7 @@ function PlayerProgressControl({
   const playedPercent = disabled ? 0 : (safeCurrentTime / safeDuration) * 100;
 
   return (
-    <div className="mx-auto mt-1 flex w-full max-w-3xl items-center gap-3 text-sm text-slate-200">
+    <div className="mx-auto mt-1 flex w-full items-center gap-3 text-sm text-slate-200">
       <span className="w-12 shrink-0 tabular-nums">{formatPlayerTime(safeCurrentTime)}</span>
       <div className="relative min-w-0 flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-1/2 h-[0.45rem] -translate-y-1/2 overflow-hidden rounded-full bg-slate-500/60">

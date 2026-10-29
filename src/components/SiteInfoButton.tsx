@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Info } from "lucide-react";
+import { Info, X } from "lucide-react";
 import { createPortal } from "react-dom";
 import { publicPages } from "../content/publicPages";
 import { translate as t, useLanguage } from "../i18n";
@@ -28,21 +28,37 @@ export function SiteInfoButton({ brand = false, compact = false }: { brand?: boo
           aria-labelledby="site-info-title"
           className="m-auto max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-sm overflow-y-auto rounded-2xl border border-white/15 bg-slate-950 p-6 text-white shadow-2xl backdrop:bg-black/70"
           onClick={(event) => {
-            if (event.target === event.currentTarget) dialogRef.current?.close();
+            if (event.target !== event.currentTarget) return;
+            const bounds = event.currentTarget.getBoundingClientRect();
+            if (
+              event.clientX < bounds.left || event.clientX > bounds.right ||
+              event.clientY < bounds.top || event.clientY > bounds.bottom
+            ) {
+              event.currentTarget.close();
+            }
           }}
         >
-          <h2 id="site-info-title" className="text-xl font-semibold">{t("产品说明与政策")}</h2>
+          <div className="flex items-start justify-between gap-3">
+            <h2 id="site-info-title" className="text-xl font-semibold">{t("产品说明与政策")}</h2>
+            <button
+              type="button"
+              onClick={() => dialogRef.current?.close()}
+              aria-label={t("关闭")}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/15 text-slate-300 transition hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
+          </div>
           <nav className="my-5 grid gap-3 text-teal-200">
             {[["/", t("K歌助手")], ["/setup", publicPages.setup[language].title], ["/privacy", publicPages.privacy[language].title], ["/terms", publicPages.terms[language].title], ["https://www.youtube.com/t/terms", "YouTube Terms of Service"]].map(([href, label]) => (
               <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-white/10 px-4 py-3 hover:bg-white/10">{label}</a>
             ))}
           </nav>
-          <p className="mb-5 text-sm leading-6 text-slate-400">{t("链接在新页面打开，不会离开当前房间。")}</p>
+          <p className="mb-2 text-sm leading-6 text-slate-400">{t("链接在新页面打开，不会离开当前房间。")}</p>
           <button type="button" onClick={() => {
             dialogRef.current?.close();
             privacyConsent.revoke();
-          }} className="mb-3 w-full rounded-lg border border-white/20 px-4 py-3 text-sm">{t("撤回同意并停止使用房间")}</button>
-          <button type="button" onClick={() => dialogRef.current?.close()} className="w-full rounded-lg bg-teal-300 px-4 py-3 font-semibold text-slate-950">{t("关闭")}</button>
+          }} className="rounded-sm text-left text-sm text-teal-200 underline underline-offset-4 transition hover:text-teal-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300">{t("撤回同意并停止使用房间")}</button>
         </dialog>,
         document.body,
       )}
