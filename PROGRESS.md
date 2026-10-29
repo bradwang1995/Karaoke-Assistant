@@ -1,3 +1,11 @@
+## 底栏、双列点歌及政策弹窗已发布 — 2026-10-29
+
+- 源码提交 5d61d1183e89c3539b2c04577d070127f10cd36f 已推 origin/codex/music-eligibility-cache，并由 ls-remote 核实；未推 main。
+- 按 Room → Main 使用 --keep-vars 部署，deployments list 核实最终均为 100%：Room 9b584007-f8be-4067-9f49-1309784280ba；Main 5510d5ad-875f-43af-86dd-234a69d46976。
+- 生产 cacheOnly 耍赖命中 45 条，脚本确认 sourceQueryCount=0、externalCallAvoided=true、quota used 0→0；未运行冷搜索。
+- 全新内置 Browser 线上首页加载 assets/index-CteU80QN.js、assets/index-Bof-8tIV.css，与发布构建一致，console error 为空。本轮布局及弹窗交互证据见下面本地验收记录；发布后未新建线上房间、未验证真实媒体播放。
+- 发布前全量 35 文件 / 283 项、typecheck、build、verify:search 14 文件 / 167 项与 git diff --check 全部通过。
+
 ## 底栏、双列点歌及政策弹窗发布准备 — 2026-10-29
 
 - 用户已确认本轮界面并授权 push/deploy；发布仅包含 Display 底栏宽度与紧凑按钮、Mobile 双列卡片、政策弹窗 X/撤回文字及内部留白关闭修复，无搜索算法、存储或 Worker 逻辑改动。
