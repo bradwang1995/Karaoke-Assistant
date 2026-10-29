@@ -1,4 +1,5 @@
 import { LanguageToggle } from "../components/LanguageToggle";
+import { SiteInfoButton } from "../components/SiteInfoButton";
 import { translate as t, useLanguage } from "../i18n";
 import {
   ArrowUpToLine,
@@ -43,6 +44,7 @@ import {
   useRoomSnapshot,
 } from "../lib/roomState";
 import {
+  createYouTubeIframe,
   enforceYouTubePreviewStart,
   hasYouTubePreviewReachedStart,
   youtubeThumbnailUrl,
@@ -117,7 +119,7 @@ export default function MobilePage() {
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(20,184,166,0.2),transparent_42%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.13),transparent_38%)]" />
           <div className="mobile-heading-row relative flex items-center justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-baseline gap-2">
-              <h1 className="mobile-brand shrink-0 text-xl font-semibold tracking-normal">{t("K歌助手")}</h1>
+              <h1 className="mobile-brand shrink-0 text-xl font-semibold tracking-normal"><SiteInfoButton brand /></h1>
             </div>
             <div className="mobile-header-actions flex flex-wrap items-center justify-end gap-1.5">
               <LanguageToggle className="mobile-language-toggle" />
@@ -1054,13 +1056,15 @@ function CandidateVideoCard({
       onPointerDownCapture={onSelect}
       onKeyDown={handleKeyDown}
       className={`relative isolate z-0 cursor-pointer overflow-hidden rounded-xl border bg-slate-900 text-left shadow-lg shadow-black/20 transition focus:outline-none focus:ring-4 ${
+        previewActive ? "col-span-2" : ""
+      } ${
         selected
           ? "border-teal-300 ring-2 ring-teal-300/35"
           : "border-white/10 hover:border-white/25 focus:border-teal-300 focus:ring-teal-300/25"
       }`}
       data-preview-active={previewActive || undefined}
     >
-      <div className="aspect-video overflow-hidden">
+      <div className={`aspect-video overflow-hidden ${previewActive ? "min-h-[200px] min-w-[200px]" : ""}`}>
         <CandidatePreview
           result={result}
           active={previewActive}
@@ -1148,21 +1152,18 @@ function CandidatePreview({
     const timeoutId = window.setTimeout(() => {
       setLoadStatus((current) => (current === "loading" ? "error" : current));
     }, PREVIEW_LOAD_TIMEOUT_MS);
-    const host = document.createElement("div");
-    host.className = "h-full w-full";
-    shell.appendChild(host);
-
     loadYouTubeIframeApi()
       .then((api) => {
         if (cancelled) {
           return;
         }
 
+        const host = createYouTubeIframe(
+          result.videoId,
+          youtubePreviewPlayerVars(window.location.origin),
+        );
+        shell.appendChild(host);
         playerRef.current = new api.Player(host, {
-          width: "100%",
-          height: "100%",
-          videoId: result.videoId,
-          playerVars: youtubePreviewPlayerVars(window.location.origin),
           events: {
             onReady: handleReady,
             onStateChange: handleStateChange,
@@ -1189,9 +1190,8 @@ function CandidatePreview({
 
       iframe?.setAttribute(
         "allow",
-        "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture",
+        "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
       );
-      iframe?.setAttribute("tabindex", "-1");
       enforceYouTubePreviewStart(event.target);
 
       for (const delay of [120, 450]) {
@@ -1206,8 +1206,12 @@ function CandidatePreview({
     }
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
+      if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) {
+        clearPlayRetries();
+        return;
+      }
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
-        if (!hasYouTubePreviewReachedStart(event.target)) {
+        if (!playingRef.current && !hasYouTubePreviewReachedStart(event.target)) {
           enforceYouTubePreviewStart(event.target);
           return;
         }
@@ -1259,18 +1263,17 @@ function CandidatePreview({
       />
       <div
         ref={playerShellRef}
-        className={`pointer-events-none absolute inset-0 h-full w-full transition-opacity duration-150 [&_iframe]:pointer-events-none [&_iframe]:h-full [&_iframe]:w-full ${
-          active && loadStatus === "loaded" ? "opacity-100" : "opacity-0"
+        className={`absolute inset-0 h-full w-full [&_iframe]:h-full [&_iframe]:w-full ${
+          active ? "" : "hidden"
         }`}
-        aria-hidden="true"
       />
-      {pending || loadStatus === "loading" ? (
+      {pending && !active ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/80 text-white">
           <LoaderCircle className="animate-spin" size={22} />
           <span className="sr-only">{t("预览加载中")}</span>
         </div>
       ) : null}
-      {loadStatus === "error" ? (
+      {loadStatus === "error" && !active ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 px-2 text-center text-xs font-semibold text-white">
           {t("预览加载较慢，点一下重试")}
         </div>

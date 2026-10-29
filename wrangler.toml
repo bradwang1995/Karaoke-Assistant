@@ -2,6 +2,9 @@ name = "ktv-assistant"
 main = "worker/index.ts"
 compatibility_date = "2026-06-23"
 
+[triggers]
+crons = ["0 * * * *"]
+
 [vars]
 YOUTUBE_SEARCH_DAILY_LIMIT = "100"
 YOUTUBE_SEARCH_MAX_CALLS_PER_FILL = "1"

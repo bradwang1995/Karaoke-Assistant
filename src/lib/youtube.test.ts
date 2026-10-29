@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  createYouTubeIframe,
   enforceYouTubePreviewStart,
   hasYouTubePreviewReachedStart,
   MOBILE_PREVIEW_START_SECONDS,
@@ -10,6 +11,29 @@ import {
 import type { YouTubePlayer } from "./youtubeIframeApi";
 
 describe("YouTube embed URLs", () => {
+  it("allows external popups while preventing top-level navigation before loading the player", () => {
+    const attributes = new Map<string, string>();
+    const iframe = { setAttribute: (key: string, value: string) => attributes.set(key, value) };
+    vi.stubGlobal("document", { createElement: () => iframe });
+    try {
+      const result = createYouTubeIframe("video-id", {
+        enablejsapi: 1, controls: 1, origin: "https://example.com",
+      });
+      const sandbox = attributes.get("sandbox")!.split(" ");
+      expect(sandbox).toEqual(expect.arrayContaining([
+        "allow-scripts", "allow-same-origin", "allow-popups", "allow-popups-to-escape-sandbox",
+      ]));
+      expect(sandbox).not.toContain("allow-top-navigation");
+      expect(sandbox).not.toContain("allow-top-navigation-by-user-activation");
+      expect(result.allowFullscreen).toBe(true);
+      expect(result.referrerPolicy).toBe("strict-origin-when-cross-origin");
+      expect(new URL(result.src).searchParams.get("enablejsapi")).toBe("1");
+      expect(new URL(result.src).searchParams.get("origin")).toBe("https://example.com");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("starts mobile previews at 30 seconds", () => {
     const url = new URL(youtubePreviewEmbedUrl("video-id"));
 
@@ -29,12 +53,12 @@ describe("YouTube embed URLs", () => {
     });
   });
 
-  it("requests captions while keeping preview controls disabled", () => {
+  it("requests captions and enables native preview controls", () => {
     expect(youtubePreviewPlayerVars("https://example.com")).toMatchObject({
       cc_load_policy: 1,
-      controls: 0,
-      disablekb: 1,
-      fs: 0,
+      controls: 1,
+      disablekb: 0,
+      fs: 1,
     });
   });
 
@@ -57,12 +81,12 @@ describe("YouTube embed URLs", () => {
     expect(calls).toEqual(["mute", "seek:30", "play"]);
   });
 
-  it("keeps app-owned embeds free of native controls", () => {
+  it("enables native controls alongside app-owned controls", () => {
     const url = new URL(youtubeEmbedUrl("video-id"));
 
-    expect(url.searchParams.get("controls")).toBe("0");
-    expect(url.searchParams.get("disablekb")).toBe("1");
-    expect(url.searchParams.get("fs")).toBe("0");
+    expect(url.searchParams.get("controls")).toBe("1");
+    expect(url.searchParams.get("disablekb")).toBe("0");
+    expect(url.searchParams.get("fs")).toBe("1");
   });
 
   it("does not emit deprecated branding parameters", () => {

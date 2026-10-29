@@ -313,6 +313,8 @@ KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 | D1 `search_video_catalog` | 结构可用 provider candidates 的 analytics catalog | 否 | 无自动 TTL |
 | Mobile localStorage | 单个 room 的 UI 恢复 | 否，不作为服务端候选来源 | 24 小时 |
 
+使用事件不是上述缓存来源：Main 的独立维护任务按小时分批清理 30 天前的 `search_events` / `playback_events`；不会删除 `search_repository_entries`、video catalog 或 KV，也不改变查询、排名、推荐、deadline、额度与缓存版本。事件趋势仅涵盖保留窗口。本项只涉及使用记录生命周期，algorithm/cache/recommendations 版本不变。
+
 把这五层统称为“缓存”会导致错误判断。尤其是 recommendation pool 和 video catalog 都不会给一个新的非空 query 补结果。
 
 ### 8.1 Exact read 顺序

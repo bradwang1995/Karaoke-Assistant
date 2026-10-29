@@ -22,6 +22,9 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 
 | Route | 用途 |
 | --- | --- |
+| `/` | 中英文产品介绍首页；从此进入 `/create`。 |
+| `/setup` | 独立家庭 KTV 设备指南，不加载 YouTube 播放器或搜索数据。 |
+| `/privacy`、`/terms` | 中英文隐私政策与条款草稿，运营者资料待补充。 |
 | `/create` | 创建房间。 |
 | `/room/:roomId/display` | 播放、可收起并随时重新展开的二维码、重播、暂停/继续、下一首、seek 和 quota。 |
 | `/room/:roomId/mobile` | 搜索、preview、点歌和队列管理。 |
@@ -39,6 +42,8 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - 搜索比较识别简繁歌名/歌手，保留既有排序；原始候选缓存完整保存，公开结果保守隐藏明确非音乐项，音乐版本与信息不足项优先保留。首页只收明确音乐且与查询相关的合格项，不足数量不补弱结果。当前规则见 `SEARCH.md` 第 6–8 节；本轮回退基线见 `docs/SEARCH_BASELINE_2026-10-27.md`。
 - 点歌后保留搜索上下文；歌单支持置顶、删除、重唱和切歌。待播项使用紧凑单行 card，不重复显示“第 N 首”；置顶/删歌先在本地乐观更新，再由房间 snapshot 确认。超长歌名会在卡片内换行且不会产生横向滚动。
 - Display 自动尝试播放，提供 app-owned progress/seek、重播、暂停/继续和下一首；任何新 queue item 都严格从 0 秒开始。
+- Display 与手机预览同时允许 YouTube 原生控件、键盘、全屏及链接交互；KTV 自有控制保留。二维码和语言按钮放在视频上方，不覆盖播放器；活动预览占两列且至少 200px 高，以容纳原生控件。用户暂停后停止自动播放重试，预览开始后允许向前拖动到 30 秒之前。
+- YouTube iframe 在加载前配置 sandbox：允许正常脚本、同源存储、表单、投屏及独立弹窗，不允许替换顶层 KTV 页面。YouTube 自己以新窗口打开的链接可正常打开；跨域播放器内部的链接目标不受应用控制，无法保证所有推荐都开新标签页，推荐仍可能在 iframe 内换视频。`rel=0` 不能禁用推荐。本次只处理播放器交互，未作整体合规认证；依据 [YouTube 最低功能规范](https://developers.google.com/youtube/terms/required-minimum-functionality) 与 [播放器参数](https://developers.google.com/youtube/player_parameters)。
 - WebSocket 自动重连；30 秒 heartbeat；无客户端活动 5 分钟后 inactive cleanup。
 
 ### 界面语言
@@ -52,7 +57,17 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - 不同设备、浏览器配置和隐私会话各自独立。语言不进入房间 snapshot、WebSocket、搜索请求或缓存键。歌名、频道、用户自定义房间名和调试 JSON 保持原文；旧默认房间名只在界面显示时本地化。
 - 浏览器禁用存储时仍可在当前页切换，但无法保证刷新保留或跨标签页同步。未手动选择时跟随浏览器语言变更；移除该偏好后恢复自动检测。
 - 翻译集中在 `src/i18n/en.json`，以现有中文文案作为 key。`useLanguage` 订阅本地语言状态，动态提示在渲染时翻译；Admin 日期、数字使用对应 locale。搜索配额的时间计算不变。
-- 本次没有新增产品介绍、Demo、设备推荐页面或 `/en`、`/zh` 路由，也没有修改 YouTube 查询语言。使用第 4.2 节 Vite 预览即可检查翻译；这不代表真实 Worker 端到端验证。
+- 语言切换不使用 `/en`、`/zh` 路由，也不修改 YouTube 查询语言。Phase 1 后续增加的公开产品页面见下方说明。使用第 4.2 节 Vite 预览即可检查翻译；这不代表真实 Worker 端到端验证。
+
+### 公开网站基础设施（Phase 1，本地实现完成，待审阅）
+
+公开首页、设备指南和政策路由已建立，复用语言选择与深色响应式样式；创建房间和扫码路径保持原样。公开页面与创建页共享页脚导航，“产品介绍”返回首页；导航、语言按钮与页脚链接采用一致的悬停边框视觉和阴影。长文内容及待补运营者名称、联系邮箱集中在 `src/content/publicPages.ts`。政策草稿依据当前数据存储方式编写，不代表已完成法律或平台合规审核；数据请求处理说明与隐私同意机制已补齐，发布前仍需审阅政策正文。直接扫码的手机页可点击顶部品牌、大屏可点击顶部 About 打开政策菜单；链接另开页保留当前房间，不占播放器或底栏空间。首页已展示本地空房间的手机队列和大屏实际截图（`public/product/`）；设备型号和实测内容仍待补充。尚未接入广告、联盟追踪或提交审核。
+
+首页定位为功能介绍，入口“准备开唱 / Ready to Sing”前往 `/create`；创建页实际操作按钮为“创建房间 / Start a Room”。创建页品牌可返回首页，大屏提示使用显示器图标，窄屏说明放在按钮下方。首页、创建页和公开内容页共用品牌组件；中文使用随站点提供的 Ma Shan Zheng 品牌字体子集（许可在 `public/fonts/`），英文使用本地 Courgette 手写字体，中文 K 单独放大加宽；不增加外部字体请求。内容页只保留顶部开始入口，Google 隐私链接位于第三方说明正文，YouTube 条款放页脚，联系区采用卡片。
+
+公开路由之间切换会回到页首，便于从头阅读政策与指南；房间内的搜索/歌单滚动逻辑保持原样。详细范围与验收见 `docs/PHASE_1.md`。当前 Vite 预览为 `http://127.0.0.1:5174/`，真实隔离双 Worker 为 `http://127.0.0.1:8797/`，是否仍运行以终端为准。Vite 前端编辑会热更新，无需重建；关闭终端或 Ctrl+C 停止服务。Vite 不证明真实 Worker 同步。
+
+创建、手机、大屏、调试和 Admin 在访问功能前要求用户主动勾选并继续；直接扫码保留原 URL 和 tab 参数。确认前不挂载受保护页面，公开首页、指南与政策仍可阅读。政策版本与确认时间只存在浏览器 localStorage，不上传服务端；版本变更会重新要求确认。禁用存储时仅在当前页面有效。房间政策菜单可撤回，停止当前页房间连接与播放器；同源其他标签页同步更新。操作说明见 `docs/PRIVACY_REQUESTS.md`。此确认记录不是身份认证或服务器访问控制。
 
 ## 2. 技术架构
 
@@ -223,6 +238,10 @@ npm run dev
 测试输出中的 passed 是通过；failed 则先修复/解释。Codex 必须报告实际运行的命令和结果，不能把“没运行”写成通过。npm run preview 只预览已构建静态文件，不会启动 Worker。
 
 ### 4.4 后端、数据库、实时同步：本地双 Worker
+
+Phase 1 的数据维护任务只配置在 Main：每小时分批清理 30 天前的搜索/播放事件、停用且 30 天未更新的房间及其残留数据，以及 90 天前的管理员审计/日配额记录。活跃房间与公共歌曲资料库、KV 缓存不参与此清理。积压和任务故障可能导致清理延迟。`migrations/0007_data_retention_indexes.sql` 只新增维护索引，发布前须按既有发布流程审阅并应用，当前没有运行生产迁移或清理。
+
+本轮隔离预览为 `http://127.0.0.1:8797/privacy`，同时运行 Main/Room，使用 `.wrangler/phase1-retention/state` 和空 YouTube key。已实际验证本地调度删除过期 fixture、保留活跃房间与缓存，以及创建房间 Connected。Wrangler 4.105 的测试调度入口是 `/cdn-cgi/handler/scheduled`（仅限本地 `--test-scheduled`），不是普通 SPA 路由 `/__scheduled`。前端更改需 build 后刷新；若 Windows 导致 asset watcher 被禁用，需重启本地 Worker 才能加载新产物。SQLite 回归测试使用 Node 22.13+ 的 `node:sqlite`，只操作内存数据库。
 
 先准备前端产物与本地数据库：
 

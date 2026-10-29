@@ -10,6 +10,11 @@ describe("translation coverage", () => {
     "src/App.tsx",
     ...readdirSync(new URL("src/routes/", root)).filter((file) => file.endsWith(".tsx")).map((file) => `src/routes/${file}`),
     "src/components/ConfirmDialog.tsx",
+    "src/components/SiteInfoButton.tsx",
+    "src/components/SiteFooter.tsx",
+    "src/components/PrivacyConsent.tsx",
+    "src/components/SiteBrand.tsx",
+    "src/components/SiteHeader.tsx",
     "src/lib/quotaReset.ts",
     "src/lib/searchExperience.ts",
   ];

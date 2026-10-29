@@ -1,3 +1,12 @@
+## YouTube 原生交互恢复（本地验证，待用户验收，未发布）— 2026-10-27
+
+- 大屏和手机预览恢复 controls、键盘、全屏与 iframe 点击；保留 KTV 进度、重播、播放/暂停、切歌和队列。暂停清除播放重试；首次起播仍从大屏 0 秒、手机预览 30 秒开始，预览开始后允许用户向前拖动。
+- 加载前创建带 sandbox 的 iframe，允许 popup 及 popup 脱离 sandbox，禁止 top navigation。YouTube 内部跨域链接无法统一强制 target；推荐可能在 iframe 内换视频。二维码/语言移到视频上方；活动预览占两列、至少 200px 高；不覆盖 YouTube 加载/错误界面。
+- 新建 Codex 内置浏览器会话，Vite `http://127.0.0.1:5173/room/youtube-review/display` 与 `/mobile`：实测 iframe pointer-events=auto、controls=1、disablekb=0、fs=1，预览高度至少 200px；点击原生 Watch on YouTube 打开独立 YouTube 标签页，KTV 页 URL 保持；本地添加两首、Next 切到第二首、二维码收起通过。未请求真实 YouTube 搜索，无生产/远程存储操作。
+- 两个 mock 视频均返回 YouTube 不可播放（大屏 error 150）；临时页面对比无 sandbox 与有 sandbox 的同视频也都不可播放，已删除临时页面。真实播放、原生暂停/音量/进度/全屏、推荐点击及真实 Worker 同步尚未运行时验证；不声称整体合规认证。
+- 初次 Vite 受沙箱 realpath EPERM 阻止，允许后启动成功。Vite 正在运行，前端热更新；Ctrl+C 停止。不提交、推送或部署。
+- 最终 `npm run typecheck`、三组聚焦测试 16 项通过；`git diff --check` 通过。截图保存在本轮 visualization 目录。
+
 # Project Progress
 
 Last updated: 2026-10-27
@@ -902,3 +911,45 @@ Known limitation：本轮已在本地与生产内置浏览器完成 responsive s
 - 聚焦测试：`npm test -- src/i18n src/lib/quotaReset.test.ts src/lib/searchExperience.test.ts` 4 files / 41 tests 通过，覆盖中文地区变体、非中文默认、手动优先、刷新保留、storage 同步/清除、独立 profile 隔离、存储禁用、插值与翻译 key 完整性。`npm run verify:search` 13 files / 110 tests、typecheck 均通过，强制无真实网络；最终 `npm run build` 与 `git diff --check` 通过。
 - 新建 Codex 内置 @Browser 会话实测：首页自动英文、手动切换与刷新保留；同浏览器手机页切换后大屏同步；搜索草稿和选中卡片保持；空歌单、URL placeholder、无效 URL 提示即时双语切换；Admin 登录页和调试页均可切换。用临时同源 iframe 实测 320px / 390px 手机视口，英文控件不重叠；临时验证页已删除。最终首页和手机页 console error 均为空，只有已有 React Router future flag warnings。截图保存于忽略目录 `.wrangler/localization-preview/`。
 - 预览服务运行于 `http://127.0.0.1:5181/create`，手机页为 `http://127.0.0.1:5181/room/3f1e3t3t/mobile`。Vite 源码热更新，无需 rebuild；关闭运行终端会停止服务。这是无 Worker 的本地 mock 模式，未验证真实 D1/KV/DO、真实播放、Admin 认证后的 live 数据；独立 profile 隔离由自动测试验证，未操作个人 Chrome。上述本地阶段未执行发布；正式 commit、push、部署和生产 smoke 见本节正式记录。
+# Phase 1 公开网站基础设施（本地实现完成，用户审阅中，未发布）— 2026-10-28
+
+- 用户指定以 Phase 1 为长期目标，先完成页面和架构，运营者与联系信息之后补齐；完整范围见 `docs/PHASE_1.md`。
+- 新增中英文产品首页 `/`，不再自动跳至创建页；保留 `/create`、现有扫码与播放路由。新增 `/setup`、`/privacy`、`/terms` 和相互导航。静态公开页不请求搜索或加载播放器。
+- 设备指南包含电脑起步、电视、音频连接、兼容性、延迟和啸叫；没有虚构推荐型号、联盟身份或购买链接。隐私与条款明确草稿、联系方式及数据请求流程待补。
+- 运营者/邮箱配置集中在 `src/content/publicPages.ts`，用户可后续提供。已补实际本地空房间截图；尚待设备实测内容、正式政策信息及隐私同意机制、完整验收；不标记整个 Phase 1 完成。
+- typecheck、build 通过；翻译覆盖 1 文件/11 项通过。受限环境 Vitest/Vite 首次因 Windows realpath EPERM 失败，在获准的非沙箱执行后通过/正常启动。未运行全量测试、搜索专项或真实 Worker 验证，因为本轮只改公开静态页面与路由。
+- 新建内置 @Browser 实际打开首页，导航至设备指南、隐私与条款，验证英文及中文切换；390px 窄屏首页及条款无横向溢出，刷新保留中文；首页创建链接实际打开原 `/create` 页，未触发创建 API。控制台无 error，有两条 React Router v7 future-flag warning。其他视口与完整路由交互仍需继续检查。
+- 后续补齐共享页脚：产品首页、设备指南、政策与创建页均可返回产品介绍、访问设备指南/隐私/条款。提供真实邮箱后会统一出现 mailto 联系入口；空配置不生成虚假地址。创建页正文及创建逻辑未改。typecheck 与 diff check 通过；全新内置 @Browser 验证中英页脚、创建页到设备指南链接，390px 无横向溢出。
+- 首页新增实际手机队列页和大屏空房间截图，素材位于 `public/product/`，总计约 54KB；明确标注英文界面、本地空房间以及截图二维码不可用于正式加入。未播放视频或调用真实搜索；手机截图使用空队列，未采用 mock 搜索卡片。内置浏览器确认两张图片成功加载、自然尺寸 1265×712 与 390×844，中英文说明切换及窄屏纵向排列正常。typecheck 与翻译覆盖 11 项通过。
+- 直接扫码入口现可查看政策：手机顶部品牌按钮、大屏顶部 About 打开原生 dialog；产品介绍、指南、隐私、条款及 YouTube 条款另开页面，不导航走当前房间。弹窗不占播放器或底栏空间，不强制接受草稿。浏览器实测中文/英文、打开/关闭与 Escape、关闭后焦点返回入口、隐私另开页且房间 URL 保留；没有真实播放或 Worker 同步验证。最终 build、typecheck（build 内含）、翻译覆盖 13 项通过；diff check 通过。
+- 公开长页导航修复：实测隐私底部切到条款后标题 top=-527.87px（仍在旧滚动位置）。App 仅在 `/`、`/create`、`/setup`、`/privacy`、`/terms` 的 pathname 变化时归顶，未改房间查询参数/滚动逻辑。内置浏览器复测条款→隐私 `scrollY=0`、标题在可视区；typecheck 和 diff check 通过。Phase 1 验收证据与用户后补信息列在 `docs/PHASE_1.md`，未宣称整体完成。
+- 本轮 Vite 服务地址 `http://127.0.0.1:5173/`。未提交、推送或部署，保留既有未提交播放器改动。
+
+- 2026-10-28 用户补充运营者姓名与联系邮箱，已填入 publicSiteDetails，政策与页脚联系入口复用该配置。移除“运营资料尚未提供”的过时草稿说明，仍保留数据处理规则和条款待确认状态。仅本地修改，未发布。
+
+- 用户更正公开资料授权：不公开法定姓名，允许公开邮箱。前端配置已改为 KTV Assistant，并补充个人项目、Ontario/Canada、YouTube 可用地区、通常三天内回复（非办结时限）。设备实测暂缓；数据保存/删除方案授权工程侧完善。未发布。
+
+- 本轮验证：typecheck、build（移除法定姓名后的版本）、diff check 通过；后续仅补充双语数据请求说明后 typecheck 与内置浏览器中英文检查通过。`src`、`public`、已生成 `dist` 未检出先前法定姓名。新 Vite 服务实际为 `http://127.0.0.1:5174/privacy`（5173 占用）；未发布。房间无活动清理、KV 一年 TTL、quota 三天 TTL、admin 会话十二小时已从源码核对；搜索事件/D1 资料无统一自动期限，不能当作已完成的留存策略。
+
+- Phase 1 数据维护（本地，未发布）：新增 dataRetention scheduled handler，仅 Main 配置 hourly cron；搜索/播放事件30天、停用未更新房间30天、审计/日配额90天，分批执行，活跃房间/共享缓存保留。0007只添加索引。隔离本地数据库应用7个迁移并写入测试fixture；通过4.105实际 `/cdn-cgi/handler/scheduled` 触发，日志 deletedRows=[1,0,0,0,1,1,0,0]，SQL复查旧事件/停用房间移除、新事件/活跃房间/共享资料保留。创建真实本地房间6d235q15显示Connected，无冷搜索或播放。
+- 维护验证：内存SQLite真实迁移4项 + 翻译13项，共2文件17项通过；verify:search 14文件167项且禁止真实网络；typecheck、build与diff check通过。Node22 SQLite有experimental warning；无新增依赖。Wrangler asset watcher在build后明确报EPERM并禁用，重启同一隔离服务后privacy页面成功显示新规则。预览 http://127.0.0.1:8797/privacy 运行中，Main/Room本地绑定、空key，状态目录.wrangler/phase1-retention/state。未动生产数据/迁移/配置，隐私同意与请求操作流程仍待完成。
+
+- Phase1收尾：新增版本化PrivacyConsent边界，覆盖create/mobile/display/debug/Admin，公开内容不受阻。受保护组件确认前不挂载；确认记录只保留version/acceptedAt；存储失败降级页面内存；withdraw清除确认、卸载页面并关闭WS，跨tab通过storage同步。补隐私存储披露及docs/PRIVACY_REQUESTS.md操作说明。
+- Gate验证：Vite直接queue链接默认未勾选/disabled，继续后保留tab，刷新恢复，withdraw后重新提示且刷新仍未勾选；真实本地Worker确认前无API/WS日志，确认后Connected，撤回后snapshot连接数0。修复大屏dialog内Space被播放快捷键拦截，实际Close按钮Space成功。测试仅针对未发布的本地草稿，无线上账户协议操作。
+- 最终完整npm test：34文件279项通过（SQLite有experimental warning）；gate/translation/socket专项4文件20项通过；最终build（含typecheck）、diff check通过。搜索专项此前167项且禁真实网络。Phase1逐项验收见docs/PHASE_1.md，本地实现完成，未提交/推送/部署；用户自用设备型号照片明确暂缓，后续平台审核/广告不计为本轮缺口。
+
+- 最终窄屏验收：内置浏览器viewport覆盖未改变实际1280px页面，未将其冒充390px通过。改用临时同源390×844 iframe检查；中文client/scroll均390px，英文有纵向滚动条时client/scroll均375px，无横向溢出；拒绝链接实际返回公开首页。临时public验证页已移除、测试tab已关闭。确认页截图.wrangler/phase1-preview/consent-final.jpg，用户预览 http://127.0.0.1:8797/create ，服务仍在运行。
+
+## 用户审阅后的公开页面 UI 调整（本地完成，待审阅）
+
+- 统一SiteBrand/SiteHeader，首页、创建页、政策/指南及确认页品牌使用本地中文书写体子集（3848字节、许可保留）和英文衬线斜体；字体随站点加载。创建页品牌返回首页。
+- 入口文案“准备开唱 / Get started”，实际创建按钮“准备好了 / Ready to sing”；保留加载态、渐变/光效与房间逻辑，说明图标改MonitorPlay，手机上下排列防止竖排。
+- 首页使用居中hero、渐变底色、分区留白和卡片；共享导航/语言/页脚hover边框视觉、阴影及focus效果，页脚主页入口改“产品介绍”。联系区卡片化，去除正文底部创建/重复条款按钮；Google隐私链接融入正文，内容页顶部不再重复设备指南入口。未修改播放器底栏。
+- 验证：typecheck、2文件17项测试、diff check通过；内置Browser中英桌面与320/390px容器检查无横向溢出，说明正常横排。320px英文品牌最初换成两行，已缩小对应宽度字号并测得单行20.22px，和语言按钮无重叠。页脚hover实测shadow非none；首页与创建页英文品牌font/size/color相同；创建页品牌点击实际回首页；政策页面/create、Google和YouTube链接各只保留1处，console error为空。
+- 临时public测试页和测试tab已移除；截图.wrangler/ui-polish/home-zh.jpg与create-zh.jpg。当前Vite http://127.0.0.1:5174/ 运行中，前端热更新；没有运行生产部署、提交或推送。此轮纯UI未重复后端/搜索测试或重建dist。
+
+## 第二轮公开页面修正（2026-10-29，本地完成）
+- 入口改“准备开唱 / Ready to Sing”，创建按钮“创建房间 / Start a Room”；英文导航标题大小写统一。页脚居中、hover去边框保留柔和阴影，顶部padding增至6px 10px。YouTube条款新标签页打开。
+- 英文品牌换本地Courgette字体子集（5940字节、附许可），中文K独立放大加宽。README与Phase1记录同步。
+- typecheck及2文件17项专项测试通过；测试首次受沙箱realpath EPERM阻止，受限环境外重跑通过。内置Browser核对双语按钮、外链新tab保留原页、页脚居中与hover无inset边框、顶部padding；320/390px双语创建页无横向溢出、品牌和语言按钮无重叠，console error为空。临时测试页和标签页已清理。
+- Vite预览 http://127.0.0.1:5174/ 运行中，支持热更新；截图.wrangler/ui-refine/home-en.jpg。未提交、推送或发布。
