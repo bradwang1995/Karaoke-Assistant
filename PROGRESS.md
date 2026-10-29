@@ -1,3 +1,10 @@
+## 品牌与产品截图已发布 — 2026-10-29
+
+- 发布源码 f390223fcb8fd3c3e44e857f0d93b0f45139262c 已推 origin/codex/music-eligibility-cache 并通过 ls-remote 核对；未推 main。
+- 按 Room → Main 使用 --keep-vars 部署，并读取 deployments list 核实最终 100% 版本：Room a6795291-bdce-4da8-af5e-090657078d67；Main 0de4c7ec-9c13-4f94-9160-b1937619387f。
+- 全新内置 Browser 线上首页加载 assets/index-DVK4l-51.js，与构建一致；中英文 Header 均 139px，品牌无副标题，两张新 PNG 正常加载，尺寸分别 1280×720 / 390×844；console error 为空。线上截图 product-release.png 位于本轮 visualization 目录。
+- cacheOnly 耍赖命中 45 条，脚本验证 sourceQueryCount=0、externalCallAvoided=true，quota used 0→0。首次 npm 调用吞掉参数名，未发搜索请求；直接运行脚本后通过。未运行冷搜索、未新建线上房间或测试真实媒体播放。
+
 ## 品牌与产品截图发布准备 — 2026-10-29
 
 - 本轮发布范围：中英文图片 Logo、移除品牌副标题、语言切换等高 Header、创建页引言固定高度，以及最新大屏/手机队列截图和替代文字。没有搜索、Worker 或存储逻辑变更。
