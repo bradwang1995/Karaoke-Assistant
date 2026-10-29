@@ -1,3 +1,12 @@
+## Phase 1 公开网站发布 — 2026-10-29
+
+- 用户授权 push/deploy 后拉取远端，确认 main 仍是旧基线；实际最新已发布提交位于 origin/codex/youtube-native-controls 的 9619b1b。合并该分支保留已发布播放器、固定200px预览、底栏及QR；短扫码 /j/:roomId 纳入隐私边界。大屏政策入口为紧凑信息图标，未恢复旧顶部栏。
+- 源码4dfb658，合并发布f21857e，已推送origin/codex/music-eligibility-cache并核对远端SHA；未推main。移除即将发布政策中的本地预览/未发布提示。
+- 最终35文件283项测试、typecheck、build、verify:search 14文件167项（禁止真实网络）、diff check通过。生产0007仅新增索引，执行成功；Main小时cron启用，未手动执行生产保留清理。
+- Room → Main 使用 --keep-vars，读取部署记录均100%：Room dff42010-aa21-4db3-baf5-dcf2a41c92b9；Main 27e754cf-0056-4442-98c3-5a1255fdc1bd。
+- cacheOnly 耍赖45条，脚本验证sourceQueryCount=0、externalCallAvoided=true、quota used 0→0。未运行冷搜索。
+- 新内置Browser生产首页中英正确，加载index-BmBJTMvF.js匹配最终构建；/create和/j/4245553a均默认未勾选、继续disabled，未替用户接受线上条款。console error为空。截图.wrangler/phase1-release/home.jpg。未重测真实播放或新建线上房间，自动清理首次生产执行尚未观察。
+
 ## 底栏与二维码改版（已发布，扫码距离待用户实测）— 2026-10-29
 
 - 代码提交 afa9aabbd331d4aff66cd14858991ba76c2c6328 已推送 origin/codex/youtube-native-controls，远端 SHA 已核对。仅提交本轮独立 worktree 的 11 个文件，未推 main；原工作区其他 agent 的公开首页、政策、隐私、字体、数据保留及 Worker/迁移改动未包含、未触碰。
