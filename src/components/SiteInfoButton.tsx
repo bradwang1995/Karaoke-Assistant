@@ -1,11 +1,12 @@
 import { useRef } from "react";
+import { Info } from "lucide-react";
 import { createPortal } from "react-dom";
 import { publicPages } from "../content/publicPages";
 import { translate as t, useLanguage } from "../i18n";
 import { privacyConsent } from "../lib/privacyConsent";
 
 // Native modal dialogs supply focus containment, Escape and focus restoration.
-export function SiteInfoButton({ brand = false }: { brand?: boolean }) {
+export function SiteInfoButton({ brand = false, compact = false }: { brand?: boolean; compact?: boolean }) {
   const language = useLanguage();
   const dialogRef = useRef<HTMLDialogElement>(null);
   return (
@@ -15,11 +16,11 @@ export function SiteInfoButton({ brand = false }: { brand?: boolean }) {
         onClick={() => dialogRef.current?.showModal()}
         aria-label={t("产品说明与政策")}
         title={t("产品说明与政策")}
-        className={brand
+        className={compact ? "grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300" : brand
           ? "rounded-sm text-left underline decoration-white/25 decoration-dotted underline-offset-4 hover:text-teal-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
           : "rounded-md px-2 py-1 text-sm text-slate-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"}
       >
-        {brand ? t("K歌助手") : t("关于")}
+        {compact ? <Info size={16} aria-hidden="true" /> : brand ? t("K歌助手") : t("关于")}
       </button>
       {createPortal(
         <dialog
@@ -36,7 +37,7 @@ export function SiteInfoButton({ brand = false }: { brand?: boolean }) {
               <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-white/10 px-4 py-3 hover:bg-white/10">{label}</a>
             ))}
           </nav>
-          <p className="mb-5 text-sm leading-6 text-slate-400">{t("链接在新页面打开，不会离开当前房间。政策信息仍为待完善草稿。")}</p>
+          <p className="mb-5 text-sm leading-6 text-slate-400">{t("链接在新页面打开，不会离开当前房间。")}</p>
           <button type="button" onClick={() => {
             dialogRef.current?.close();
             privacyConsent.revoke();

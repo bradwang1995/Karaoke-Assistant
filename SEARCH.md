@@ -440,7 +440,7 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 
 Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完整 response、已展开数量、选中项、active preview 和 scroll，TTL 24 小时。输入/筛选的草稿变化会被保存，但不会自动重新搜索。
 
-选中结果后的 active preview card 保持 Mobile 原有 2/3/4 列 grid 尺寸，不因播放而横跨整行；app 不在 active video 上叠加 selection badge。Preview 构造时直接使用 `autoplay=1 + mute=1 + start=30 + cc_load_policy=1`，ready 后只校准 seek/play，不再二次 `loadVideoById`。这不改变 query、ranking、cache、recommendations、quota、deadline 或 search response，属于纯 UI/player 变更，不 bump algorithm、KV 或 recommendation version。
+点歌卡片固定预留 200×200px 播放区域（不含标题和边框），按可用宽度自动排布完整列，未选中时显示保持比例的缩略图，选中前后尺寸不变。只有 active card 加载一个 iframe，app 不在 active video 上叠加 selection badge。Preview 使用 `autoplay=0 + mute=1 + start=30 + cc_load_policy=1`，ready 只静音、不主动播放，由用户通过原生控件启动。搜索/恢复选中不会自动启动视频，不另外打开预览标签页。这不改变 query、ranking、cache、recommendations、quota、deadline 或 search response，属于纯 UI/player 变更，不 bump algorithm、KV 或 recommendation version。
 
 ## 11. API response 怎么诊断
 

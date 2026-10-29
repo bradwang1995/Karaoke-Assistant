@@ -820,9 +820,9 @@ function SearchTab({
         ) : null}
 
         {isLoadingRecommendations ? (
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-3 grid grid-cols-[repeat(auto-fit,202px)] justify-center gap-2">
             {Array.from({ length: SEARCH_RESULT_PAGE_SIZE }, (_, item) => (
-              <div key={item} className="aspect-[16/11] animate-pulse rounded-xl bg-slate-800" />
+              <div key={item} className="h-[258px] animate-pulse rounded-xl bg-slate-800" />
             ))}
           </div>
         ) : null}
@@ -856,7 +856,7 @@ function SearchTab({
           <>
           <div
             ref={resultsGridRef}
-            className="relative z-0 mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
+            className="relative z-0 mt-3 grid grid-cols-[repeat(auto-fit,202px)] justify-center gap-2"
           >
             {visibleResults.map((result, index) => (
               <CandidateVideoCard
@@ -1055,16 +1055,14 @@ function CandidateVideoCard({
       aria-label={t("选择 {0}", [result.title])}
       onPointerDownCapture={onSelect}
       onKeyDown={handleKeyDown}
-      className={`relative isolate z-0 cursor-pointer overflow-hidden rounded-xl border bg-slate-900 text-left shadow-lg shadow-black/20 transition focus:outline-none focus:ring-4 ${
-        previewActive ? "col-span-2" : ""
-      } ${
+      className={`relative isolate z-0 w-[202px] cursor-pointer overflow-hidden rounded-xl border bg-slate-900 text-left shadow-lg shadow-black/20 transition focus:outline-none focus:ring-4 ${
         selected
           ? "border-teal-300 ring-2 ring-teal-300/35"
           : "border-white/10 hover:border-white/25 focus:border-teal-300 focus:ring-teal-300/25"
       }`}
       data-preview-active={previewActive || undefined}
     >
-      <div className={`aspect-video overflow-hidden ${previewActive ? "min-h-[200px] min-w-[200px]" : ""}`}>
+      <div className="h-[200px] w-[200px] overflow-hidden">
         <CandidatePreview
           result={result}
           active={previewActive}
@@ -1106,7 +1104,6 @@ function CandidatePreview({
   useLanguage();
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
-  const playRetryTimeoutsRef = useRef<number[]>([]);
   const playingRef = useRef(false);
   const [loadStatus, setLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">(
     "idle",
@@ -1117,16 +1114,7 @@ function CandidatePreview({
     const shell = playerShellRef.current;
     let cancelled = false;
 
-    const clearPlayRetries = () => {
-      for (const timeoutId of playRetryTimeoutsRef.current) {
-        window.clearTimeout(timeoutId);
-      }
-
-      playRetryTimeoutsRef.current = [];
-    };
-
     const destroyPlayer = () => {
-      clearPlayRetries();
       playerRef.current?.destroy?.();
       playerRef.current = null;
       shell?.replaceChildren();
@@ -1186,30 +1174,11 @@ function CandidatePreview({
     };
 
     function handleReady(event: YouTubePlayerEvent) {
-      const iframe = event.target.getIframe?.() ?? shell?.querySelector("iframe");
-
-      iframe?.setAttribute(
-        "allow",
-        "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
-      );
-      enforceYouTubePreviewStart(event.target);
-
-      for (const delay of [120, 450]) {
-        const retryId = window.setTimeout(() => {
-          if (!playingRef.current) {
-            enforceYouTubePreviewStart(event.target);
-          }
-        }, delay);
-
-        playRetryTimeoutsRef.current.push(retryId);
-      }
+      event.target.mute?.();
+      setLoadStatus("loaded");
     }
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
-      if (event.data === YOUTUBE_PLAYER_STATE.PAUSED) {
-        clearPlayRetries();
-        return;
-      }
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
         if (!playingRef.current && !hasYouTubePreviewReachedStart(event.target)) {
           enforceYouTubePreviewStart(event.target);
@@ -1221,17 +1190,15 @@ function CandidatePreview({
       }
 
       if (event.data === YOUTUBE_PLAYER_STATE.CUED) {
-        enforceYouTubePreviewStart(event.target);
+        event.target.mute?.();
       }
     }
 
     function handleError(_event: YouTubePlayerErrorEvent) {
-      clearPlayRetries();
       setLoadStatus("error");
     }
 
     function handleAutoplayBlocked() {
-      clearPlayRetries();
       setLoadStatus("error");
     }
 
@@ -1239,7 +1206,6 @@ function CandidatePreview({
       const currentTime = player.getCurrentTime?.();
 
       playingRef.current = true;
-      clearPlayRetries();
       setVerifiedStartTime(
         typeof currentTime === "number" && Number.isFinite(currentTime)
           ? Math.round(currentTime * 1_000) / 1_000
@@ -1259,7 +1225,7 @@ function CandidatePreview({
         alt=""
         loading="lazy"
         draggable={false}
-        className="h-full w-full object-cover"
+        className="h-full w-full object-contain"
       />
       <div
         ref={playerShellRef}

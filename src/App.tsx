@@ -8,6 +8,7 @@ import DisplayPage from "./routes/DisplayPage";
 import MobilePage from "./routes/MobilePage";
 import HomePage from "./routes/HomePage";
 import { PrivacyConsent } from "./components/PrivacyConsent";
+import { ROOM_JOIN_ROUTE } from "./lib/roomJoin";
 
 const AdminPage = lazy(() => import("./routes/AdminPage"));
 const PublicInfoPage = lazy(() => import("./routes/PublicInfoPage"));
@@ -30,6 +31,7 @@ export default function App() {
       <Route path="/room/:roomId/display" element={<PrivacyConsent><DisplayPage /></PrivacyConsent>} />
       <Route path="/room/:roomId/mobile" element={<PrivacyConsent><MobilePage /></PrivacyConsent>} />
       <Route path="/room/:roomId/debug" element={<PrivacyConsent><DebugPage /></PrivacyConsent>} />
+      <Route path={ROOM_JOIN_ROUTE} element={<PrivacyConsent><MobilePage /></PrivacyConsent>} />
       <Route
         path="/admin/*"
         element={

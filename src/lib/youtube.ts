@@ -34,13 +34,13 @@ export function youtubePreviewEmbedUrl(videoId: string) {
   return youtubeEmbedUrl(videoId, {
     start: MOBILE_PREVIEW_START_SECONDS,
     muted: true,
-    autoplay: true,
+    autoplay: false,
   });
 }
 
 export function youtubePreviewPlayerVars(origin: string) {
   return {
-    autoplay: 1,
+    autoplay: 0,
     cc_load_policy: 1,
     controls: 1,
     disablekb: 0,

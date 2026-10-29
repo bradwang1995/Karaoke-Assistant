@@ -39,13 +39,13 @@ describe("YouTube embed URLs", () => {
 
     expect(MOBILE_PREVIEW_START_SECONDS).toBe(30);
     expect(url.searchParams.get("start")).toBe("30");
-    expect(url.searchParams.get("autoplay")).toBe("1");
+    expect(url.searchParams.has("autoplay")).toBe(false);
     expect(url.searchParams.get("mute")).toBe("1");
   });
 
-  it("configures selected-card previews for immediate muted autoplay from 30 seconds", () => {
+  it("cues selected-card previews muted at 30 seconds without autoplay", () => {
     expect(youtubePreviewPlayerVars("https://example.com")).toMatchObject({
-      autoplay: 1,
+      autoplay: 0,
       mute: 1,
       start: 30,
       playsinline: 1,

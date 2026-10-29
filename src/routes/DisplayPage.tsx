@@ -2,11 +2,10 @@ import { LanguageToggle } from "../components/LanguageToggle";
 import { SiteInfoButton } from "../components/SiteInfoButton";
 import { translate as t, useLanguage } from "../i18n";
 import {
-  ChevronDown,
+  ChevronLeft,
   MonitorPlay,
   Pause,
   Play,
-  QrCode,
   RotateCcw,
   SkipForward,
   Wifi,
@@ -26,6 +25,7 @@ import { useRoomSocket, type SocketStatus } from "../hooks/useRoomSocket";
 import { fetchYouTubeQuotaStatus, youtubeQuotaQueryKey } from "../lib/apiClient";
 import { formatRelativeQuotaReset } from "../lib/quotaReset";
 import { getCurrentItem, getQueuedItems } from "../lib/roomReducer";
+import { roomJoinUrl } from "../lib/roomJoin";
 import {
   createPlayerProgressSession,
   getPlayerProgressForItem,
@@ -41,7 +41,7 @@ import type { QueueItem } from "../types/room";
 import type { YouTubeQuotaStatus } from "../types/youtube";
 
 export default function DisplayPage() {
-  useLanguage();
+  const language = useLanguage();
   const { roomId = "" } = useParams();
   const roomSocket = useRoomSocket({ roomId, role: "display" });
   const snapshot = useRoomSnapshot(roomId);
@@ -55,7 +55,7 @@ export default function DisplayPage() {
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("loading");
-  const [isQrCodeExpanded, setIsQrCodeExpanded] = useState(true);
+  const [isQrCodeExpanded, setIsQrCodeExpanded] = useState(false);
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
   const handledLoadingPlaybackKeyRef = useRef<string | null>(null);
@@ -68,8 +68,7 @@ export default function DisplayPage() {
   });
 
   const mobileUrl = useMemo(() => {
-    const path = `/room/${roomId}/mobile`;
-    return `${window.location.origin}${path}`;
+    return roomJoinUrl(window.location.origin, roomId);
   }, [roomId]);
 
   const sendPlayerStarted = useCallback(
@@ -292,64 +291,7 @@ export default function DisplayPage() {
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_20%,rgba(20,184,166,0.22),transparent_30%),radial-gradient(circle_at_78%_78%,rgba(251,113,133,0.18),transparent_28%)]" />
 
       <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="flex shrink-0 items-start justify-end gap-3 bg-slate-950 px-5 py-3">
-          <SiteInfoButton />
-          <LanguageToggle className="bg-slate-950/80 text-white" />
-          <div className="hidden sm:block">
-            {isQrCodeExpanded ? (
-              <div className="qr-code-card rounded-2xl border border-white/15 bg-slate-950/90 p-3 text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <Link
-                    to={`/room/${roomId}/mobile`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sm font-bold tracking-wide text-white transition hover:text-teal-200"
-                  >
-                    {t("扫码点歌")}
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => setIsQrCodeExpanded(false)}
-                    aria-label={t("收起二维码")}
-                    title={t("收起二维码")}
-                    className="grid h-7 w-7 place-items-center rounded-md text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus:ring-2 focus:ring-teal-300/60"
-                  >
-                    <ChevronDown size={17} />
-                  </button>
-                </div>
-                <Link
-                  to={`/room/${roomId}/mobile`}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={t("打开扫码点歌手机页")}
-                  className="qr-code-surface block rounded-lg bg-white p-2 focus:outline-none focus:ring-4 focus:ring-teal-300/40"
-                >
-                  <QRCodeCanvas
-                    value={mobileUrl}
-                    size={140}
-                    level="H"
-                    bgColor="#ffffff"
-                    fgColor="#000000"
-                    className="qr-code-canvas"
-                  />
-                </Link>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setIsQrCodeExpanded(true)}
-                aria-label={t("展开二维码")}
-                title={t("展开二维码")}
-                className="flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-slate-950/90 px-3 text-sm font-semibold text-white shadow-[0_18px_50px_rgba(2,6,23,0.65)] backdrop-blur transition hover:border-teal-200/40 hover:text-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-300/60"
-              >
-                <QrCode size={17} />
-                {t("扫码点歌")}
-                  </button>
-            )}
-          </div>
-        </header>
-
-        <section className="relative min-h-[360px] flex-1 bg-black">
+        <section className="relative min-h-[360px] min-w-0 flex-1 bg-black">
           {currentItem ? (
             <FullscreenPlayer
               ref={playerHandleRef}
@@ -381,9 +323,10 @@ export default function DisplayPage() {
           )}
         </section>
 
-        <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 py-2 shadow-2xl">
-          <div className="grid gap-4 text-sm lg:grid-cols-[22rem_minmax(0,1fr)_31rem] lg:items-center">
-            <div className="flex min-w-0 items-center gap-3">
+        <section className="relative z-20 min-h-[74px] border-t border-white/10 bg-slate-950 px-4 py-2 shadow-2xl">
+          <div className="grid items-center gap-3 text-sm lg:grid-cols-2 xl:grid-cols-[20rem_minmax(0,1fr)_auto_auto]">
+            <div className="flex min-w-0 items-center gap-2">
+              <LanguageToggle vertical />
               <ConnectionBadge
                 status={roomSocket.status}
                 canUseLocalFallback={roomSocket.canUseLocalFallback}
@@ -393,10 +336,11 @@ export default function DisplayPage() {
                 isLoading={quotaQuery.isPending}
                 isError={quotaQuery.isError}
               />
+              <SiteInfoButton compact />
             </div>
-            <div className="min-w-0 text-center">
+            <div className="mx-auto w-full min-w-0 max-w-xs text-center">
               {currentItem ? (
-                <h2 className="truncate text-lg font-semibold tracking-normal sm:text-xl">
+                <h2 className="truncate text-base font-semibold tracking-normal">
                   {currentItem.title}
                 </h2>
               ) : null}
@@ -451,10 +395,57 @@ export default function DisplayPage() {
                   </button>
                 </div>
               ) : null}
-              <div className="w-40 min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right">
+              <div className="w-[110px] min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right">
                 <p className="whitespace-nowrap text-xs text-slate-300">{t("即将播放")}</p>
                 <NextSongTitle key={queuedItems[0]?.id ?? "empty"} title={queuedItems[0]?.title ?? t("暂无")} />
               </div>
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-2">
+              <button
+                type="button"
+                aria-label={t("扫码点歌")}
+                aria-expanded={isQrCodeExpanded}
+                aria-controls="room-join-qr"
+                title={isQrCodeExpanded ? t("收起二维码") : t("展开二维码")}
+                onClick={() => setIsQrCodeExpanded((expanded) => !expanded)}
+                className="group flex h-14 shrink-0 items-center justify-center rounded-md border-0 bg-transparent px-0.5 text-[11px] font-semibold leading-3 transition hover:bg-white/10 hover:shadow-[0_2px_12px_rgba(45,212,191,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
+              >
+                {isQrCodeExpanded ? (
+                  <ChevronLeft
+                    size={24}
+                    width={12}
+                    viewBox="6 0 12 24"
+                    aria-hidden="true"
+                    className="shrink-0 rotate-180 text-teal-200 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+                  />
+                ) : (
+                  <span className="flex flex-col items-center">
+                    {(language === "zh" ? [...t("扫码点歌")] : t("扫码点歌").split(/\s+/)).map((part, index) => (
+                      <span key={index}>{part}</span>
+                    ))}
+                  </span>
+                )}
+              </button>
+              {isQrCodeExpanded ? (
+              <Link
+                id="room-join-qr"
+                to={`/room/${roomId}/mobile`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t("打开扫码点歌手机页")}
+                className="-my-2 -mr-4 flex shrink-0 items-center focus:outline-none focus:ring-2 focus:ring-teal-300"
+              >
+                <QRCodeCanvas
+                  value={mobileUrl}
+                  size={72}
+                  level="M"
+                  marginSize={2}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  className="qr-code-canvas qr-code-surface shrink-0 rounded-sm"
+                />
+              </Link>
+              ) : null}
             </div>
           </div>
         </section>
@@ -615,6 +606,8 @@ function isEditableEventTarget(target: EventTarget | null) {
   }
 
   return (
+    target instanceof HTMLButtonElement ||
+    target instanceof HTMLAnchorElement ||
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement ||

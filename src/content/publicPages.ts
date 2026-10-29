@@ -47,12 +47,12 @@ export const publicPages: Record<"setup" | "privacy" | "terms", Record<"zh" | "e
     ] },
   },
   terms: {
-    zh: { title: "服务条款", intro: "K歌助手提供免费的多人点歌、共享队列和大屏播放控制。以下条款为待运营者确认的草稿。", sections: [
+    zh: { title: "服务条款", intro: "K歌助手提供免费的多人点歌、共享队列和大屏播放控制。使用本服务前，请阅读以下条款。", sections: [
       { title: "YouTube 与内容使用", paragraphs: ["使用本服务时，你也同意受 YouTube 服务条款约束，链接见下方。请同时阅读本服务隐私政策。视频内容由第三方提供，嵌入可用性由内容提供方决定。", "仅访问和播放你有权使用的内容，遵守适用法律及内容提供方规则。本服务不授予音乐版权、公开表演或商业场所播放许可。"] },
       { title: "合理使用与房间安全", paragraphs: ["不得滥用接口、绕过访问限制、干扰其他房间或提交违法信息。房间链接允许他人加入，请只与预期参与者分享。参与者的队列操作会影响同一房间的其他人。"] },
       { title: "可用性与设备", paragraphs: ["网络、API 配额、视频下架和嵌入限制可能影响服务。我们不保证每条视频可播放或服务持续可用。请自行确认设备连接与音量安全。适用法律赋予的权利不受本条款排除。"] },
     ] },
-    en: { title: "Terms of Use", intro: "KTV Assistant provides free collaborative song selection, shared queues and big-screen playback controls. These draft terms await operator confirmation.", sections: [
+    en: { title: "Terms of Use", intro: "KTV Assistant provides free collaborative song selection, shared queues and big-screen playback controls. Please read these terms before using the service.", sections: [
       { title: "YouTube and content use", paragraphs: ["By using this service, you also agree to be bound by the YouTube Terms of Service linked below. Please also read our Privacy Policy. Third parties provide video content and determine embedding availability.", "Only access and play content you are entitled to use, following applicable law and provider rules. This service grants no music copyright, public-performance or commercial-venue playback licence."] },
       { title: "Acceptable use and room safety", paragraphs: ["Do not abuse APIs, bypass access restrictions, disrupt other rooms or submit unlawful information. Room links allow others to join; share them only with intended participants. Queue actions affect everyone in the room."] },
       { title: "Availability and equipment", paragraphs: ["Networks, API quotas, video removal and embed restrictions can affect service. We do not guarantee every video or continuous availability. Check equipment connections and safe volume levels. These terms do not exclude rights provided by applicable law."] },

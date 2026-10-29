@@ -23,7 +23,7 @@ export function PrivacyConsent({ children }: { children: ReactNode }) {
           <a href="/terms" target="_blank" rel="noopener noreferrer">{t("服务条款")}</a>
           <a href="https://www.youtube.com/t/terms" target="_blank" rel="noopener noreferrer">YouTube Terms of Service</a>
         </nav>
-        <p className="text-sm leading-6 text-slate-400">{t("本地预览版本：政策与条款尚未发布。确认记录仅保存在当前浏览器；禁用存储时只在当前页面有效。")}</p>
+        <p className="text-sm leading-6 text-slate-400">{t("确认记录仅保存在当前浏览器；禁用存储时只在当前页面有效。")}</p>
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-white/15 p-4 leading-7">
           <input className="mt-2 h-4 w-4 shrink-0 accent-teal-300" type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
           <span>{t("我已阅读并同意隐私政策、服务条款及 YouTube 服务条款。")}</span>
