@@ -1,3 +1,13 @@
+## Phase 2 剩余整改已推送部署 — 2026-11-02
+
+- 用户在本地验收报告后明确授权 push/deploy。源码提交 `debf48628f912812c84cb330c08d8168ec9e3e42` 已推 origin/codex/music-eligibility-cache，并经 ls-remote 核实；未推 main。
+- 按 Room → Main 使用 --keep-vars；deployments list 核实最终均100%：Room `f28d8c7d-c412-4967-bd2c-10c7f1083725`；Main `998ec7ce-2f3a-440a-9ceb-40a823642d3c`。保留Dashboard变量/密钥；无新增迁移或手工生产清理。
+- 发布前重跑全量无网络测试42文件320项、verify:search17文件196项及typecheck、build和diff check，全通过。构建入口 assets/index-Bv3P8aDi.js、CSS assets/index-Dlx8wsaO.css。
+- 生产cacheOnly“耍赖”（p2smoke1仅为smoke标识，未创建房间）通过：脚本校验cacheOnly=true、sourceQueryCount=0、externalCallAvoided=true，search ledger 0→0，结果0条。不是缓存命中或媒体播放证明；未运行冷搜索或videos.list。
+- 全新内置Browser核对生产/create中英同意门禁，加载脚本与构建一致，checkbox未勾选、继续disabled、iframe=0、console error为空。未代用户同意生产条款、未创建真实房间或使用管理员会话。截图phase2-production-release.png在本Chat visualization目录。
+- 真实YouTube原生控件、手机/广告/链接/自动播放、两手机扫码协作、P0历史副本清理、Console归属限制及正式审核资料仍需验收；本次部署不代表YouTube批准。Logo/字体/图片和广告/联盟状态不变。
+- 本发布证据随后以[CI Skip]文档提交推送；下方“本地未发布”记录保留为发布前历史，当前状态以上述发布记录为准。
+
 ## Phase 2 剩余合规整改（本地完成，待集中验收，未发布）— 2026-11-02
 
 - 本轮起始工作区干净，分支 `codex/music-eligibility-cache`，HEAD `9f2d7aad2ab28946d803e354fe440cba6b167434`。未提交、push、部署或访问生产；未读取真实密钥、调用真实YouTube Data API或提交官方表单。以下P0发布段落是之前的历史记录，不是本轮操作。

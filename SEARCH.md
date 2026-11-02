@@ -45,7 +45,7 @@
 
 ## Phase 2 P0 生命周期变更（已发布，历史清理待验收）
 
-2026-11-02剩余整改（本地待评审）：搜索传输异常不再传播可能含服务端密钥的URL；公开SEARCH_FAILED使用通用错误。仅调整错误披露，不改变查询触发、family、排序、结果准入、缓存/推荐、ledger、调用次数或deadline，故不提升上述算法/缓存/结果版本。播放器可见性与同意入口变更见README及docs/PHASE_2_REMAINING_REPORT.md。
+2026-11-02剩余整改（已发布，实际版本与零配额验证见PROGRESS）：搜索传输异常不再传播可能含服务端密钥的URL；公开SEARCH_FAILED使用通用错误。仅调整错误披露，不改变查询触发、family、排序、结果准入、缓存/推荐、ledger、调用次数或deadline，故不提升上述算法/缓存/结果版本。播放器可见性与同意入口变更见README及docs/PHASE_2_REMAINING_REPORT.md。
 
 当前契约：API元数据按snippet/details/status保存真实获取时间，最多29天，过期/未知拒绝读取或复制；KV v5、推荐v9，旧版本不fallback。保留原family及排序、一次cold search.list和1600/2000ms deadline。URL lookup现在也有1600ms外部deadline。URL错误仅返回通用占位，无远程缩略图，不授予播放许可。浏览器24小时仅恢复输入/选项，不再持久化API结果。
 

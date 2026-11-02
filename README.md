@@ -13,7 +13,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - `PROGRESS.md`：实现状态、历史修复、验证记录和待办。
 - `docs/YOUTUBE_AUDIT_REVIEWER_GUIDE.md`：英文审核访问流程；配套 evidence runbook、申请草稿与 `docs/PHASE_2_REMAINING_REPORT.md` 记录本地证据和未完成的实机/生产/Console 门槛。
 
-### Phase 2 剩余整改（2026-11-02，本地待评审）
+### Phase 2 剩余整改（2026-11-02已发布，实机与审核证据待验收）
 
 大屏 iframe 始终以 autoplay=0 加载，ready 后仅在页面可见、iframe 至少200×200且超过半数在视口内并通过遮挡检查时尝试一次播放。标签隐藏、滚动/尺寸变化或政策弹窗使播放器不可见时暂停；回到可见状态需手动 Play/Resume，不循环重试。页面内共享播放所有权，新的播放暂停旧播放器；不跨设备限制正常房间协作。手机预览仍为静音手动启动、30秒起点，纠正起点只seek、不再次触发playVideo；失败后移除iframe再显示重试。
 

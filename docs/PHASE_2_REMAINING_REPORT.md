@@ -148,3 +148,8 @@ Ending `git status --short` (all changes local; HEAD unchanged):
 
 Final built asset scan: `index-Bv3P8aDi.js`, `index-Dlx8wsaO.css`, `PublicInfoPage-BpIQvwAU.js`, `AdminPage-BaC2yZSF.js`; no target API-key/private-key pattern, no `YOUTUBE_API_KEY` binding name and no test-fixture text. Source scan inspected 162 tracked paths and found no target credential patterns or frontend ad-tracker code; it deliberately did not read secret files. No logo/font/image paths changed.
 Final `git diff --check`: **PASS (exit 0)**. Only Git's LF/CRLF informational warnings were emitted; no whitespace errors. Final no-network test/search/typecheck/build results above are from this round. Final source state remains uncommitted.
+
+
+## Subsequent authorized production release — 2026-11-02
+
+The local-only authorization/status statements above describe the initial implementation turn. The user subsequently explicitly requested push and deployment. Source debf48628f912812c84cb330c08d8168ec9e3e42 was pushed to codex/music-eligibility-cache (not main). Room f28d8c7d-c412-4967-bd2c-10c7f1083725 and Main 998ec7ce-2f3a-440a-9ceb-40a823642d3c were deployed in that order with keep-vars and verified active at 100%. Full 320 tests, search 196/typecheck, build and diff checks passed again. Production cacheOnly smoke returned 0 results with search ledger 0→0; browser loaded the matching build and showed no console errors or pre-consent iframe. No real cold search/videos.list, new room, admin login, migration or manual retention cleanup was performed. Native playback/devices, retention backlog, Console and audit evidence remain pending. Detailed release record: PROGRESS.md.

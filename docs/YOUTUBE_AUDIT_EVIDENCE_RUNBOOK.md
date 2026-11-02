@@ -1,6 +1,6 @@
 # YouTube audit evidence and Phase 3 gates
 
-Prepared 2026-11-02; local review only. Never substitute screenshots of mocks or old deployments for current production evidence. Do not upload private room links, credentials, unrelated participant information or Console key values.
+Updated 2026-11-02: code deployed after explicit user authorization; active versions and cache-only smoke are recorded in PROGRESS.md. Local and mock evidence below remains local evidence. Never substitute screenshots of mocks or old deployments for current production evidence. Do not upload private room links, credentials, unrelated participant information or Console key values.
 
 ## Evidence levels and outstanding capture
 
@@ -45,7 +45,7 @@ References checked 2026-11-02: [API key security](https://docs.cloud.google.com/
 | Gate | Decision now | Required next evidence / owner |
 | --- | --- | --- |
 | Local source enters release review | GO only after final checks recorded in report | Reviewer inspects focused diff; no automatic release |
-| Production deployment authorized | **NO** | User explicitly authorizes a later release; rerun required release checks, Room → Main with keep-vars; no new migration in this round |
+| Production deployment authorized | **YES — completed 2026-11-02** | User authorized push/deploy after local report; release checks and Room → Main with keep-vars passed; no new migration |
 | Native controls and device flow accepted | **NO-GO pending MANUAL** | Actual YouTube controls at 200×200 (increase size if controls clip), keyboard/link/popups/fullscreen/ads, desktop + two phones, reconnect, first-song/replay/skip/autoplay recovery |
 | Production matches source and retention policy | **NO-GO pending PRODUCTION** | Active Main/Room versions/assets, existing 0008 and cron, backlog/backup/old-page checks; no assumption that historical cleanup finished |
 | Audit package ready to submit | **NO-GO** | User's legal/operator information, accurate project mapping, current screenshots and real recording, production/device verification, replacement logo supplied by user |

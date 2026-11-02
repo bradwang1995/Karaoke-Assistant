@@ -1,6 +1,6 @@
 # KTV Assistant — reviewer guide
 
-Prepared 2026-11-02. This guide describes the current local source. The changes in this review have **not** been deployed, and no YouTube approval is claimed. Check the active release before using this guide for a production audit.
+Updated 2026-11-02: source debf486 was pushed and deployed after explicit user authorization. Active Main/Room versions and cache-only verification are recorded in PROGRESS.md. Native YouTube playback and physical-device audit evidence remain pending; no YouTube approval is claimed.
 
 ## Purpose and access
 
