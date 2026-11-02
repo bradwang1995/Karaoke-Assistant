@@ -95,7 +95,7 @@ describe("YouTube embed URLs", () => {
     expect(hasYouTubePreviewReachedStart(player)).toBe(false);
     expect(enforceYouTubePreviewStart(player)).toBe(true);
     expect(hasYouTubePreviewReachedStart(player)).toBe(true);
-    expect(calls).toEqual(["mute", "seek:30", "play"]);
+    expect(calls).toEqual(["mute", "seek:30"]);
   });
 
   it("enables native controls alongside app-owned controls", () => {

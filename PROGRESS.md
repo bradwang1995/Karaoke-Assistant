@@ -1,3 +1,17 @@
+## Phase 2 剩余合规整改（本地完成，待集中验收，未发布）— 2026-11-02
+
+- 本轮起始工作区干净，分支 `codex/music-eligibility-cache`，HEAD `9f2d7aad2ab28946d803e354fe440cba6b167434`。未提交、push、部署或访问生产；未读取真实密钥、调用真实YouTube Data API或提交官方表单。以下P0发布段落是之前的历史记录，不是本轮操作。
+- Display改为autoplay=0，ready后通过文档可见性、200×200、超过半数视口面积与遮挡采样检查，再单次play；静默拒绝2秒后提示手动恢复，不重试。显式手动播放保留部分可见时的操作；隐藏、完全不可见、政策弹窗时暂停。重播先通过门禁再cue回房间视频并seek，避免loadVideoById隐式自动播放。页面播放器共享所有权，不跨设备互斥。
+- 手机预览仍为200×200、静音手动30秒起点；起点修正只seek，不再次play。失败或超时销毁iframe再提供可点击重试。未更改双列、底栏高度、Logo、图片、字体或装饰布局。
+- Debug/Admin（含登录与加载）和已同意公开/创建页提供共享政策撤回入口；禁用localStorage时设备身份和房间业务状态保留于当前页，不崩溃。沿用P0物理清理旧本地metadata和同意版本，无实质政策变动。YouTube传输异常与公开搜索错误脱敏；搜索family/排序/缓存/配额/deadline未改，SEARCH仅补充错误披露说明，不提升版本。
+- 最终完整无网络回归：**42文件320项**；`npm run verify:search` **17文件196项**及其typecheck；独立typecheck、最终build均通过。构建入口`assets/index-Bv3P8aDi.js`，CSS`assets/index-Dlx8wsaO.css`。初始沙箱realpath EPERM通过受控本地重跑解决；npm参数转发失败一次后用`npm.cmd --% test -- --config vitest.search.config.ts`成功，未削弱测试。diff check结果见收尾报告。
+- 新隔离本地D1应用0001–0008全部迁移；Main/Room运行于`http://127.0.0.1:8792/`，虚拟资源ID、独立state和空`.dev.vars`。新内置Browser实际创建本地房间`0i640r6t`，手机/大屏Connected，两个无key URL项同步且预览/播放均保守阻断；重播不绕gate。Worker reload后观察到WS重新连接。撤回使大屏和两个手机标签均返回未勾选同意页。Admin未登录政策弹窗、Debug及create页脚入口均核对；未使用管理员会话。
+- 320/375/390px卡片预览区实测200×200、卡片202px，document无整体横向溢出；横屏844×390检查页面fit，无真实iframe控件证据。Vite独立mock fixture验证首歌一次、Pause/手动恢复/Replay、拒绝不重试、199px/遮挡阻断、模拟visibilitychange暂停与隐藏重建不启动、恢复可见不自动重试。禁用localStorage fixture实测真实app页面同意、进入Vite fallback房间和撤回可用。此类mock/DOM证据不证明真实YouTube内部控件、广告、链接或手机播放。
+- Vite `http://127.0.0.1:5192/`仍运行，前端热更新；Worker读dist，需build后刷新。两服务保留终端运行，Ctrl+C停止。localhost QR不能证明其他手机可以连到电脑。新增`test/browser`只用于Vite，最终dist不含fixture。扫描162个tracked文件的目标凭据模式无命中、前端未发现广告追踪代码；最终bundle无目标密钥模式、YOUTUBE_API_KEY绑定名或fixture文本。这不是对未读取私密文件/生产日志的保证。
+- 英文审核指南、证据runbook/GO-NO-GO、申请草稿及A–F全量矩阵见`docs/YOUTUBE_AUDIT_*.md`和`docs/PHASE_2_REMAINING_REPORT.md`。本地可进入发布评审；本轮无部署授权，真实两手机/原生播放/生产清理/Console/法定资料/录像/用户Logo及未来房间页广告独立价值、API派生评分解释仍需集中验收。未新增迁移、依赖或广告/联盟功能。
+
+- 收尾 `git diff --check` 通过（exit 0，仅LF/CRLF提示）。源码、docs及开发fixture全部保留本地，HEAD未变；全量矩阵、起止status和最终bundle扫描已记录在整改报告。
+
 ## Phase 2 P0 已推送并部署，历史副本清理待验收 — 2026-11-02
 
 - 发布源码0139d5215fe9bf00817c015fc088a8642758705e已推origin/codex/music-eligibility-cache，ls-remote核实一致；未推main。Room→Main均使用--keep-vars，未读取/复制/修改现有密钥。

@@ -210,14 +210,16 @@ function roomWebSocketUrl(roomId: RoomId) {
 
 function getClientId() {
   const storageKey = "ktv-assistant:client-id";
-  const existing = window.localStorage.getItem(storageKey);
-
-  if (existing) {
-    return existing;
-  }
-
   const clientId = crypto.randomUUID();
-  window.localStorage.setItem(storageKey, clientId);
+  try {
+    const existing = window.localStorage.getItem(storageKey);
+
+    if (existing) {
+      return existing;
+    }
+
+    window.localStorage.setItem(storageKey, clientId);
+  } catch { /* Page-only identity when browser storage is blocked. */ }
   return clientId;
 }
 

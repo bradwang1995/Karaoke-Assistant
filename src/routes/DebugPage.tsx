@@ -1,4 +1,5 @@
 import { LanguageToggle } from "../components/LanguageToggle";
+import { SiteInfoButton } from "../components/SiteInfoButton";
 import { translate as t, useLanguage } from "../i18n";
 import { Check, Copy, RefreshCw, Trash2, Wifi, WifiOff } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -79,7 +80,7 @@ export default function DebugPage() {
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-5 text-slate-950">
       <div className="mx-auto grid w-full max-w-5xl gap-4">
-        <LanguageToggle className="justify-self-end text-slate-800" />
+        <div className="flex items-center justify-end gap-3 rounded-lg bg-slate-900 p-2"><SiteInfoButton /><LanguageToggle /></div>
         <header className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-teal-700">{t("房间调试")}</p>

@@ -89,6 +89,6 @@ export function enforceYouTubePreviewStart(player: YouTubePlayer) {
     player.seekTo?.(MOBILE_PREVIEW_START_SECONDS, true);
   }
 
-  player.playVideo?.();
+  // Called only after native PLAYING: seek without initiating another playback.
   return hasYouTubePreviewReachedStart(player);
 }

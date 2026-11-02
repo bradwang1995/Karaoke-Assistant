@@ -402,7 +402,7 @@ async function searchRoomVideos(
     return apiError(
       502,
       "SEARCH_FAILED",
-      error instanceof Error ? error.message : "Search failed.",
+      "Search failed. Please retry later.",
     );
   }
 }

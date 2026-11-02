@@ -11,6 +11,15 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 - `README.md`：产品、总体架构、手动配置、部署和通用测试。
 - `SEARCH.md`：搜索算法、缓存、推荐、额度、两秒体验和变更协议的唯一当前规范。
 - `PROGRESS.md`：实现状态、历史修复、验证记录和待办。
+- `docs/YOUTUBE_AUDIT_REVIEWER_GUIDE.md`：英文审核访问流程；配套 evidence runbook、申请草稿与 `docs/PHASE_2_REMAINING_REPORT.md` 记录本地证据和未完成的实机/生产/Console 门槛。
+
+### Phase 2 剩余整改（2026-11-02，本地待评审）
+
+大屏 iframe 始终以 autoplay=0 加载，ready 后仅在页面可见、iframe 至少200×200且超过半数在视口内并通过遮挡检查时尝试一次播放。标签隐藏、滚动/尺寸变化或政策弹窗使播放器不可见时暂停；回到可见状态需手动 Play/Resume，不循环重试。页面内共享播放所有权，新的播放暂停旧播放器；不跨设备限制正常房间协作。手机预览仍为静音手动启动、30秒起点，纠正起点只seek、不再次触发playVideo；失败后移除iframe再显示重试。
+
+Debug、Admin（含登录与加载状态）及已同意的公开/创建页页脚补充政策与撤回入口。禁用浏览器存储时，房间与设备身份可在当前页继续工作；刷新不承诺恢复。政策正文、POLICY_VERSION和P0留存规则本轮没有实质变动，不重复征求旧版之外的新同意。网络异常对外返回通用错误，不传播可能带密钥的请求URL。
+
+本轮没有新增迁移、改变搜索排序/缓存契约、启用广告或联盟追踪，也没有更动Logo/字体/产品截图。P0此前发布记录仍是历史证据；本轮不访问生产，也不据此宣称历史副本已清理。200×200只是尺寸下限，真实YouTube控件是否完整仍需实机验收；若裁切须增大播放器，不能隐藏控件。
 
 ## 1. 产品与使用流程
 
@@ -115,7 +124,7 @@ Production: <https://ktv-assistant.bradwang1995.workers.dev>
 `migrations/0001_initial.sql` 包含：
 
 - `rooms`：名称、时间和 `is_active`。
-- `queue_items`：YouTube metadata、status 和 sort key。
+- `queue_items`：队列业务引用、status 和 sort key；P0后API标题/频道/缩略图不再持久化于队列，snapshot由可信metadata表hydrate。
 - `playback_states`：当前 item/video 和 player state。
 - `playback_events`：预留 event audit table。
 

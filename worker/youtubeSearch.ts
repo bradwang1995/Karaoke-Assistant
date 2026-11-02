@@ -452,7 +452,8 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?
 
 async function fetchBeforeDeadline(url: string, deadlineAt?: number) {
   if (deadlineAt === undefined) {
-    return fetch(url);
+    try { return await fetch(url); }
+    catch { throw new Error("YouTube network request failed."); }
   }
 
   const remainingMs = deadlineAt - Date.now();
@@ -471,7 +472,8 @@ async function fetchBeforeDeadline(url: string, deadlineAt?: number) {
       throw new YouTubeSearchDeadlineError();
     }
 
-    throw error;
+    // Transport errors can contain the request URL, including the server key.
+    throw new Error("YouTube network request failed.");
   } finally {
     clearTimeout(timeoutId);
   }

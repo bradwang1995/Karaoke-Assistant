@@ -2,6 +2,7 @@ import { usePlaybackDecision, validDecision } from "../hooks/usePlaybackDecision
 import { translate as t, useLanguage } from "../i18n";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createYouTubeIframe } from "../lib/youtube";
+import { canStartPlayback, claimPlayback, releasePlayback } from "../lib/playerVisibility";
 import {
   loadYouTubeIframeApi,
   YOUTUBE_PLAYER_STATE,
@@ -65,7 +66,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   const gate = usePlaybackDecision(videoId);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const playbackOwner = useRef({ pause: () => playerRef.current?.pauseVideo?.() });
   const pendingPlayRef = useRef(false);
+  const automaticPlayRef = useRef(true);
   const pendingRestartRef = useRef(false);
   const startedRef = useRef(false);
   const endedRef = useRef(false);
@@ -120,30 +123,41 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     progressIntervalRef.current = window.setInterval(() => reportProgress(player), 1_000);
   };
 
-  const requestPlay = (player: YouTubePlayer) => {
+  const requestPlay = (player: YouTubePlayer, automatic = true) => {
     if (!validDecision(gate.decision, videoId)) { gate.retry(); return; }
     clearPlayRetryTimeouts();
     pendingPlayRef.current = true;
+    automaticPlayRef.current = automatic;
 
     if (typeof player.playVideo !== "function") {
       return;
     }
-
-    player.playVideo();
-
-    for (const delay of [250, 900]) {
-      const timeoutId = window.setTimeout(() => {
-        if (pendingPlayRef.current && typeof player.playVideo === "function") {
-          player.playVideo();
-        }
-      }, delay);
-
-      playRetryTimeoutsRef.current.push(timeoutId);
+    if (!shellRef.current || !canStartPlayback(shellRef.current, automatic)) {
+      pendingPlayRef.current = false;
+      updateStatus("blocked");
+      callbacksRef.current.onAutoplayBlocked();
+      return;
     }
+    claimPlayback(playbackOwner.current);
+    player.playVideo();
+    // Detect a silent browser rejection, but never retry without a user action.
+    playRetryTimeoutsRef.current.push(window.setTimeout(() => {
+      if (pendingPlayRef.current) {
+        pendingPlayRef.current = false;
+        updateStatus("blocked");
+        callbacksRef.current.onAutoplayBlocked();
+      }
+    }, 2_000));
   };
 
   const requestRestart = (player: YouTubePlayer) => {
     if (!validDecision(gate.decision, videoId)) { gate.retry(); return; }
+    if (!shellRef.current || !canStartPlayback(shellRef.current)) {
+      pendingPlayRef.current = false;
+      updateStatus("blocked");
+      callbacksRef.current.onAutoplayBlocked();
+      return;
+    }
     clearPlayRetryTimeouts();
     pendingRestartRef.current = false;
     pendingPlayRef.current = true;
@@ -155,13 +169,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     });
     updateStatus("loading");
 
-    if (typeof player.loadVideoById === "function") {
-      player.loadVideoById({
-        videoId,
-        startSeconds: DISPLAY_PLAYBACK_START_SECONDS,
-      });
-    }
-
+    // Cue the room's video again if native recommendations changed the iframe.
+    // Unlike loadVideoById, cueVideoById does not implicitly start playback.
+    player.cueVideoById?.({ videoId, startSeconds: DISPLAY_PLAYBACK_START_SECONDS });
     player.seekTo?.(DISPLAY_PLAYBACK_START_SECONDS, true);
     requestPlay(player);
   };
@@ -169,7 +179,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   useImperativeHandle(ref, () => ({
     play() {
       if (playerRef.current) {
-        requestPlay(playerRef.current);
+        requestPlay(playerRef.current, false);
       } else {
         pendingPlayRef.current = true;
       }
@@ -240,7 +250,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
         }
 
         const playerVars = {
-          autoplay: autoPlay || playRequestId > 0 ? 1 : 0,
+          autoplay: 0,
           controls: 1,
           cc_load_policy: 0,
           disablekb: 0,
@@ -276,9 +286,9 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       clearPlayRetryTimeouts();
       clearProgressInterval();
       playerRef.current?.destroy?.();
+      releasePlayback(playbackOwner.current);
       playerRef.current = null;
       shell.replaceChildren();
-    if (!gate.allowed) { updateStatus("blocked"); return; }
     };
 
     function handleReady(event: YouTubePlayerEvent) {
@@ -303,6 +313,13 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
+        if (pendingPlayRef.current && (!shellRef.current || !canStartPlayback(shellRef.current, automaticPlayRef.current))) {
+          event.target.pauseVideo?.();
+          handleAutoplayBlocked();
+          return;
+        }
+        if (!pendingPlayRef.current) automaticPlayRef.current = false;
+        claimPlayback(playbackOwner.current);
         pendingPlayRef.current = false;
         clearPlayRetryTimeouts();
         startProgressInterval(event.target);
@@ -374,6 +391,34 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       requestPlay(playerRef.current);
     }
   }, [playRequestId]);
+
+  useEffect(() => {
+    const check = () => {
+      if (playerRef.current && shellRef.current && !canStartPlayback(shellRef.current, automaticPlayRef.current)) {
+        playerRef.current?.pauseVideo?.();
+        if (pendingPlayRef.current) {
+          pendingPlayRef.current = false;
+          clearPlayRetryTimeouts();
+          updateStatus("blocked");
+          callbacksRef.current.onAutoplayBlocked();
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("resize", check);
+    window.addEventListener("scroll", check, true);
+    const observer = new IntersectionObserver(check, { threshold: [0, 0.5, 0.51, 1] });
+    if (shellRef.current) observer.observe(shellRef.current);
+    const dialogs = new MutationObserver(check);
+    dialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["open"] });
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("resize", check);
+      window.removeEventListener("scroll", check, true);
+      observer.disconnect();
+      dialogs.disconnect();
+    };
+  }, []);
 
   return (
     <>

@@ -1,4 +1,5 @@
 import { freshVideos, metadataExpiry } from "../lib/metadataLifecycle";
+import { canStartPlayback, claimPlayback, releasePlayback } from "../lib/playerVisibility";
 import { usePlaybackDecision } from "../hooks/usePlaybackDecision";
 import { LanguageToggle } from "../components/LanguageToggle";
 import { SiteInfoButton } from "../components/SiteInfoButton";
@@ -1113,6 +1114,7 @@ function CandidatePreview({
   const gate = usePlaybackDecision(active ? result.videoId : null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const playbackOwner = useRef({ pause: () => playerRef.current?.pauseVideo?.() });
   const playingRef = useRef(false);
   const [loadStatus, setLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">(
     "idle",
@@ -1124,6 +1126,7 @@ function CandidatePreview({
     let cancelled = false;
 
     const destroyPlayer = () => {
+      releasePlayback(playbackOwner.current);
       playerRef.current?.destroy?.();
       playerRef.current = null;
       shell?.replaceChildren();
@@ -1147,7 +1150,9 @@ function CandidatePreview({
     setLoadStatus("loading");
     setVerifiedStartTime(null);
     const timeoutId = window.setTimeout(() => {
-      setLoadStatus((current) => (current === "loading" ? "error" : current));
+      cancelled = true;
+      destroyPlayer();
+      setLoadStatus("error");
     }, PREVIEW_LOAD_TIMEOUT_MS);
     loadYouTubeIframeApi(gate.decision!, result.videoId)
       .then((api) => {
@@ -1184,14 +1189,17 @@ function CandidatePreview({
     };
 
     function handleReady(event: YouTubePlayerEvent) {
+      window.clearTimeout(timeoutId);
       event.target.mute?.();
       setLoadStatus("loaded");
     }
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
+        claimPlayback(playbackOwner.current);
         if (!playingRef.current && !hasYouTubePreviewReachedStart(event.target)) {
-          enforceYouTubePreviewStart(event.target);
+          if (shell && canStartPlayback(shell, false)) enforceYouTubePreviewStart(event.target);
+          else event.target.pauseVideo?.();
           return;
         }
 
@@ -1205,10 +1213,14 @@ function CandidatePreview({
     }
 
     function handleError(_event: YouTubePlayerErrorEvent) {
+      window.clearTimeout(timeoutId);
+      destroyPlayer();
       setLoadStatus("error");
     }
 
     function handleAutoplayBlocked() {
+      window.clearTimeout(timeoutId);
+      destroyPlayer();
       setLoadStatus("error");
     }
 
@@ -1224,6 +1236,26 @@ function CandidatePreview({
       setLoadStatus("loaded");
     }
   }, [active, result.videoId, gate.allowed]);
+
+  useEffect(() => {
+    const check = () => {
+      if (playerShellRef.current && !canStartPlayback(playerShellRef.current, false)) playerRef.current?.pauseVideo?.();
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("scroll", check, true);
+    window.addEventListener("resize", check);
+    const observer = new IntersectionObserver(check, { threshold: [0, 0.5, 0.51, 1] });
+    if (playerShellRef.current) observer.observe(playerShellRef.current);
+    const dialogs = new MutationObserver(check);
+    dialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ["open"] });
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("scroll", check, true);
+      window.removeEventListener("resize", check);
+      observer.disconnect();
+      dialogs.disconnect();
+    };
+  }, []);
 
   return (
     <div
@@ -1255,9 +1287,9 @@ function CandidatePreview({
           <span className="sr-only">{t("预览加载中")}</span>
         </div>
       ) : null}
-      {loadStatus === "error" && !active ? (
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950 px-2 text-center text-xs font-semibold text-white">
-          {t("预览加载较慢，点一下重试")}
+      {loadStatus === "error" && active ? (
+        <div className="absolute bottom-0 left-0 right-0 bg-slate-950 px-2 py-2 text-center text-xs font-semibold text-white">
+          <button type="button" className="underline" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); gate.retry(); }}>{t("预览加载较慢，点一下重试")}</button>
         </div>
       ) : null}
     </div>

@@ -33,29 +33,23 @@ export function readRoomSnapshot(roomId: string, displayName?: string): RoomSnap
     return clean;
   }
   const key = roomStorageKey(roomId);
-  const raw = window.localStorage.getItem(key);
-
-  if (!raw) {
-    const snapshot = createInitialSnapshot(roomId, undefined, displayName);
-    window.localStorage.setItem(key, JSON.stringify(snapshot));
-    return snapshot;
-  }
-
+  let snapshot = createInitialSnapshot(roomId, undefined, displayName);
   try {
-    const clean = sanitizeRoomSnapshot(JSON.parse(raw) as RoomSnapshot, true);
-    window.localStorage.setItem(key, JSON.stringify(clean));
-    return clean;
-  } catch {
-    const snapshot = createInitialSnapshot(roomId, undefined, displayName);
-    window.localStorage.setItem(key, JSON.stringify(snapshot));
-    return snapshot;
-  }
+    const raw = window.localStorage.getItem(key);
+    if (raw) snapshot = sanitizeRoomSnapshot(JSON.parse(raw) as RoomSnapshot, true);
+  } catch { /* Missing, blocked or corrupt storage starts a page-only room. */ }
+  liveSnapshots.set(roomId, snapshot);
+  try { window.localStorage.setItem(key, JSON.stringify(sanitizeRoomSnapshot(snapshot, true))); }
+  catch { /* Preserve the loaded business state even when writes fail. */ }
+  return snapshot;
 }
 
 export function saveRoomSnapshot(snapshot: RoomSnapshot) {
   snapshot = sanitizeRoomSnapshot(snapshot);
   liveSnapshots.set(snapshot.room.id, snapshot);
-  window.localStorage.setItem(roomStorageKey(snapshot.room.id), JSON.stringify(sanitizeRoomSnapshot(snapshot, true)));
+  try {
+    window.localStorage.setItem(roomStorageKey(snapshot.room.id), JSON.stringify(sanitizeRoomSnapshot(snapshot, true)));
+  } catch { /* Keep the live room usable for this page without persistence. */ }
   notifyRoomUpdated(snapshot.room.id);
 }
 

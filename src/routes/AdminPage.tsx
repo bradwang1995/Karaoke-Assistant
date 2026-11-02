@@ -1,4 +1,5 @@
 import { LanguageToggle } from "../components/LanguageToggle";
+import { SiteInfoButton } from "../components/SiteInfoButton";
 import { translate as t, useLanguage, getLocale, translateServiceMessage } from "../i18n";
 import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -74,20 +75,24 @@ export default function AdminPage() {
   });
 
   if (sessionQuery.isPending) {
-    return <FullPageLoader />;
+    return <><AdminPolicyAccess /><FullPageLoader /></>;
   }
 
   if (sessionQuery.isError) {
     return (
-      <AdminLogin
+      <><AdminPolicyAccess /><AdminLogin
         onAuthenticated={async () => {
           await queryClient.invalidateQueries({ queryKey: adminSessionQueryKey });
         }}
-      />
+      /></>
     );
   }
 
-  return <AdminShell />;
+  return <><AdminPolicyAccess /><AdminShell /></>;
+}
+
+function AdminPolicyAccess() {
+  return <div className="relative z-30 flex justify-end bg-slate-950 px-4 py-2 text-white"><SiteInfoButton /></div>;
 }
 
 function AdminLogin({ onAuthenticated }: { onAuthenticated: () => Promise<void> }) {

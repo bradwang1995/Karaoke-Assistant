@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>LOCAL storage-blocked regression</title></head>
+<body><div id="root"></div><script type="module">
+// Local Vite fixture only, excluded from the production build.
+Object.defineProperty(window, "localStorage", { configurable: true, get() { throw new DOMException("Local test: storage disabled", "SecurityError"); } });
+await import("../../src/main.tsx");
+</script></body></html>
