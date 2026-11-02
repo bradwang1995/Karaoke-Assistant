@@ -39,6 +39,7 @@ import type { Env } from "./types";
 import type { SearchType } from "../src/types/youtube";
 import type { SearchResponse, YouTubeQuotaStatus } from "../src/types/youtube";
 import { getYouTubeSearchQuotaStatusForEnv } from "./youtubeQuota";
+import { checkPlayback } from "./videoMetadata";
 
 const CREATE_ROOM_ATTEMPTS = 3;
 const DEFAULT_SEARCH_RATE_LIMIT_PER_MINUTE = 20;
@@ -53,6 +54,15 @@ export async function handleApiRequest(
   ctx?: ExecutionContext,
 ) {
   const url = new URL(request.url);
+  const playbackMatch = /^\/api\/youtube\/playback\/([a-zA-Z0-9_-]{11})$/.exec(url.pathname);
+  if (playbackMatch) {
+    if (request.method !== "POST") return apiError(405, "METHOD_NOT_ALLOWED", "Use POST.");
+    if (!isSameOriginMutation(request)) return apiError(403, "ORIGIN_REJECTED", "Invalid origin.");
+    const rate = await checkRateLimit({ namespace: env.SEARCH_CACHE, scope: "playback", identity: request.headers.get("CF-Connecting-IP") ?? "local", limit: 20 });
+    if (!rate.allowed) return apiError(429, "RATE_LIMITED", "Please retry later.");
+    try { return jsonResponse(await checkPlayback(env, playbackMatch[1]), { headers: { "cache-control": "no-store" } }); }
+    catch { return jsonResponse({ videoId: playbackMatch[1], allowed: false, reason: "unknown" }, { headers: { "cache-control": "no-store" } }); }
+  }
   const route = matchApiRoute(url.pathname);
 
   if (!route) {

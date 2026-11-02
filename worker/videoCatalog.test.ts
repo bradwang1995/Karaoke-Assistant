@@ -1,3 +1,4 @@
+import { apiStamp } from "../src/lib/metadataLifecycle";
 import { describe, expect, it } from "vitest";
 import { upsertVideoCatalog } from "./videoCatalog";
 
@@ -25,7 +26,7 @@ describe("passive video candidate catalog", () => {
     const valid = catalogCandidate("valid", "青花瓷 KTV");
     const nonMusic = { ...catalogCandidate("travel", "加拿大旅游"), categoryId: "19" };
     const tooLong = { ...catalogCandidate("concert", "情歌王完整串烧"), durationSeconds: 900 };
-    const missingMetadata = { videoId: "snippet-only", title: "青花瓷 普通上传" };
+    const missingMetadata = { provenance: { snippet: apiStamp() }, videoId: "snippet-only", title: "青花瓷 普通上传" };
     const malformed = { videoId: "bad id", title: "invalid" };
 
     await expect(
@@ -126,6 +127,7 @@ function d1Meta(changes = 0) {
 function catalogCandidate(videoId: string, title: string) {
   return {
     videoId,
+    provenance: { snippet: apiStamp(), details: apiStamp() },
     title,
     channelTitle: "KTV Studio",
     durationSeconds: 240,

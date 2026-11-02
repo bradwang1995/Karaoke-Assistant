@@ -1,3 +1,4 @@
+import { sanitizeRoomSnapshot } from "./roomMetadata";
 import { useEffect, useMemo, useState } from "react";
 import {
   addQueueItem,
@@ -14,6 +15,7 @@ const STORAGE_PREFIX = "ktv-assistant:room:";
 const ROOM_EVENT = "ktv-assistant:room-updated";
 const CHANNEL_NAME = "ktv-assistant-room-updates";
 
+const liveSnapshots = new Map<string, RoomSnapshot>();
 let broadcastChannel: BroadcastChannel | null = null;
 
 export function createRoomId() {
@@ -25,6 +27,11 @@ export function createRoomId() {
 }
 
 export function readRoomSnapshot(roomId: string, displayName?: string): RoomSnapshot {
+  if (liveSnapshots.has(roomId)) {
+    const clean = sanitizeRoomSnapshot(liveSnapshots.get(roomId)!);
+    liveSnapshots.set(roomId, clean);
+    return clean;
+  }
   const key = roomStorageKey(roomId);
   const raw = window.localStorage.getItem(key);
 
@@ -35,7 +42,9 @@ export function readRoomSnapshot(roomId: string, displayName?: string): RoomSnap
   }
 
   try {
-    return JSON.parse(raw) as RoomSnapshot;
+    const clean = sanitizeRoomSnapshot(JSON.parse(raw) as RoomSnapshot, true);
+    window.localStorage.setItem(key, JSON.stringify(clean));
+    return clean;
   } catch {
     const snapshot = createInitialSnapshot(roomId, undefined, displayName);
     window.localStorage.setItem(key, JSON.stringify(snapshot));
@@ -44,7 +53,9 @@ export function readRoomSnapshot(roomId: string, displayName?: string): RoomSnap
 }
 
 export function saveRoomSnapshot(snapshot: RoomSnapshot) {
-  window.localStorage.setItem(roomStorageKey(snapshot.room.id), JSON.stringify(snapshot));
+  snapshot = sanitizeRoomSnapshot(snapshot);
+  liveSnapshots.set(snapshot.room.id, snapshot);
+  window.localStorage.setItem(roomStorageKey(snapshot.room.id), JSON.stringify(sanitizeRoomSnapshot(snapshot, true)));
   notifyRoomUpdated(snapshot.room.id);
 }
 
@@ -95,6 +106,7 @@ export function useRoomSnapshot(roomId: string) {
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key === roomStorageKey(roomId)) {
+        liveSnapshots.delete(roomId);
         updateFromStorage();
       }
     };
@@ -106,17 +118,27 @@ export function useRoomSnapshot(roomId: string) {
       }
     };
 
+    const expiryTimer = window.setInterval(updateFromStorage, 60_000);
+    window.addEventListener("focus", updateFromStorage);
     window.addEventListener(ROOM_EVENT, handleLocalEvent);
     window.addEventListener("storage", handleStorage);
     channel?.addEventListener("message", handleMessage);
 
     return () => {
+      window.clearInterval(expiryTimer);
+      window.removeEventListener("focus", updateFromStorage);
       window.removeEventListener(ROOM_EVENT, handleLocalEvent);
       window.removeEventListener("storage", handleStorage);
       channel?.removeEventListener("message", handleMessage);
     };
   }, [roomId]);
 
+  useEffect(() => {
+    const expiry = Math.min(...snapshot.queue.flatMap((item) => item.metadataStamp ? [Date.parse(item.metadataStamp.expiresAt)] : []));
+    if (!Number.isFinite(expiry)) return;
+    const timer = window.setTimeout(() => setSnapshot(readRoomSnapshot(roomId)), Math.min(Math.max(expiry - Date.now() + 1, 0), 2147483647));
+    return () => window.clearTimeout(timer);
+  }, [roomId, snapshot.queue]);
   return useMemo(() => snapshot, [snapshot]);
 }
 

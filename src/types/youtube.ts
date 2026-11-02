@@ -1,6 +1,17 @@
 export type SearchType = "song" | "artist";
 
+export interface ApiStamp { source: "youtube-api"; fetchedAt: string; expiresAt: string }
+export interface PlaybackDecision {
+  videoId: string;
+  allowed: boolean;
+  reason: "allowed" | "made-for-kids" | "unknown" | "unavailable" | "budget";
+  expiresAt?: string;
+}
+
 export interface VideoSearchResult {
+  provenance?: { snippet?: ApiStamp; details?: ApiStamp; status?: ApiStamp };
+  madeForKids?: boolean | "unknown";
+  embeddable?: boolean;
   videoId: string;
   title: string;
   channelTitle?: string;

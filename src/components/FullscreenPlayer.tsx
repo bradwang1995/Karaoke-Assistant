@@ -1,3 +1,5 @@
+import { usePlaybackDecision, validDecision } from "../hooks/usePlaybackDecision";
+import { translate as t, useLanguage } from "../i18n";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { createYouTubeIframe } from "../lib/youtube";
 import {
@@ -59,6 +61,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     },
     ref,
   ) {
+  useLanguage();
+  const gate = usePlaybackDecision(videoId);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const pendingPlayRef = useRef(false);
@@ -117,6 +121,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   };
 
   const requestPlay = (player: YouTubePlayer) => {
+    if (!validDecision(gate.decision, videoId)) { gate.retry(); return; }
     clearPlayRetryTimeouts();
     pendingPlayRef.current = true;
 
@@ -138,6 +143,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   };
 
   const requestRestart = (player: YouTubePlayer) => {
+    if (!validDecision(gate.decision, videoId)) { gate.retry(); return; }
     clearPlayRetryTimeouts();
     pendingRestartRef.current = false;
     pendingPlayRef.current = true;
@@ -226,7 +232,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     }
 
     shell.replaceChildren();
-    loadYouTubeIframeApi()
+    if (!gate.allowed) { updateStatus("blocked"); return; }
+    loadYouTubeIframeApi(gate.decision!, videoId)
       .then((api) => {
         if (cancelled) {
           return;
@@ -245,7 +252,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
           start: DISPLAY_PLAYBACK_START_SECONDS,
           origin: window.location.origin,
         };
-        const host = createYouTubeIframe(videoId, playerVars);
+        const host = createYouTubeIframe(videoId, playerVars, gate.decision!);
         shell.appendChild(host);
         const player = new api.Player(host, {
           events: {
@@ -271,6 +278,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       playerRef.current?.destroy?.();
       playerRef.current = null;
       shell.replaceChildren();
+    if (!gate.allowed) { updateStatus("blocked"); return; }
     };
 
     function handleReady(event: YouTubePlayerEvent) {
@@ -353,7 +361,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       updateStatus("blocked");
       callbacksRef.current.onAutoplayBlocked();
     }
-  }, [autoPlay, videoId]);
+  }, [autoPlay, videoId, gate.allowed]);
 
   useEffect(() => {
     if (playRequestId <= lastPlayRequestRef.current) {
@@ -368,11 +376,17 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   }, [playRequestId]);
 
   return (
+    <>
     <div
       ref={shellRef}
       data-player-status={status}
       className="absolute inset-0 h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full"
     />
+    {!gate.allowed ? <div className="absolute inset-0 grid place-items-center bg-black p-6 text-center text-white"><div>
+      <p>{t(gate.decision?.reason === "made-for-kids" ? "此视频暂不支持在本应用内播放" : gate.decision ? "无法确认视频状态，请重试" : "正在检查视频状态…")}</p>
+      {gate.decision ? <button type="button" className="mt-4 underline" onClick={gate.retry}>{t("重试")}</button> : null}
+    </div></div> : null}
+    </>
   );
   },
 );

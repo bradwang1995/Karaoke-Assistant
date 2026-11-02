@@ -663,3 +663,12 @@ Rate-limit 专项：同 room + identity 快速重复非空搜索，超限应返�
 - Cloudflare GraphQL Analytics token：<https://developers.cloudflare.com/analytics/graphql-api/getting-started/authentication/api-token-auth/>
 - Cloudflare Workers Builds production branches：<https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/>
 - Durable Objects：<https://developers.cloudflare.com/durable-objects/get-started/>
+
+
+## Phase 2 P0 本地整改（未发布）
+
+API元数据现按真正获取时间保存，最多29天；未知/过期数据不能从D1、KV或推荐副本重新变fresh。KV v5、推荐v9保持原搜索family与排序。队列持久层与浏览器持久化只保留必要业务数据，API显示信息从可信逐视频表读取。播放前检查MFK和可嵌入状态，true/unknown/stale暂不加载；这是本项目策略。已有隐私同意与原生控件保留，政策版本已更新。
+
+本地双Worker预览：http://127.0.0.1:8791/ ，配置与数据隔离在`.wrangler/p0-local/`，没有YouTube key。创建房间→手机选择URL→输入YouTube视频链接→搜索→点卡片预览/点歌：预期显示无法确认状态与重试，大屏保留当前项，手动切歌仍可操作；不会加载YouTube播放器。此模式用于阻断、队列与同步验证，不是真实播放验证。前端修改需`npm run build`后刷新；保留服务终端，Ctrl+C停止。Vite会热更新前端，但不能证明D1/DO行为。
+
+详情调用独立原子计量1000次/太平洋日，后台最多500；不是Google Cloud实际剩余用量。`0008`只在隔离本地应用，生产迁移、历史清理与部署尚未执行。完整契约、干运行/批次策略、离线浏览器及备份限制见[Phase 2 P0](docs/PHASE_2_P0.md)。旧章节中公共缓存一年、浏览器保存搜索结果等描述已由本节替代；事件30天/运维90天规则保持独立。

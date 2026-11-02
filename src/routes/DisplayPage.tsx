@@ -341,7 +341,7 @@ export default function DisplayPage() {
             <div className="mx-auto w-full min-w-0 max-w-4xl text-center">
               {currentItem ? (
                 <h2 className="truncate text-base font-semibold tracking-normal">
-                  {currentItem.title}
+                  {currentItem.title === "YouTube 视频" ? t("YouTube 视频") : currentItem.title}
                 </h2>
               ) : null}
               {playerIssue ? (

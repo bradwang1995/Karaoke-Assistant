@@ -1,4 +1,4 @@
-export const POLICY_VERSION = "2026-10-28-v1";
+export const POLICY_VERSION = "2026-11-02-p0-v2";
 export const CONSENT_STORAGE_KEY = "karaoke-assistant:privacy-consent";
 type ConsentStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 

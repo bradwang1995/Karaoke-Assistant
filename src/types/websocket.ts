@@ -14,6 +14,7 @@ export type ClientToServerMessage =
       type: "ADD_QUEUE_ITEM";
       payload: {
         videoId: string;
+        metadataStamp?: import("./youtube").ApiStamp;
         title: string;
         channelTitle?: string;
         thumbnailUrl?: string;

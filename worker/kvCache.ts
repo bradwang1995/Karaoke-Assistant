@@ -1,15 +1,16 @@
+import { freshVideos, metadataExpiry } from "../src/lib/metadataLifecycle";
 import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { QueueItemInput } from "../src/types/room";
-import type { SearchResponse } from "../src/types/youtube";
+import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily, type SearchQueryFamily } from "./searchFamily";
 import { filterStructurallyUsableVideoResults } from "./songFilter";
 import { rankSearchResultsForQuery } from "./scoring";
 import { isSelfContainedMusicRecording, musicEligibility } from "./musicEligibility";
 
-const SEARCH_CACHE_VERSION = "v4";
+const SEARCH_CACHE_VERSION = "v5";
 const SEARCH_CACHE_INDEX_VERSION = "v2";
-const SEARCH_RECOMMENDATIONS_VERSION = "v8";
-export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 365;
+const SEARCH_RECOMMENDATIONS_VERSION = "v9";
+export const DEFAULT_SEARCH_CACHE_TTL_SECONDS = 60 * 60 * 24 * 29;
 export const DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES = 512 * 1024;
 export const MAX_CACHED_SEARCH_RESULTS = 50;
 export const MAX_RECOMMENDED_SEARCH_RESULTS = 200;
@@ -124,7 +125,7 @@ export async function readSearchCache(
   );
 
   if (isValidSearchCacheEntry(entry) && isCompatibleSearchCacheEntry(entry, family)) {
-    const results = filterStructurallyUsableVideoResults(entry.results);
+    const results = freshVideos(filterStructurallyUsableVideoResults(entry.results));
 
     if (results.length > 0) {
       return { entry: { ...entry, results }, familyHash: family.hash };
@@ -150,8 +151,8 @@ export async function writeSearchCache(
   const ttlSeconds = options.ttlSeconds ?? DEFAULT_SEARCH_CACHE_TTL_SECONDS;
   const maxEntryBytes = options.maxEntryBytes ?? DEFAULT_SEARCH_CACHE_MAX_ENTRY_BYTES;
   const createdAt = new Date();
-  const expiresAt = new Date(createdAt.getTime() + ttlSeconds * 1000);
-  const results = filterStructurallyUsableVideoResults(response.results).slice(
+  let expiresAt = new Date(createdAt.getTime() + Math.min(ttlSeconds, DEFAULT_SEARCH_CACHE_TTL_SECONDS) * 1000);
+  const results = freshVideos(filterStructurallyUsableVideoResults(response.results)).slice(
     0,
     MAX_CACHED_SEARCH_RESULTS,
   );
@@ -159,6 +160,8 @@ export async function writeSearchCache(
   if (results.length === 0) {
     return null;
   }
+  expiresAt = new Date(Math.min(expiresAt.getTime(), metadataExpiry(results)));
+  if (expiresAt.getTime() < Date.now() + 60_000) return null;
   const entry = buildSearchCacheEntry({
     response,
     family,
@@ -171,7 +174,7 @@ export async function writeSearchCache(
   const payload = pruneCachePayload(entry, maxEntryBytes);
 
   await namespace.put(searchCacheFamilyKey(family.hash), payload.value, {
-    expirationTtl: ttlSeconds,
+    expiration: Math.floor(expiresAt.getTime() / 1000),
   });
 
   await updateSearchRecommendations(namespace, eligibleFamilyRecommendations(payload.entry), ttlSeconds);
@@ -193,7 +196,7 @@ export async function readSearchRecommendations(
   );
 
   const storedResults = isValidRecommendationsEntry(recommendations)
-    ? filterStructurallyUsableVideoResults(recommendations.results)
+    ? freshVideos(filterStructurallyUsableVideoResults(recommendations.results))
     : [];
 
   if (storedResults.length >= limit) {
@@ -210,10 +213,11 @@ export async function readSearchRecommendations(
       const latest = await namespace.get<SearchRecommendationsEntry>(searchRecommendationsKey(), { type: "json" });
       const latestResults = isValidRecommendationsEntry(latest) ? latest.results : [];
       const merged = uniqueResults([...latestResults, ...results]).slice(0, MAX_RECOMMENDED_SEARCH_RESULTS);
+      if (merged.length && metadataExpiry(merged) < Date.now() + 60_000) return merged.slice(0, limit);
       if (!sameVideoOrder(latestResults, merged) || latest?.familyRebuildCursor !== rebuilt.cursor) {
         await namespace.put(searchRecommendationsKey(), JSON.stringify({
           updatedAt: new Date().toISOString(), results: merged, familyRebuildCursor: rebuilt.cursor,
-        } satisfies SearchRecommendationsEntry), { expirationTtl: DEFAULT_SEARCH_CACHE_TTL_SECONDS });
+        } satisfies SearchRecommendationsEntry), { expiration: Math.floor((merged.length ? metadataExpiry(merged) : Date.now() + 60_000) / 1000) });
       }
       return merged.slice(0, limit);
     } catch {
@@ -239,7 +243,7 @@ export async function touchSearchCache(
 
   const expiresAtMs = Date.parse(entry.expiresAt);
 
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs < Date.now() + 60_000) {
     return;
   }
 
@@ -272,6 +276,7 @@ export async function recordQueuedSearchRecommendation(
   namespace: SearchCacheNamespace | undefined,
   item: QueueItemInput,
   ttlSeconds = DEFAULT_SEARCH_CACHE_TTL_SECONDS,
+  trustedVideo?: VideoSearchResult,
 ) {
   if (!namespace) {
     return;
@@ -285,8 +290,10 @@ export async function recordQueuedSearchRecommendation(
     ? existing.results.find((result) => result.videoId === item.videoId)
     : undefined;
 
-  // Queueing and URL playback remain unrestricted; unknown clips do not become public songs.
-  if (!existingResult && !isSelfContainedMusicRecording(item.title)) {
+  // Queue commands cannot supply trusted API metadata or refresh its acquisition time.
+  const verified = trustedVideo && freshVideos([trustedVideo])[0];
+  const sourceResult = existingResult ?? (verified?.videoId === item.videoId && isSelfContainedMusicRecording(verified.title) ? verified : undefined);
+  if (!sourceResult) {
     return;
   }
 
@@ -294,13 +301,11 @@ export async function recordQueuedSearchRecommendation(
     namespace,
     [
       {
-        ...existingResult,
+        ...sourceResult,
         videoId: item.videoId,
-        title: item.title,
-        ...(item.channelTitle ? { channelTitle: item.channelTitle } : {}),
-        ...(item.thumbnailUrl ? { thumbnailUrl: item.thumbnailUrl } : {}),
-        score: Math.max(existingResult?.score ?? 0, 1_000_000),
-        reasons: uniqueValues(["recently queued", ...(existingResult?.reasons ?? [])]),
+        title: sourceResult.title,
+        score: Math.max(sourceResult.score, 1_000_000),
+        reasons: uniqueValues(["recently queued", ...sourceResult.reasons]),
       },
     ],
     ttlSeconds,
@@ -403,6 +408,7 @@ async function updateSearchRecommendations(
   nextResults: SearchResponse["results"],
   ttlSeconds: number,
 ) {
+  nextResults = freshVideos(nextResults);
   if (nextResults.length === 0) return;
   const existing = await namespace.get<SearchRecommendationsEntry>(searchRecommendationsKey(), {
     type: "json",
@@ -418,8 +424,10 @@ async function updateSearchRecommendations(
     familyRebuildCursor: isValidRecommendationsEntry(existing) ? existing.familyRebuildCursor : undefined,
   };
 
+  const expiresAt = Math.min(Date.now() + Math.min(ttlSeconds, DEFAULT_SEARCH_CACHE_TTL_SECONDS) * 1000, metadataExpiry(mergedResults));
+  if (expiresAt < Date.now() + 60_000) return; // KV must not extend a near-expired API record to meet its minimum TTL.
   await namespace.put(searchRecommendationsKey(), JSON.stringify(entry), {
-    expirationTtl: ttlSeconds,
+    expiration: Math.floor(expiresAt / 1000),
   });
 }
 
@@ -501,12 +509,12 @@ function isValidSearchCacheEntry(value: SearchCacheEntry | null): value is Searc
 
   const expiresAtMs = Date.parse(value.expiresAt);
 
-  return !Number.isFinite(expiresAtMs) || expiresAtMs > Date.now();
+  return Number.isFinite(expiresAtMs) && expiresAtMs > Date.now();
 }
 
 function rankCachedResults(entry: SearchCacheEntry) {
   return rankSearchResultsForQuery(
-    filterStructurallyUsableVideoResults(entry.results),
+    freshVideos(filterStructurallyUsableVideoResults(entry.results)),
     entry.query,
     entry.queryFamily,
   );
@@ -548,19 +556,26 @@ function isCurrentAlgorithmCacheEntry(entry: SearchCacheEntry) {
 function isValidRecommendationsEntry(
   value: SearchRecommendationsEntry | null,
 ): value is SearchRecommendationsEntry {
-  return Boolean(value && Array.isArray(value.results));
+  if (!value || !Array.isArray(value.results)) return false;
+  value.results = freshVideos(value.results);
+  return true;
 }
 
 function uniqueResults(results: SearchResponse["results"]) {
-  const seen = new Set<string>();
+  const positions = new Map<string, number>();
   const unique: SearchResponse["results"] = [];
 
   for (const result of results) {
-    if (seen.has(result.videoId)) {
+    const position = positions.get(result.videoId);
+    if (position !== undefined) {
+      const previous = unique[position];
+      if (Date.parse(result.provenance?.snippet?.fetchedAt ?? "") > Date.parse(previous.provenance?.snippet?.fetchedAt ?? "")) {
+        unique[position] = { ...result, score: previous.score, reasons: previous.reasons };
+      }
       continue;
     }
 
-    seen.add(result.videoId);
+    positions.set(result.videoId, unique.length);
     unique.push(result);
   }
 

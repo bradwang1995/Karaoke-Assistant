@@ -1,3 +1,4 @@
+import { apiStamp } from "../src/lib/metadataLifecycle";
 import type { SearchResponse, SearchType, VideoSearchResult } from "../src/types/youtube";
 import { rankSearchResultsForQuery } from "./scoring";
 import { buildSearchQueryFamily } from "./searchFamily";
@@ -66,6 +67,7 @@ interface YouTubeVideosListResponse {
     };
     status?: {
       embeddable?: boolean;
+      madeForKids?: boolean;
     };
   }>;
 }
@@ -79,6 +81,7 @@ export interface YouTubeSearchOptions {
   maxSearchCalls?: number;
   targetResultCount?: number;
   beforeSearchCall?: () => Promise<boolean>;
+  beforeDetailsCall?: () => Promise<boolean>;
   deadlineAt?: number;
 }
 
@@ -88,43 +91,53 @@ export interface YouTubeSearchProviderResult {
 }
 
 export async function lookupYouTubeVideoById(videoId: string, apiKey: string) {
+  return (await lookupYouTubeVideosByIds([videoId], apiKey))[0] ?? null;
+}
+
+export async function lookupYouTubeVideosByIds(videoIds: string[], apiKey: string): Promise<VideoSearchResult[]> {
+  if (videoIds.length === 0 || videoIds.length > 50) throw new Error("Expected 1 to 50 video IDs");
   const params = new URLSearchParams({
-    part: "contentDetails,snippet,status",
-    id: videoId,
+    part: "id,contentDetails,snippet,status",
+    id: [...new Set(videoIds)].join(","),
     key: apiKey,
   });
-  const response = await fetch(`${YOUTUBE_VIDEOS_URL}?${params.toString()}`);
+  const response = await fetchBeforeDeadline(`${YOUTUBE_VIDEOS_URL}?${params.toString()}`, Date.now() + 1600);
 
   if (!response.ok) {
     throw new Error(`YouTube video details failed with status ${response.status}.`);
   }
 
   const body = (await response.json()) as YouTubeVideosListResponse;
-  const item = body.items?.find((candidate) => candidate.id === videoId);
-  const title = item?.snippet?.title;
+  return (body.items ?? []).flatMap((item) => {
+    const videoId = item.id;
+    const title = item.snippet?.title;
 
-  if (!item || !title || item.status?.embeddable === false) {
-    return null;
-  }
+    if (!videoId || !title || !videoIds.includes(videoId)) {
+      return [];
+    }
 
-  const durationSeconds = item.contentDetails?.duration
-    ? parseIso8601DurationSeconds(item.contentDetails.duration)
-    : undefined;
-  const thumbnails = item.snippet?.thumbnails;
+    const durationSeconds = item.contentDetails?.duration
+      ? parseIso8601DurationSeconds(item.contentDetails.duration)
+      : undefined;
+    const thumbnails = item.snippet?.thumbnails;
 
-  return {
-    videoId,
-    title: decodeHtmlEntities(title),
-    channelTitle: item.snippet?.channelTitle,
-    thumbnailUrl:
-      thumbnails?.high?.url ?? thumbnails?.medium?.url ?? thumbnails?.default?.url,
-    durationSeconds,
-    publishedAt: item.snippet?.publishedAt,
-    categoryId: item.snippet?.categoryId,
-    tags: (item.snippet?.tags ?? []).slice(0, 20),
-    score: 0,
-    reasons: ["youtube-direct-url"],
-  } satisfies VideoSearchResult;
+    return [{
+      videoId,
+      provenance: { snippet: apiStamp(), details: apiStamp(), status: apiStamp() },
+      madeForKids: typeof item.status?.madeForKids === "boolean" ? item.status.madeForKids : "unknown",
+      embeddable: item.status?.embeddable,
+      title: decodeHtmlEntities(title),
+      channelTitle: item.snippet?.channelTitle,
+      thumbnailUrl:
+        thumbnails?.high?.url ?? thumbnails?.medium?.url ?? thumbnails?.default?.url,
+      durationSeconds,
+      publishedAt: item.snippet?.publishedAt,
+      categoryId: item.snippet?.categoryId,
+      tags: (item.snippet?.tags ?? []).slice(0, 20),
+      score: 0,
+      reasons: ["youtube-direct-url"],
+    } satisfies VideoSearchResult];
+  });
 }
 
 export async function searchYouTubeVideos({
@@ -136,6 +149,7 @@ export async function searchYouTubeVideos({
   maxSearchCalls = DEFAULT_MAX_SEARCH_CALLS,
   targetResultCount = DEFAULT_TARGET_CACHE_RESULTS,
   beforeSearchCall,
+  beforeDetailsCall,
   deadlineAt,
 }: YouTubeSearchOptions): Promise<YouTubeSearchProviderResult> {
   const startedAt = Date.now();
@@ -211,6 +225,7 @@ export async function searchYouTubeVideos({
           apiKey,
           newBaseResults.map((result) => result.videoId),
           deadlineAt,
+          beforeDetailsCall,
         );
       } catch (error) {
         videosListCalls += newBaseResults.length > 0 ? 1 : 0;
@@ -243,6 +258,9 @@ export async function searchYouTubeVideos({
 
         const candidate = {
           ...result,
+          provenance: { ...result.provenance, ...videoDetails?.provenance },
+          madeForKids: videoDetails?.madeForKids ?? ("unknown" as const),
+          embeddable: videoDetails?.embeddable,
           ...(videoDetails?.durationSeconds !== undefined
             ? { durationSeconds: videoDetails.durationSeconds }
             : {}),
@@ -361,6 +379,7 @@ function toBaseResult(
 
   return {
     videoId,
+    provenance: { snippet: apiStamp() },
     title: decodeHtmlEntities(title),
     channelTitle: item.snippet?.channelTitle,
     thumbnailUrl: thumbnails?.high?.url ?? thumbnails?.medium?.url ?? thumbnails?.default?.url,
@@ -368,14 +387,16 @@ function toBaseResult(
   };
 }
 
-async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?: number) {
+async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?: number, beforeDetailsCall?: () => Promise<boolean>) {
   const details = new Map<
     string,
     {
       durationSeconds?: number;
       categoryId?: string;
       tags: string[];
+      provenance: VideoSearchResult["provenance"];
       embeddable?: boolean;
+      madeForKids?: boolean;
     }
   >();
   let callCount = 0;
@@ -388,11 +409,12 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?
     }
 
     const params = new URLSearchParams({
-      part: "contentDetails,snippet,status",
+      part: "id,contentDetails,snippet,status",
       id: ids.join(","),
       key: apiKey,
     });
 
+    if (beforeDetailsCall && !await beforeDetailsCall()) break;
     const response = await fetchBeforeDeadline(
       `${YOUTUBE_VIDEOS_URL}?${params.toString()}`,
       deadlineAt,
@@ -419,6 +441,8 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[], deadlineAt?
         categoryId: item.snippet?.categoryId,
         tags: (item.snippet?.tags ?? []).slice(0, 20),
         embeddable: item.status?.embeddable,
+        madeForKids: item.status?.madeForKids,
+        provenance: { details: apiStamp(), status: apiStamp() },
       });
     }
   }

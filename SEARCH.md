@@ -1,6 +1,6 @@
 # K歌助手搜索与缓存规范
 
-最后核实：2026-10-27（四项修复已发布，生产缓存验证通过，用户实际使用验收待进行）
+最后核实：2026-10-29（Phase 2 P0 生命周期与播放门禁本地实施，未发布；旧发布记录不代表本次生产验证）
 代码基线：本轮 `9b42ac3`；上一发布 `eae1d9d` / 发布记录 `a6651fb`，成熟回退版本 `aa65a60`；回退记录见 `docs/SEARCH_BASELINE_2026-10-27.md`
 状态：当前实现的 source of truth
 
@@ -24,8 +24,8 @@
   "schemaVersion": 1,
   "searchAlgorithmVersion": "rank-preserve-50-v2",
   "searchResultPolicyVersion": "music-evidence-v2",
-  "searchCacheVersion": "v4",
-  "recommendationsVersion": "v8",
+  "searchCacheVersion": "v5",
+  "recommendationsVersion": "v9",
   "regionCode": "CA",
   "relevanceLanguage": "zh-Hans",
   "searchPageSize": 50,
@@ -36,12 +36,20 @@
   "maxSearchListCallsPerColdFill": 1,
   "workerDeadlineMs": 1600,
   "browserDeadlineMs": 2000,
-  "kvTtlDays": 365,
+  "kvTtlDays": 29,
   "kvMaxEntryBytes": 524288,
   "rateLimitPerMinute": 20
 }
 ```
 <!-- SEARCH_CONTRACT_END -->
+
+## Phase 2 P0 生命周期变更（本地，未发布）
+
+本地新契约：API元数据按snippet/details/status保存真实获取时间，最多29天，过期/未知拒绝读取或复制；KV v5、推荐v9，旧版本不fallback。保留原family及排序、一次cold search.list和1600/2000ms deadline。URL lookup现在也有1600ms外部deadline。URL错误仅返回通用占位，无远程缩略图，不授予播放许可。浏览器24小时仅恢复输入/选项，不再持久化API结果。
+
+详情请求独立D1计量1000次/日（后台最多500），与搜索ledger分开。既有enrichment复用status；MFK true/unknown/stale不加载播放器或脚本。这是产品保守策略。缓存命中不调用YouTube；播放前可按需请求详情，不能把两者合称零API。
+
+来源、全部副本、迁移/清理、回滚与生产门槛见`docs/PHASE_2_P0.md`。此变更不代表已清理生产历史副本或通过政策审核。
 
 ## 2. 两分钟理解当前搜索
 
@@ -94,8 +102,8 @@ API 还接受可选 `artist`、`cacheFill` 和隐藏的 `cacheOnly`；Mobile 当
 
 - 跳过 search family、ranking、普通文字结构准入、D1/KV exact cache、搜索事件和 `search.list` ledger。
 - 有 API key 时调用一次 `videos.list` 读取标题、缩略图等 metadata；明确不存在或 `embeddable=false` 时返回空。
-- metadata 请求临时失败时，仍返回基于 video id 和 YouTube 缩略图的兜底卡片。
-- 该路径没有 Worker 1600ms deadline 包装，但 Mobile 的整个请求仍受浏览器 2000ms abort 约束。
+- metadata请求临时失败时返回通用占位卡片，不请求远程缩略图，也不授予播放许可。
+- URL详情也使用1600ms外部deadline，浏览器整个请求仍受2000ms abort约束。
 - `cacheOnly=true` 时不调用 `videos.list`，并返回空结果。
 
 Mobile 下拉框提供 `URL` 选项；该模式输入提示为 `YouTube视频链接`、隐藏原唱开关，并在提交前用与服务端相同的分类器校验。无效链接、普通文字、频道和纯播放列表会提示且不发送搜索请求。URL 模式随 24 小时 UI 状态恢复。歌名/歌手模式仍兼容已有 URL 输入。此路径不属于普通文字搜索算法，不消耗 `search.list` 次数，额度耗尽仍可点歌；`videos.list` metadata 调用并非零 YouTube API 用量。
@@ -147,13 +155,13 @@ rank-preserve-50-v2 | canonicalQuery | normalizedArtist | searchType | original-
 
 ### 4.3 算法版本的真实作用
 
-2026-10-27 起区分 raw candidate algorithm 与 response policy：本轮不改变 provider/原始准入/排序，保留 `rank-preserve-50-v2` family，避免失效旧候选；当前 `searchResultPolicyVersion=music-evidence-v2` 只标识公开返回视图。recommendations 单独为 `v8`。以下 family 升级规则仍适用于原始候选语义变化。
+2026-10-27 起区分 raw candidate algorithm 与 response policy：本轮不改变 provider/原始准入/排序，保留 `rank-preserve-50-v2` family，避免失效旧候选；当前 `searchResultPolicyVersion=music-evidence-v2` 只标识公开返回视图。recommendations单独为 `v9`。以下 family 升级规则仍适用于原始候选语义变化。
 
 算法版本只进入 family hash，不自动迁移数据：
 
 本轮准入语义从 `quality-fill-50-v1` 升为 `rank-preserve-50-v2`；两个版本的相同 query/options 必须得到不同 hash。
 
-- KV 会生成一个新 key，旧 key 留到 TTL 自然过期。
+- KV 会生成一个新 key，旧key不再读取，由有界维护任务分页清除。
 - D1 查询会读到相同 canonical query/options 的 row，但 `family_hash` 不同就忽略。
 - 新 cold search 成功持久化时，由于 D1 unique key 不含算法版本，新结果会覆盖该 query/options 的旧 row。
 - 如果没有额度或 live search 失败，旧 D1 row 会继续存在，但不会被新版读取。
@@ -307,13 +315,13 @@ KTV 模式奖励 KTV/卡拉OK/karaoke/伴奏/instrumental/字幕/pinyin，并对
 
 | 层 | 用途 | 是否参与非空 exact search | 生命周期 |
 | --- | --- | --- | --- |
-| D1 `search_repository_entries` | 持久 exact response source | 是，优先级最高 | 无 TTL；管理员删除/清理或新版成功覆盖 |
-| KV `yt-search:v4:*` | exact family 加速与 D1 fallback | 是 | 默认 365 天 |
-| KV recommendations `v8` | 空查询的精选推荐 | 否，不补非空 query | 写入时刷新 TTL |
-| D1 `search_video_catalog` | 结构可用 provider candidates 的 analytics catalog | 否 | 无自动 TTL |
+| D1 `search_repository_entries` | 持久exact response source | 是，优先级最高 | API字段组29天；未知/到期拒绝，payload分批刷新/擦除；业务query独立保留 |
+| KV `yt-search:v5:*` | exact family加速与D1 fallback | 是 | 最多29天，绝对到期，不由复制延长 |
+| KV recommendations `v9` | 空查询精选推荐 | 否，不补非空query | 逐项来源检查，容器不晚于最早API到期 |
+| D1 `search_video_catalog` | provider候选目录 | 否 | 随来源到期分批清理 |
 | Mobile localStorage | 单个 room 的 UI 恢复 | 否，不作为服务端候选来源 | 24 小时 |
 
-使用事件不是上述缓存来源：Main 的独立维护任务按小时分批清理 30 天前的 `search_events` / `playback_events`；不会删除 `search_repository_entries`、video catalog 或 KV，也不改变查询、排名、推荐、deadline、额度与缓存版本。事件趋势仅涵盖保留窗口。本项只涉及使用记录生命周期，algorithm/cache/recommendations 版本不变。
+使用事件不是上述缓存来源：原有30/90天业务维护独立保留；Main另执行API元数据29天生命周期维护，详见docs/PHASE_2_P0.md。
 
 把这五层统称为“缓存”会导致错误判断。尤其是 recommendation pool 和 video catalog 都不会给一个新的非空 query 补结果。
 
@@ -336,21 +344,21 @@ D1 unique identity 是：
 canonical query + normalized artist + searchType + includeOriginalVocal
 ```
 
-Row 另存 `family_hash`。读取先按 query + artist 最多取 4 行，再严格校验当前 hash、模式、原唱开关和 original query。D1 命中会增加 `access_count` 并更新 `last_accessed_at`，但不会自动刷新候选内容，也没有 TTL。
+Row 另存 `family_hash`。读取先按 query + artist 最多取 4 行，再严格校验当前 hash、模式、原唱开关和 original query。D1 命中会增加 `access_count` 并更新 `last_accessed_at`，但不会刷新API获取时间；未知/到期候选不能命中，后台可用videos.list刷新已知ID。
 
 ### 8.3 KV exact family
 
 Key：
 
 ```txt
-yt-search:v4:<familyHash>:CA:zh-Hans
+yt-search:v5:<familyHash>:CA:zh-Hans
 ```
 
 Entry 保存 query family、aliases、hash、created/expiry、source queries、最多 50 条 results、provider call stats、payload bytes、pruned count、hit count 和 last access。
 
-KV schema version 保持 `v4`、raw family 保持 `rank-preserve-50-v2`；entry 仍保存完整候选。Recommendation key 为 `v8`，旧 `v7` 及更早池不读不覆盖、按旧 TTL 自然过期，供旧代码回退。新写入、D1/KV 命中和历史重建都先重排，再用当前 query/family 判定音乐资格，最后最多取 20；不清空 exact 数据、不触发 YouTube refill。
+KV schema version为 `v5`、raw family仍为 `rank-preserve-50-v2`；entry保存具有可信来源时间的完整候选。Recommendation key为 `v9`，旧版本不作为fallback，另行授权生产后分批清理，不能用于恢复过期数据。新写入、D1/KV 命中和历史重建都先重排，再用当前 query/family 判定音乐资格，最后最多取 20；不清空 exact 数据、不触发 YouTube refill。
 
-写入前只过滤结构不可用/重复结果并截断到 50 条；category、duration、tags 和完整 details 都不是 cache eligibility。JSON 超过 524,288 bytes 时从低分尾部逐条裁剪。KV touch 增加 hit count 和 last access，但保持原 expiration，不延长 family TTL。
+写入前拒绝未知/过期来源，过滤结构不可用/重复结果并截断到50条；category、duration、tags 和完整 details 都不是 cache eligibility。JSON 超过 524,288 bytes 时从低分尾部逐条裁剪。KV touch 增加 hit count 和 last access，但保持原 expiration，不延长 family TTL。
 
 代码仍保留 `yt-search-index:v2:*` key builder，但在线搜索不读、不写这个 index；它目前只在管理员删除 repository row 时作为旧 key 清理目标。
 
@@ -368,12 +376,12 @@ KV schema version 保持 `v4`、raw family 保持 `rank-preserve-50-v2`；entry 
 Key：
 
 ```txt
-yt-search-recommendations:v8:CA:zh-Hans
+yt-search-recommendations:v9:CA:zh-Hans
 ```
 
-更新顺序：本次 raw 结果按 query/intent 重排 → 筛出明确音乐且与查询有关的项 → 取最多 20 → 与当前 v8 pool 按 video id 去重并截断到 200。不足 20 不凑数；零合格不写入任何弱项。歌名支持独立歌名及明确歌名部分的部分匹配（如三国→三国恋/三国杀、书名号内的恋三国），不搜索 `『』` / `「」` 引出的歌词摘录，不靠 hashtag 建立关联；歌手要求正文标题/频道匹配（tags 单独匹配不足）。所有推荐仍须 Music category 或明确音乐录音证据。
+更新顺序：本次 raw 结果按 query/intent 重排 → 筛出明确音乐且与查询有关的项 → 取最多 20 → 与当前v9 pool 按 video id 去重并截断到 200。不足 20 不凑数；零合格不写入任何弱项。歌名支持独立歌名及明确歌名部分的部分匹配（如三国→三国恋/三国杀、书名号内的恋三国），不搜索 `『』` / `「」` 引出的歌词摘录，不靠 hashtag 建立关联；歌手要求正文标题/频道匹配（tags 单独匹配不足）。所有推荐仍须 Music category 或明确音乐录音证据。
 
-真实点歌只提升已经在当前合格池里的视频，或正文标题自带歌名结构与明确音乐格式的录音；未知标题、普通 URL 兜底和日常片段不会因点歌直接进入全局推荐。点歌本身、URL 解析和播放不受这道推荐门槛限制，不为推荐补查 YouTube metadata。
+真实点歌提升当前合格池且来源仍有效的视频，或由服务端可信metadata确认标题具有歌曲结构与音乐格式的新URL歌曲；客户端标题不能创建新的可信推荐；未知标题、普通 URL 兜底和日常片段不会因点歌直接进入全局推荐。点歌本身、URL 解析和播放不受这道推荐门槛限制，不为推荐补查 YouTube metadata。
 
 如果 recommendation key 不存在或数量不足，系统按 KV 游标翻页读取 family entries，每页最多 20 组、每次最多 5 页/100 组；未完成时保存 `familyRebuildCursor`，后续不足额读取继续，不被前 20 个字典序键永久截断，空页也依据 list_complete 继续。提升/点歌写入保留补建游标。先重建每个 entry 的当前 family hash 并排除旧 algorithm entries，再按：
 
@@ -383,7 +391,7 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 
 排序本批 family，再重排/筛选每个 family 的合格项并取最多 20 条，轮转合并。不能先截 20 再筛，否则会漏掉下方有效音乐。旧 v7 pool 本身不参与重建，raw family 内部的弱结果也不能成为补足项。池已满足请求数量时仍直接返回；最近查询通过命中提升进入池，不依赖历史扫描是否轮到它。
 
-重建得到的合格结果或补建游标与已存状态不同时，尽力保存到 v8 pool，使旧缓存迁移后已认可的纯歌名视频仍能在点歌时提升；保存前重读最新 pool，优先保留近期提升。不变时不重复写，刷新失败仍返回已经读到的歌曲，不增加外部调用。
+重建得到的合格结果或补建游标与已存状态不同时，尽力保存到v9 pool，使旧缓存迁移后已认可的纯歌名视频仍能在点歌时提升；保存前重读最新 pool，优先保留近期提升。不变时不重复写，刷新失败仍返回已经读到的歌曲，不增加外部调用。
 
 常规 D1 exact hit 也使用完整重排候选在现有后台任务中提升合格推荐；不改写原始 D1/KV 候选，不增加外部调用。KV hit 沿用 touch 后提升。后台写入与 KV 的最终一致性意味着推荐刷新可能短暂读到旧池，不能承诺跨设备即时可见。
 
@@ -399,7 +407,7 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 - D1 `youtube_quota_daily` 是首选 ledger；D1 失败时 KV `yt-search-quota:v1:<date>` fallback。
 - 每个 `search.list` 发出前先原子预留 1 次。即使随后返回 429/503 或网络失败，这次可能已被 YouTube 计费，因此 ledger 不回滚。
 - 没有可用的 D1/KV ledger 时，系统拒绝发送无法记账的外部请求。
-- `videos.list` 调用数只进入 `videosListCalls` 诊断，不进入本项目的 `search.list` daily ledger。
+- `videos.list`不进入search ledger，改由独立D1详情日预算原子预留（1000总尝试/500后台），保留videosListCalls诊断。
 - App ledger 是本地估算，Google Cloud Console 仍是外部真实配额的最终权威。
 
 ### 9.2 时间预算
@@ -438,9 +446,9 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 
 搜索 pending 时旧卡片仍可见并可用；固定高度的结果标题、计数和搜索按钮图标显示搜索状态，不在滚动结果区插入“最多等待 2 秒”面板，避免结果 content shift。按搜索按钮本身发生在结果 grid 外，会依照现有 click-outside 规则停止 active preview。较旧 requestId 的迟到成功响应会被忽略。
 
-Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完整 response、已展开数量、选中项、active preview 和 scroll，TTL 24 小时。输入/筛选的草稿变化会被保存，但不会自动重新搜索。
+Mobile每个room在localStorage仅保存query、模式、原唱开关、已展开数量、业务选中ID和scroll，24小时恢复；不保存response或active preview，启动物理清理旧API payload。输入/筛选的草稿变化会被保存，但不会自动重新搜索。
 
-点歌卡片固定预留 200×200px 播放区域（不含标题和边框），按可用宽度自动排布完整列，未选中时显示保持比例的缩略图，选中前后尺寸不变。只有 active card 加载一个 iframe，app 不在 active video 上叠加 selection badge。Preview 使用 `autoplay=0 + mute=1 + start=30 + cc_load_policy=1`，ready 只静音、不主动播放，由用户通过原生控件启动。搜索/恢复选中不会自动启动视频，不另外打开预览标签页。这不改变 query、ranking、cache、recommendations、quota、deadline 或 search response，属于纯 UI/player 变更，不 bump algorithm、KV 或 recommendation version。
+点歌卡片固定预留 200×200px 播放区域（不含标题和边框），按可用宽度自动排布完整列，未选中时显示保持比例的缩略图，选中前后尺寸不变。只有active card在MFK/嵌入状态许可后加载一个iframe，app 不在 active video 上叠加 selection badge。Preview 使用 `autoplay=0 + mute=1 + start=30 + cc_load_policy=1`，ready 只静音、不主动播放，由用户通过原生控件启动。搜索/恢复选中不会自动启动视频，不另外打开预览标签页。原preview布局与原生控件不变；P0生命周期导致KV/推荐版本升级，状态检查单独计量，不改变原始搜索排序。
 
 ## 11. API response 怎么诊断
 
@@ -519,7 +527,7 @@ Mobile 每个 room 在 localStorage 保存 query、模式、原唱开关、完�
 2. **YouTube 可能本来就少于 50。** `maxResults=50` 不是保证；provider 结果不足、重复、空 id/title 或明确不可嵌入时，应用不会制造缺失结果。
 3. **One-call 不补页。** Production aliases 实际没有 fallback；第一条 focused query 少于 50 时不会翻页或换 query，因为配额和两秒体验优先。
 4. **Helper 仍支持多调用。** `youtubeSearch.ts` 的显式 `maxSearchCalls>1` 能翻页/换 query；Room/Main 的 `=1` 配置、service 默认值和 verifier 是 production 保护。
-5. **Exact D1 无 TTL。** 同一算法 family 只要仍有结构可用结果，即使 provider 后来出现新视频，也不会自动 live refill。
+5. **缓存不保证发现新视频。** API字段组29天到期，后台刷新已知ID不会发现新的候选；过期集合可在主动搜索时走原有一次cold fill。
 6. **零结果没有 negative cache。** 同一个冷门/无效 query 每次都可能重新消耗一次额度。
 7. **并发 miss 没有合并。** 同一 family 同时到达的 cold requests 可能重复消耗额度。
 8. **D1 identity 不含 region/language。** KV key 含 `CA/zh-Hans`，D1 unique key 不含；以后改变地区/语言必须 bump algorithm version 或迁移 schema。

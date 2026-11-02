@@ -69,7 +69,7 @@ describe("youtube search helpers", () => {
     expect(searchCalls[0].searchParams.get("relevanceLanguage")).toBe("zh-Hans");
     expect(searchCalls[0].searchParams.has("pageToken")).toBe(false);
     expect(videosCalls[0].searchParams.get("part")).toBe(
-      "contentDetails,snippet,status",
+      "id,contentDetails,snippet,status",
     );
     expect(response.results[0]).toMatchObject({
       categoryId: "10",

@@ -13,7 +13,7 @@ export default function PublicInfoPage({ page }: { page: keyof typeof publicPage
       <main className="mx-auto max-w-5xl space-y-7 px-5 py-12 sm:py-16">
         <h1 className="text-3xl font-semibold sm:text-5xl">{copy.title}</h1>
         <p className="text-lg leading-8 text-slate-300">{copy.intro}</p>
-        {page !== "setup" && <p className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">{language === "zh" ? "草稿 · 更新于 2026-10-28。本地预览版本，尚未发布。" : "Draft · Updated October 28, 2026. Local preview; not yet published."}</p>}
+        {page !== "setup" && <p className="rounded-xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">{language === "zh" ? `更新于 ${page === "privacy" ? "2026-11-02" : "2026-10-28"}。` : `Updated ${page === "privacy" ? "November 2" : "October 28"}, 2026.`}</p>}
         {copy.sections.map((section) => (
           <section key={section.title} className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.04] p-6 sm:p-8">
             <h2 className="text-2xl font-semibold">{section.title}</h2>

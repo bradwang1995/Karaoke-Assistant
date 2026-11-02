@@ -70,7 +70,7 @@ export function searchMockVideos(
           "KTV Remix",
           "Instrumental Studio",
         ][index],
-        thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+        // Local mock results must not contact third-party thumbnail servers.
         durationSeconds: [265, 241, 304, 278, 252, 299, 286, 270][index],
         publishedAt: "2026-01-01T00:00:00Z",
         categoryId: "10",

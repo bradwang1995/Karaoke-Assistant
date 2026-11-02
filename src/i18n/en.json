@@ -381,5 +381,10 @@
   "准备开唱": "Ready to Sing",
   "准备好了": "Ready to sing",
   "产品介绍": "Product Overview",
-  "歌助手": "Assistant"
+  "歌助手": "Assistant",
+  "此视频暂不支持在本应用内播放": "This video is currently unavailable for playback in this app.",
+  "无法确认视频状态，请重试": "Unable to verify video status. Please retry.",
+  "正在检查视频状态…": "Checking video status…",
+  "重试": "Retry",
+  "YouTube 视频": "YouTube video"
 }

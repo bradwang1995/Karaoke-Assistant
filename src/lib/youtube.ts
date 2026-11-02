@@ -1,3 +1,4 @@
+import type { PlaybackDecision } from "../types/youtube";
 import type { YouTubePlayer } from "./youtubeIframeApi";
 
 export const MOBILE_PREVIEW_START_SECONDS = 30;
@@ -57,7 +58,8 @@ export function youtubePreviewPlayerVars(origin: string) {
 
 // Set restrictions before navigation: allow YouTube popups without allowing
 // the cross-origin player to replace the KTV page. Link targets remain YouTube's.
-export function createYouTubeIframe(videoId: string, playerVars: Record<string, string | number>) {
+export function createYouTubeIframe(videoId: string, playerVars: Record<string, string | number>, decision: PlaybackDecision) {
+  if (decision.videoId !== videoId || !decision.allowed || decision.reason !== "allowed" || !decision.expiresAt || Date.parse(decision.expiresAt) <= Date.now() || !Number.isFinite(Date.parse(decision.expiresAt))) throw new Error("Playback permission required");
   const iframe = document.createElement("iframe");
   iframe.className = "h-full w-full";
   iframe.title = "YouTube video player";

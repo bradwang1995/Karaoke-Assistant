@@ -1,3 +1,4 @@
+import { loadYouTubeIframeApi } from "./youtubeIframeApi";
 import { describe, expect, it, vi } from "vitest";
 import {
   createYouTubeIframe,
@@ -11,6 +12,22 @@ import {
 import type { YouTubePlayer } from "./youtubeIframeApi";
 
 describe("YouTube embed URLs", () => {
+  it("rejects loading the third-party API script without permission", async () => {
+    await expect(loadYouTubeIframeApi({ videoId: "video-id", allowed: false, reason: "unknown" }, "video-id")).rejects.toThrow("Playback permission required");
+  });
+  it("does not create or navigate an iframe before a matching valid playback decision", () => {
+    const createElement = vi.fn();
+    vi.stubGlobal("document", { createElement });
+    try {
+      for (const decision of [
+        { videoId: "video-id", allowed: false, reason: "unknown" as const },
+        { videoId: "other", allowed: true, reason: "allowed" as const, expiresAt: new Date(Date.now() + 1000).toISOString() },
+        { videoId: "video-id", allowed: true, reason: "allowed" as const, expiresAt: "broken" },
+        { videoId: "video-id", allowed: true, reason: "allowed" as const, expiresAt: new Date(0).toISOString() },
+      ]) expect(() => createYouTubeIframe("video-id", {}, decision)).toThrow("Playback permission required");
+      expect(createElement).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("allows external popups while preventing top-level navigation before loading the player", () => {
     const attributes = new Map<string, string>();
     const iframe = { setAttribute: (key: string, value: string) => attributes.set(key, value) };
@@ -18,7 +35,7 @@ describe("YouTube embed URLs", () => {
     try {
       const result = createYouTubeIframe("video-id", {
         enablejsapi: 1, controls: 1, origin: "https://example.com",
-      });
+      }, { videoId: "video-id", allowed: true, reason: "allowed", expiresAt: new Date(Date.now() + 1000).toISOString() });
       const sandbox = attributes.get("sandbox")!.split(" ");
       expect(sandbox).toEqual(expect.arrayContaining([
         "allow-scripts", "allow-same-origin", "allow-popups", "allow-popups-to-escape-sandbox",

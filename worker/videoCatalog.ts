@@ -1,3 +1,4 @@
+import { freshStamp, metadataExpiry } from "../src/lib/metadataLifecycle";
 import { normalizeQuery } from "../src/lib/queryNormalize";
 import type { VideoSearchResult } from "../src/types/youtube";
 import { isStructurallyUsableVideoResult } from "./songFilter";
@@ -35,9 +36,9 @@ export async function upsertVideoCatalog(
           `INSERT INTO search_video_catalog (
              video_id, title, normalized_title, channel_title, normalized_channel_title,
              thumbnail_url, duration_seconds, published_at, first_seen_query,
-             last_seen_query, appearance_count, first_seen_at, last_seen_at
+             last_seen_query, appearance_count, first_seen_at, last_seen_at, metadata_expires_at
            ) VALUES (
-             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 1, ?10, ?10
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 1, ?10, ?10, ?11
            )
            ON CONFLICT(video_id) DO NOTHING`,
         )
@@ -52,6 +53,7 @@ export async function upsertVideoCatalog(
           candidate.publishedAt ?? null,
           normalizedSourceQuery,
           now,
+          new Date(metadataExpiry([{ ...candidate, score: 0, reasons: [] }])).toISOString(),
         ),
     ),
   );
@@ -69,12 +71,12 @@ export async function upsertVideoCatalog(
                  normalized_title = ?3,
                  channel_title = ?4,
                  normalized_channel_title = ?5,
-                 thumbnail_url = COALESCE(?6, thumbnail_url),
-                 duration_seconds = COALESCE(?7, duration_seconds),
-                 published_at = COALESCE(?8, published_at),
+                 thumbnail_url = ?6,
+                 duration_seconds = ?7,
+                 published_at = ?8,
                  last_seen_query = ?9,
                  appearance_count = appearance_count + 1,
-                 last_seen_at = ?10
+                 last_seen_at = ?10, metadata_expires_at = ?11
              WHERE video_id = ?1`,
           )
           .bind(
@@ -88,6 +90,7 @@ export async function upsertVideoCatalog(
             candidate.publishedAt ?? null,
             normalizedSourceQuery,
             now,
+            new Date(metadataExpiry([{ ...candidate, score: 0, reasons: [] }])).toISOString(),
           ),
       ),
     );
@@ -107,6 +110,7 @@ function uniqueCatalogCandidates(candidates: VideoCatalogCandidate[]) {
 
   for (const candidate of candidates) {
     if (
+      !freshStamp(candidate.provenance?.snippet) ||
       seen.has(candidate.videoId) ||
       !isStructurallyUsableVideoResult(candidate)
     ) {

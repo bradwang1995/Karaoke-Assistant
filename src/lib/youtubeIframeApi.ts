@@ -1,3 +1,4 @@
+import type { PlaybackDecision } from "../types/youtube";
 const YOUTUBE_IFRAME_API_SRC = "https://www.youtube.com/iframe_api";
 
 export const YOUTUBE_PLAYER_STATE = {
@@ -64,7 +65,8 @@ declare global {
 
 let apiPromise: Promise<YouTubeIframeApi> | null = null;
 
-export function loadYouTubeIframeApi() {
+export function loadYouTubeIframeApi(decision: PlaybackDecision, videoId: string) {
+  if (decision.videoId !== videoId || !decision.allowed || decision.reason !== "allowed" || !decision.expiresAt || !(Date.parse(decision.expiresAt) > Date.now())) return Promise.reject(new Error("Playback permission required"));
   if (typeof window === "undefined") {
     return Promise.reject(new Error("YouTube IFrame API is only available in the browser."));
   }

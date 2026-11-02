@@ -1,3 +1,4 @@
+import { readVideoMetadata, reserveDetails, saveVideoMetadata } from "./videoMetadata";
 import type {
   SearchResponse,
   SearchType,
@@ -83,14 +84,14 @@ export async function searchVideos({
     const fallbackResult: VideoSearchResult = {
       videoId: queryClassification.videoId,
       title: "YouTube 视频",
-      thumbnailUrl: `https://i.ytimg.com/vi/${queryClassification.videoId}/hqdefault.jpg`,
+
       score: 0,
       reasons: ["youtube-direct-url"],
     };
     let result = fallbackResult;
     let videosListCalls = 0;
 
-    if (env.YOUTUBE_API_KEY && !cacheOnly) {
+    if (env.YOUTUBE_API_KEY && !cacheOnly && await reserveDetails(env.DB)) {
       try {
         videosListCalls = 1;
         const video = await lookupYouTubeVideoById(
@@ -98,11 +99,12 @@ export async function searchVideos({
           env.YOUTUBE_API_KEY,
         );
 
-        if (!video) {
+        if (!video || video.embeddable === false) {
           return directQueryResponse(query, "youtube-url", [], videosListCalls);
         }
 
         result = video;
+        await saveVideoMetadata(env.DB, [video]);
       } catch (error) {
         console.error(
           JSON.stringify({
@@ -190,7 +192,7 @@ export async function searchVideos({
       }
 
       await runBackgroundTasks(backgroundTasks, waitUntil, "search-cache-refresh-failed");
-      return markCacheOnlyResponse(limitSearchResponse(response, limit), cacheOnly);
+      return withLatestMetadata(env, markCacheOnlyResponse(limitSearchResponse(response, limit), cacheOnly));
     }
   }
 
@@ -511,6 +513,7 @@ async function persistAndLimitSearchResponse({
   limit: number;
   waitUntil?: (promise: Promise<unknown>) => void;
 }) {
+  const metadataWrite = saveVideoMetadata(env.DB, response.results);
   const cacheWrite = writeSearchCache(env.SEARCH_CACHE, family, response, {
     ttlSeconds: cacheTtlSeconds,
     maxEntryBytes: getSearchCacheMaxEntryBytes(env),
@@ -519,7 +522,7 @@ async function persistAndLimitSearchResponse({
 
   if (waitUntil) {
     await runBackgroundTasks(
-      [cacheWrite, repositoryWrite],
+      [cacheWrite, repositoryWrite, metadataWrite],
       waitUntil,
       "search-result-persistence-failed",
     );
@@ -543,7 +546,7 @@ async function persistAndLimitSearchResponse({
     );
   }
 
-  const [cachedEntry, persisted] = await Promise.all([cacheWrite, repositoryWrite]);
+  const [cachedEntry, persisted] = await Promise.all([cacheWrite, repositoryWrite, metadataWrite]);
 
   return limitSearchResponse(
     {
@@ -579,7 +582,7 @@ export async function getSearchRecommendations({
 }): Promise<SearchResponse> {
   const results = await readSearchRecommendations(env.SEARCH_CACHE, limit);
 
-  return {
+  return withLatestMetadata(env, {
     query: "",
     normalizedQuery: "",
     cached: true,
@@ -591,7 +594,19 @@ export async function getSearchRecommendations({
       servedFromExpandedCache: true,
       sourceQueries: [],
     },
-  };
+  });
+}
+
+async function withLatestMetadata(env: SearchServiceEnv, response: SearchResponse): Promise<SearchResponse> {
+  if (!env.DB || !response.results.length) return response;
+  try {
+    const latest = await readVideoMetadata(env.DB, response.results.map((video) => video.videoId));
+    return { ...response, results: response.results.map((video) => {
+      const replacement = latest.get(video.videoId);
+      if (!replacement || Date.parse(replacement.provenance!.snippet!.fetchedAt) < Date.parse(video.provenance?.snippet?.fetchedAt ?? "")) return video;
+      return { ...replacement, score: video.score, reasons: video.reasons };
+    }) };
+  } catch { console.error("search-metadata-overlay-unavailable"); return response; }
 }
 
 async function searchLiveVideos({
@@ -652,6 +667,7 @@ async function searchLiveVideos({
   let quotaAfter = quotaBefore;
   let reservationRejectedWithCapacity = false;
   const providerResult = await searchYouTubeVideos({
+      beforeDetailsCall: () => reserveDetails(env.DB),
     query,
     artist,
     searchType,
@@ -749,7 +765,7 @@ function getSearchCacheTtlSeconds(env: SearchServiceEnv) {
     DEFAULT_SEARCH_CACHE_TTL_SECONDS / (60 * 60 * 24),
   );
 
-  return ttlDays * 60 * 60 * 24;
+  return Math.min(ttlDays, 29) * 60 * 60 * 24;
 }
 
 function getSearchCacheMaxEntryBytes(env: SearchServiceEnv) {

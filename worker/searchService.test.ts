@@ -1,3 +1,4 @@
+import { apiStamp } from "../src/lib/metadataLifecycle";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import { buildSearchQueryFamily } from "./searchFamily";
@@ -533,6 +534,16 @@ describe("search service cache reuse", () => {
   });
 });
 
+// These tests isolate ranking/cache identity. Real budget and metadata persistence are tested against SQLite in videoMetadata.test.ts.
+vi.mock("./videoMetadata", () => ({ reserveDetails: async () => true, saveVideoMetadata: async () => {}, readVideoMetadata: async () => new Map() }));
+vi.mock("./mockSearchProvider", async (original) => {
+  const provider = await original<typeof import("./mockSearchProvider")>();
+  return { ...provider, searchMockVideos: (...args: Parameters<typeof provider.searchMockVideos>) => {
+    const response = provider.searchMockVideos(...args);
+    return { ...response, results: response.results.map((v) => ({ ...v, provenance: { snippet: apiStamp(), details: apiStamp() } })) };
+  } };
+});
+
 class MemorySearchRepositoryD1 {
   private entries = new Map<
     string,
@@ -717,7 +728,7 @@ function buildResponse(
     query,
     normalizedQuery,
     cached: false,
-    results,
+    results: results.map((v) => ({ ...v, provenance: { snippet: apiStamp(), details: apiStamp() } })),
     cacheMeta: {
       sourceQueryCount: 1,
       cachedResultCount: results.length,

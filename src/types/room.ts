@@ -13,6 +13,7 @@ export interface Room {
 }
 
 export interface QueueItem {
+  metadataStamp?: import("./youtube").ApiStamp;
   id: QueueItemId;
   roomId: RoomId;
   videoId: string;
@@ -43,6 +44,7 @@ export interface RoomSnapshot {
 }
 
 export interface QueueItemInput {
+  metadataStamp?: import("./youtube").ApiStamp;
   videoId: string;
   title: string;
   channelTitle?: string;

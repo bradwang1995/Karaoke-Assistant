@@ -1,3 +1,25 @@
+## Phase 2 P0 发布准备 — 2026-11-02
+
+- 用户明确授权 PUSH & DEPLOY；当前发布分支codex/music-eligibility-cache，发布前HEAD及远端均5f71203f168f7cf20e3bb2ada59caa45682955d8，不推main。
+- 生产只读盘点：repository115行、catalog4765行、queue47行；d1_migrations已到0007，待新增0008。旧yt-search*共582个key，含index v1/v2、exact v2/v3/v4、多个旧推荐版本。仅输出计数，不导出缓存正文或读取密钥。
+- 初次D1读取7403；确认OAuth账户与配置一致后重试成功，未更换凭据。根据实际存量将catalog/可信metadata清理上限从100调为1000/批，旧KV仍100key/批；未知时间不伪造为新获取。catalog现有积压约5个小时批次、KV约6个分页批次，仅为无新增/无失败时估算，不是完成证据。
+- 逻辑修正后npm test38文件312项、verify:search17文件196项（含typecheck）、build、diff check通过。公开政策去掉本地草稿字样，隐私政策/确认版本更新为2026-11-02-p0-v2；后续补查文案与构建结果。
+- 部署目标Room→Main，均--keep-vars；先应用仅新增schema的0008，实际发布版本和生产smoke另行记录。不得把源码完成等同历史副本已清理、真实播放已验证或平台认可。
+
+## Phase 2 P0 API生命周期与MFK（本地完成，未发布）— 2026-10-29
+
+- 依据本Chat批准的方案A实施；API snippet/details/status携带真正获取时间，29天绝对到期，状态1小时播放窗口。D1/KV/recommendations/cache backfill/浏览器/队列路径统一拒绝未知与过期，不因touch、merge、重存而延寿。保留搜索family、相关性及一次cold search.list上限。
+- KV v5、推荐v9；0008新增可信逐视频投影、详情原子预算、刷新租约、到期索引与清理进度。迁移只在`.wrangler/p0-local/state`的隔离本地D1应用，未操作生产。
+- 详情与URL、播放检查共用独立1000次/太平洋日预算，后台最多500；mock测试验证日界/DST、批次50/51、错误计量、并发租约、三态MFK、未知历史、字段替换、队列不信任客户端标题与清理幂等。维护每小时有界刷新与清理，dry-run不写/不调用API。
+- 浏览器持久化不再保存API payload，启动清理旧key；队列持久层保存业务字段，显示metadata从可信表hydrate。现有隐私同意保留，政策版本升为2026-10-29-p0-v2，双语文案更新。
+- 手机预览、大屏、重唱、恢复和下一首统一服务端许可；MFK true/unknown/stale均不加载iframe。初次浏览器检查发现旧手机脚本预加载，已移除，并使API脚本加载入口也强制要求许可。初测仅请求过公开YouTube播放器脚本，未创建视频iframe、未调用Data API或真实播放；修复后复查只有同源脚本。
+- 验证：完整无网络回归38文件310项通过；最终verify:search17文件195项、typecheck、build与diff check通过。初次沙箱realpath EPERM后在沙箱外运行；Python使用现有bundled runtime。没有新增依赖或修改lockfile。
+- 全新Codex内置Browser：同意前无iframe/第三方资源；真实本地Main/Room均Connected。无key的URL卡片预览显示可重试阻断，iframe和YouTube脚本均为0；手机点歌通过WebSocket同步大屏。第二条保留在队列，重唱不绕过gate，手动下一首只推进一次；中英文提示、大屏底栏视觉、刷新恢复与console无error已核对。截图`p0-local-blocked.png`保存在本Chat visualization目录。未使用个人Chrome。
+- 隔离双Worker预览运行于http://127.0.0.1:8791/；测试房间2s0k5048。Vite政策预览运行于http://127.0.0.1:5191/privacy，中英29天/离线副本说明已检查；npm传参名丢失后改用Vite直接入口。Workers读dist，前端修改需build后刷新；Vite热更新。终端停止会结束服务。
+- 收尾增加KV最短过期边界与旧key分页清理验证；保留可信URL歌曲的推荐提升，但只接受服务端metadata来源。新增推荐回归已包含在最后195项专项中。
+- 待生产授权：全副本数量/吞吐/旧客户端与备份盘点、0008生产迁移、受控历史刷新/清理、Room→Main发布及真实API/播放验证。永久离线浏览器不可主动清除，API派生评分/推荐的政策用途解释仍待专项确认。不能宣称全副本已清理或获得YouTube认可。操作边界与回滚见docs/PHASE_2_P0.md。
+- 未提交、未push、未部署、未执行生产请求或真实YouTube Data API请求；未读取或复制现有密钥。
+
 ## 底栏、双列点歌及政策弹窗已发布 — 2026-10-29
 
 - 源码提交 5d61d1183e89c3539b2c04577d070127f10cd36f 已推 origin/codex/music-eligibility-cache，并由 ls-remote 核实；未推 main。

@@ -61,6 +61,7 @@ export function addQueueItem(
     roomId: snapshot.room.id,
     videoId: input.videoId,
     title: input.title,
+    metadataStamp: input.metadataStamp,
     channelTitle: input.channelTitle,
     thumbnailUrl: input.thumbnailUrl,
     requestedBy: input.requestedBy,

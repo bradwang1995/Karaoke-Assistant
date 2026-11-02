@@ -135,3 +135,6 @@ function jsonResponse(value: unknown) {
     headers: { "content-type": "application/json" },
   });
 }
+
+// URL routing tests isolate the search ledger; real details metering is exercised in videoMetadata.test.ts.
+vi.mock("./videoMetadata", () => ({ reserveDetails: async () => true, saveVideoMetadata: async () => {} }));

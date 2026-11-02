@@ -1,3 +1,4 @@
+import { apiStamp } from "../src/lib/metadataLifecycle";
 import { describe, expect, it, vi } from "vitest";
 import type { SearchResponse, VideoSearchResult } from "../src/types/youtube";
 import {
@@ -48,6 +49,46 @@ class MemoryKv {
 }
 
 describe("KV search cache", () => {
+  it("preserves promotion for a verified direct-URL song without trusting client metadata", async () => {
+    const kv = new MemoryKv();
+    const trusted = buildResponse("Later", "later", [{ videoId: "direct-song", title: "小林 - 后来 Cover", score: 0, reasons: [] }]).results[0];
+    await recordQueuedSearchRecommendation(kv, { videoId: trusted.videoId, title: "Forged client title" }, undefined, trusted);
+    expect((await readSearchRecommendations(kv, 1))[0]).toMatchObject({ videoId: trusted.videoId, title: trusted.title });
+  });
+  it("does not extend near-expired metadata to satisfy KV's minimum expiration", async () => {
+    const kv = new MemoryKv(), family = buildSearchQueryFamily("Later");
+    const response = buildResponse("Later", family.normalizedQuery, buildResults(1));
+    const stamp = apiStamp(Date.now() - 29 * 86400000 + 30_000);
+    response.results[0].provenance = { snippet: stamp, details: stamp };
+    expect(await writeSearchCache(kv, family, response)).toBeNull();
+    expect(kv.writes).toHaveLength(0);
+  });
+  it("rejects unknown acquisition time and never revives expired copies through promotion or touch", async () => {
+    const kv = new MemoryKv(), family = buildSearchQueryFamily("Later");
+    const response = buildResponse("Later", family.normalizedQuery, buildResults(2));
+    await writeSearchCache(kv, family, response);
+    const raw = JSON.parse(kv.values.get(searchCacheFamilyKey(family.hash))!);
+    raw.results.forEach((v: VideoSearchResult) => { v.provenance = undefined; });
+    raw.expiresAt = "broken";
+    kv.values.set(searchCacheFamilyKey(family.hash), JSON.stringify(raw));
+    kv.values.set(searchRecommendationsKey(), JSON.stringify({ updatedAt: new Date().toISOString(), results: raw.results }));
+    expect(await readSearchCache(kv, family)).toBeNull();
+    expect(await readSearchRecommendations(kv, 200)).toEqual([]);
+    const writes = kv.writes.length;
+    await touchSearchCache(kv, family.hash, raw);
+    await recordQueuedSearchRecommendation(kv, { videoId: raw.results[0].videoId, title: "Later Karaoke" });
+    expect(kv.writes).toHaveLength(writes);
+  });
+
+  it("uses the original absolute metadata expiry on a copy instead of granting a new TTL", async () => {
+    const kv = new MemoryKv(), family = buildSearchQueryFamily("Later");
+    const response = buildResponse("Later", family.normalizedQuery, buildResults(1));
+    const stamp = apiStamp(Date.now() - 86400000);
+    response.results[0].provenance = { snippet: stamp, details: stamp };
+    const written = await writeSearchCache(kv, family, response, { ttlSeconds: 365 * 86400 });
+    expect(written?.expiresAt).toBe(stamp.expiresAt);
+    expect(kv.writes[0].options?.expiration).toBe(Math.floor(Date.parse(stamp.expiresAt) / 1000));
+  });
   it("rebuilds beyond the first twenty lexicographic families", async () => {
     const kv = new MemoryKv();
     for (let index = 0; index < 25; index += 1) {
@@ -71,7 +112,7 @@ describe("KV search cache", () => {
       const result = { ...buildResults(1, index, query)[0], title: "普通上传", categoryId: "22" };
       await writeSearchCache(kv, family, buildResponse(query, family.normalizedQuery, [result]));
     }
-    const familyKeys = [...kv.values.keys()].filter((key) => key.startsWith("yt-search:v4:")).sort();
+    const familyKeys = [...kv.values.keys()].filter((key) => key.startsWith("yt-search:v5:")).sort();
     const lastKey = familyKeys.at(-1)!;
     const entry = JSON.parse(kv.values.get(lastKey)!);
     entry.results[0].title = `${entry.query} Karaoke`;
@@ -83,7 +124,7 @@ describe("KV search cache", () => {
     expect(JSON.parse(kv.values.get(searchRecommendationsKey())!).familyRebuildCursor).toBe("100");
     await recordQueuedSearchRecommendation(kv, { videoId: "queued-between-pages", title: "Artist - Later Cover" });
     const results = await readSearchRecommendations(kv, 200);
-    expect(results.map((result) => result.videoId)).toEqual(["queued-between-pages", entry.results[0].videoId]);
+    expect(results.map((result) => result.videoId)).toEqual([entry.results[0].videoId]);
     expect(list.mock.calls[5][0]).toMatchObject({ cursor: "100" });
     expect(JSON.parse(kv.values.get(searchRecommendationsKey())!).familyRebuildCursor).toBeUndefined();
   });
@@ -162,11 +203,11 @@ describe("KV search cache", () => {
     expect(await readSearchRecommendations(kv, 200)).toEqual([]);
     expect((await readSearchCache(kv, family))?.entry.results).toHaveLength(1);
     await recordQueuedSearchRecommendation(kv, { videoId: "new-cover", title: "小林 - 耍赖 Cover" });
-    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual(["new-cover"]);
+    expect((await readSearchRecommendations(kv, 200)).map((item) => item.videoId)).toEqual([]);
   });
 
-  it("builds stable v4 cache keys", () => {
-    expect(searchCacheFamilyKey("abc123")).toBe("yt-search:v4:abc123:CA:zh-Hans");
+  it("builds stable v5 cache keys", () => {
+    expect(searchCacheFamilyKey("abc123")).toBe("yt-search:v5:abc123:CA:zh-Hans");
     expect(searchCacheIndexKey("later ktv")).toBe(
       "yt-search-index:v2:song:karaoke:-:later ktv:CA:zh-Hans",
     );
@@ -296,7 +337,7 @@ describe("KV search cache", () => {
     const recommendations = await readSearchRecommendations(kv, 20);
 
     expect(kv.values.has(searchRecommendationsKey())).toBe(true);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v8:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v9:CA:zh-Hans");
     expect(recommendations).toHaveLength(10);
     expect(recommendations[0].videoId).toBe("video-0");
   });
@@ -309,7 +350,7 @@ describe("KV search cache", () => {
     );
 
     await expect(readSearchRecommendations(kv, 20)).resolves.toEqual([]);
-    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v8:CA:zh-Hans");
+    expect(searchRecommendationsKey()).toBe("yt-search-recommendations:v9:CA:zh-Hans");
   });
 
   it("rebuilds recommendations from reranked legacy candidates before taking the top twenty", async () => {
@@ -429,7 +470,7 @@ describe("KV search cache", () => {
 
     expect(queuedFirst[0]).toMatchObject({
       videoId: "video-11",
-      title: "Actually queued song",
+      title: "First Singer KTV 11",
       reasons: expect.arrayContaining(["recently queued"]),
     });
   });
@@ -462,7 +503,7 @@ function buildResponse(
     query,
     normalizedQuery,
     cached: false,
-    results,
+    results: results.map((v) => ({ ...v, provenance: { snippet: apiStamp(), details: apiStamp() } })),
     cacheMeta: {
       sourceQueryCount: 1,
       cachedResultCount: results.length,

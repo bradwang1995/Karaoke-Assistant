@@ -1,3 +1,4 @@
+import { readVideoMetadata } from "./videoMetadata";
 import type { QueueItem, Room, RoomSnapshot } from "../src/types/room";
 import type { PlaybackStateRow, QueueItemRow, RoomRow } from "./types";
 
@@ -106,9 +107,13 @@ export async function getRoomSnapshotFromD1(
     isActive: roomRow.is_active === 1,
   };
 
+  const metadata = await readVideoMetadata(db, (queueRows.results ?? []).map((row) => row.video_id));
   return {
     room,
-    queue: (queueRows.results ?? []).map(toQueueItem),
+    queue: (queueRows.results ?? []).map((row) => {
+      const video = metadata.get(row.video_id);
+      return { ...toQueueItem(row), title: video?.title ?? "YouTube 视频", channelTitle: video?.channelTitle, thumbnailUrl: video?.thumbnailUrl, metadataStamp: video?.provenance?.snippet };
+    }),
     playback: {
       roomId,
       currentQueueItemId: playbackRow?.current_queue_item_id ?? null,
@@ -205,9 +210,9 @@ export async function saveRoomSnapshotToD1(db: D1Database, snapshot: RoomSnapsho
         item.id,
         item.roomId,
         item.videoId,
-        item.title,
-        item.channelTitle ?? null,
-        item.thumbnailUrl ?? null,
+        "YouTube 视频",
+        null,
+        null,
         item.requestedBy ?? null,
         item.status,
         item.sortKey,

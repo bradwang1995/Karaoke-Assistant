@@ -1,3 +1,5 @@
+import { freshVideos, metadataExpiry } from "../lib/metadataLifecycle";
+import { usePlaybackDecision } from "../hooks/usePlaybackDecision";
 import { LanguageToggle } from "../components/LanguageToggle";
 import { SiteInfoButton } from "../components/SiteInfoButton";
 import { translate as t, useLanguage } from "../i18n";
@@ -47,7 +49,6 @@ import {
   createYouTubeIframe,
   enforceYouTubePreviewStart,
   hasYouTubePreviewReachedStart,
-  youtubeThumbnailUrl,
   youtubePreviewPlayerVars,
 } from "../lib/youtube";
 import {
@@ -299,10 +300,6 @@ function SearchTab({
     [],
   );
 
-  useEffect(() => {
-    void loadYouTubeIframeApi().catch(() => undefined);
-  }, []);
-
   const recommendationsQuery = useQuery({
     queryKey: ["search-recommendations", roomId],
     queryFn: async () => {
@@ -392,6 +389,17 @@ function SearchTab({
   const isSearching = searchMutation.isPending;
   const showingRecommendations = !searchResponse && !searchMutation.isError;
   const showingCachedResults = showingRecommendations;
+  useEffect(() => {
+    const prune = () => {
+      setSearchResponse((current) => current?.cacheMeta?.responseSource === "mock" ? current : current ? { ...current, results: freshVideos(current.results) } : current);
+      queryClient.setQueriesData<SearchResponse>({ queryKey: ["search-recommendations", roomId] }, (current) => current ? { ...current, results: freshVideos(current.results) } : current);
+    };
+    const expiry = metadataExpiry([...(searchResponse?.results ?? []), ...(recommendationsQuery.data?.results ?? [])]);
+    const expiryTimer = Number.isFinite(expiry) ? window.setTimeout(prune, Math.min(Math.max(expiry - Date.now() + 1, 0), 2147483647)) : undefined;
+    const timer = window.setInterval(prune, 60_000);
+    window.addEventListener("focus", prune);
+    return () => { window.clearInterval(timer); window.clearTimeout(expiryTimer); window.removeEventListener("focus", prune); };
+  }, [roomId, queryClient, searchResponse, recommendationsQuery.data]);
   const activeResults = useMemo(
     () =>
       searchResponse?.results ??
@@ -418,7 +426,7 @@ function SearchTab({
   useEffect(() => {
     setSelected((current) => {
       if (current && activeResults.some((result) => result.videoId === current.videoId)) {
-        return current;
+        return activeResults.find((result) => result.videoId === current.videoId)!;
       }
 
       return activeResults[0] ?? null;
@@ -1071,7 +1079,7 @@ function CandidateVideoCard({
       </div>
       <div className="min-h-[3.5rem] border-t border-white/10 bg-slate-900/95 px-2.5 py-2">
         <h3 className="line-clamp-2 text-base font-semibold leading-5 text-slate-100">
-          {result.title}
+          {result.title === "YouTube 视频" ? t("YouTube 视频") : result.title}
         </h3>
       </div>
       {!previewActive && (duplicate || selected) ? (
@@ -1102,6 +1110,7 @@ function CandidatePreview({
   pending: boolean;
 }) {
   useLanguage();
+  const gate = usePlaybackDecision(active ? result.videoId : null);
   const playerShellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const playingRef = useRef(false);
@@ -1120,7 +1129,7 @@ function CandidatePreview({
       shell?.replaceChildren();
     };
 
-    if (!active) {
+    if (!active || !gate.allowed) {
       playingRef.current = false;
       destroyPlayer();
       setLoadStatus("idle");
@@ -1140,7 +1149,7 @@ function CandidatePreview({
     const timeoutId = window.setTimeout(() => {
       setLoadStatus((current) => (current === "loading" ? "error" : current));
     }, PREVIEW_LOAD_TIMEOUT_MS);
-    loadYouTubeIframeApi()
+    loadYouTubeIframeApi(gate.decision!, result.videoId)
       .then((api) => {
         if (cancelled) {
           return;
@@ -1149,6 +1158,7 @@ function CandidatePreview({
         const host = createYouTubeIframe(
           result.videoId,
           youtubePreviewPlayerVars(window.location.origin),
+          gate.decision!,
         );
         shell.appendChild(host);
         playerRef.current = new api.Player(host, {
@@ -1213,7 +1223,7 @@ function CandidatePreview({
       );
       setLoadStatus("loaded");
     }
-  }, [active, result.videoId]);
+  }, [active, result.videoId, gate.allowed]);
 
   return (
     <div
@@ -1221,7 +1231,7 @@ function CandidatePreview({
       data-preview-current-time={verifiedStartTime ?? undefined}
     >
       <img
-        src={result.thumbnailUrl ?? youtubeThumbnailUrl(result.videoId)}
+        src={result.thumbnailUrl}
         alt=""
         loading="lazy"
         draggable={false}
@@ -1233,6 +1243,12 @@ function CandidatePreview({
           active ? "" : "hidden"
         }`}
       />
+      {active && !gate.allowed ? (
+        <div className="absolute inset-0 grid place-items-center bg-slate-950 p-3 text-center text-sm text-white">
+          <div><p>{t(gate.decision?.reason === "made-for-kids" ? "此视频暂不支持在本应用内播放" : gate.decision ? "无法确认视频状态，请重试" : "正在检查视频状态…")}</p>
+          {gate.decision ? <button type="button" className="mt-2 underline" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); gate.retry(); }}>{t("重试")}</button> : null}</div>
+        </div>
+      ) : null}
       {pending && !active ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/80 text-white">
           <LoaderCircle className="animate-spin" size={22} />
@@ -1662,8 +1678,10 @@ function readPersistedSearchState(roomId: string): PersistedSearchState | null {
     }
 
     const parsed = JSON.parse(raw) as Partial<PersistedSearchState>;
+    if (parsed.response) { parsed.response = null; window.localStorage.setItem(searchStateStorageKey(roomId), JSON.stringify(parsed)); }
 
     if (!parsed.savedAt || Date.now() - parsed.savedAt > SEARCH_STATE_TTL_MS) {
+      window.localStorage.removeItem(searchStateStorageKey(roomId));
       return null;
     }
 
@@ -1701,6 +1719,8 @@ function writePersistedSearchState(
       searchStateStorageKey(roomId),
       JSON.stringify({
         ...state,
+        response: null,
+        activePreviewVideoId: null,
         visibleResultCount: clampVisibleResultCount(state.visibleResultCount),
         savedAt: Date.now(),
       } satisfies PersistedSearchState),

@@ -1,3 +1,4 @@
+import { freshVideos, metadataExpiry } from "../src/lib/metadataLifecycle";
 import type {
   AdminCleanupCandidate,
   AdminCleanupHistoryItem,
@@ -102,7 +103,7 @@ export async function readSearchRepositories(
       continue;
     }
 
-    const results = filterStructurallyUsableVideoResults(storedResponse.results);
+    const results = freshVideos(filterStructurallyUsableVideoResults(storedResponse.results));
 
     if (results.length === 0) {
       continue;
@@ -153,7 +154,7 @@ export async function writeSearchRepository(
   family: SearchQueryFamily,
   response: SearchResponse,
 ) {
-  const results = filterStructurallyUsableVideoResults(response.results);
+  const results = freshVideos(filterStructurallyUsableVideoResults(response.results));
 
   if (!db || results.length === 0) {
     return null;
@@ -180,8 +181,8 @@ export async function writeSearchRepository(
          id, family_hash, original_query, normalized_query, artist, normalized_artist,
          search_type, include_original_vocal, response_json, result_count,
          external_search_calls, approx_bytes, access_count, created_at, updated_at,
-         last_accessed_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13, ?13, ?13)
+         last_accessed_at, metadata_expires_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13, ?13, ?13, ?14)
        ON CONFLICT(normalized_query, normalized_artist, search_type, include_original_vocal)
        DO UPDATE SET
          family_hash = excluded.family_hash,
@@ -191,6 +192,7 @@ export async function writeSearchRepository(
          result_count = excluded.result_count,
          external_search_calls = excluded.external_search_calls,
          approx_bytes = excluded.approx_bytes,
+         metadata_expires_at = excluded.metadata_expires_at,
          updated_at = excluded.updated_at,
          last_accessed_at = excluded.last_accessed_at`,
     )
@@ -208,6 +210,7 @@ export async function writeSearchRepository(
       filteredResponse.cacheMeta?.sourceQueryCount ?? 0,
       approxBytes,
       now,
+      new Date(metadataExpiry(results)).toISOString(),
     )
     .run();
 
@@ -1382,7 +1385,7 @@ function toAdminRepositoryItem(row: Record<string, unknown>): AdminRepositoryIte
     createdAt: rowString(row, "created_at"),
     updatedAt: rowString(row, "updated_at"),
     lastAccessedAt: rowString(row, "last_accessed_at"),
-    previewResults: response?.results.slice(0, 3) ?? [],
+    previewResults: response ? freshVideos(response.results).slice(0, 3) : [],
   };
 }
 

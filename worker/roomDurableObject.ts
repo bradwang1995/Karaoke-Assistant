@@ -1,5 +1,6 @@
+import { readVideoMetadata } from "./videoMetadata";
 import type { RoomSnapshot } from "../src/types/room";
-import type { YouTubeQuotaStatus } from "../src/types/youtube";
+import type { VideoSearchResult, YouTubeQuotaStatus } from "../src/types/youtube";
 import type { ClientRole } from "../src/types/websocket";
 import { cleanupCompletedItems } from "../src/lib/roomReducer";
 import {
@@ -251,6 +252,12 @@ export class RoomDurableObject {
     }
 
     const currentSnapshot = await this.getSnapshot(roomId);
+    let queuedVideo: VideoSearchResult | undefined;
+    if (message.type === "ADD_QUEUE_ITEM") {
+      const video = (await readVideoMetadata(this.env.DB, [message.payload.videoId])).get(message.payload.videoId);
+      queuedVideo = video;
+      message = { ...message, payload: { ...message.payload, title: video?.title ?? "YouTube 视频", channelTitle: video?.channelTitle, thumbnailUrl: video?.thumbnailUrl, metadataStamp: video?.provenance?.snippet } };
+    }
     const nextSnapshot = {
       ...applyRoomCommand(currentSnapshot, message),
       connectedClients: this.sockets.size,
@@ -260,7 +267,7 @@ export class RoomDurableObject {
 
     if (message.type === "ADD_QUEUE_ITEM") {
       this.state.waitUntil(
-        recordQueuedSearchRecommendation(this.env.SEARCH_CACHE, message.payload).catch(
+        recordQueuedSearchRecommendation(this.env.SEARCH_CACHE, message.payload, undefined, queuedVideo).catch(
           (error) => {
             console.error(
               JSON.stringify({
