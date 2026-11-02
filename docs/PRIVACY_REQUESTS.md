@@ -39,6 +39,6 @@
 参考：加拿大 OPC 的 [访问请求处理说明](https://www.priv.gc.ca/en/privacy-topics/accessing-personal-information/obligations-for-organizations/02_05_d_54_ati_02/) 与 [限制保存原则](https://www.priv.gc.ca/en/privacy-topics/privacy-laws-in-canada/the-personal-information-protection-and-electronic-documents-act-pipeda/p_principle/principles/p_use/)。这里不将本地实现宣称为所有国家和地区的合规认证。
 
 
-## Phase 2 P0（本地待发布）
+## Phase 2 P0（已发布，历史清理待验收）
 
-公共API元数据改为真实获取后最多29天，未知/过期读拒绝；事件30天与运维90天不代表API缓存可无限保留。缓存重存、排队、访问不刷新API时间。新版浏览器不再持久化API payload，再次访问时清理旧副本，但不能主动擦除长期离线浏览器或第三方备份。队列业务引用与API标题等字段分开处理，不因删除metadata而删除参与者操作。生产盘点、迁移和旧副本清理尚未执行，不能对外声称全副本删除完成。执行顺序与限制见PHASE_2_P0.md。
+公共API元数据改为真实获取后最多29天，未知/过期读拒绝；事件30天与运维90天不代表API缓存可无限保留。缓存重存、排队、访问不刷新API时间。新版浏览器不再持久化API payload，再次访问时清理旧副本，但不能主动擦除长期离线浏览器或第三方备份。队列业务引用与API标题等字段分开处理，不因删除metadata而删除参与者操作。生产盘点与0008迁移已完成；旧副本小时清理尚待验收，不能对外声称全副本删除完成。执行顺序与限制见PHASE_2_P0.md。

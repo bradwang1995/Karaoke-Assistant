@@ -1,6 +1,6 @@
 # K歌助手搜索与缓存规范
 
-最后核实：2026-10-29（Phase 2 P0 生命周期与播放门禁本地实施，未发布；旧发布记录不代表本次生产验证）
+最后核实：2026-11-02（Phase 2 P0已发布；生产迁移与零配额cacheOnly验证见PROGRESS，历史副本清理及真实播放待验收）
 代码基线：本轮 `9b42ac3`；上一发布 `eae1d9d` / 发布记录 `a6651fb`，成熟回退版本 `aa65a60`；回退记录见 `docs/SEARCH_BASELINE_2026-10-27.md`
 状态：当前实现的 source of truth
 
@@ -43,13 +43,13 @@
 ```
 <!-- SEARCH_CONTRACT_END -->
 
-## Phase 2 P0 生命周期变更（本地，未发布）
+## Phase 2 P0 生命周期变更（已发布，历史清理待验收）
 
-本地新契约：API元数据按snippet/details/status保存真实获取时间，最多29天，过期/未知拒绝读取或复制；KV v5、推荐v9，旧版本不fallback。保留原family及排序、一次cold search.list和1600/2000ms deadline。URL lookup现在也有1600ms外部deadline。URL错误仅返回通用占位，无远程缩略图，不授予播放许可。浏览器24小时仅恢复输入/选项，不再持久化API结果。
+当前契约：API元数据按snippet/details/status保存真实获取时间，最多29天，过期/未知拒绝读取或复制；KV v5、推荐v9，旧版本不fallback。保留原family及排序、一次cold search.list和1600/2000ms deadline。URL lookup现在也有1600ms外部deadline。URL错误仅返回通用占位，无远程缩略图，不授予播放许可。浏览器24小时仅恢复输入/选项，不再持久化API结果。
 
 详情请求独立D1计量1000次/日（后台最多500），与搜索ledger分开。既有enrichment复用status；MFK true/unknown/stale不加载播放器或脚本。这是产品保守策略。缓存命中不调用YouTube；播放前可按需请求详情，不能把两者合称零API。
 
-来源、全部副本、迁移/清理、回滚与生产门槛见`docs/PHASE_2_P0.md`。此变更不代表已清理生产历史副本或通过政策审核。
+来源、全部副本、迁移/清理、回滚与生产门槛见`docs/PHASE_2_P0.md`。本次部署不代表已清理全部生产历史副本或通过政策审核。
 
 ## 2. 两分钟理解当前搜索
 

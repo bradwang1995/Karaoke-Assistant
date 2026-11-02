@@ -1,7 +1,19 @@
+## Phase 2 P0 已推送并部署，历史副本清理待验收 — 2026-11-02
+
+- 发布源码0139d5215fe9bf00817c015fc088a8642758705e已推origin/codex/music-eligibility-cache，ls-remote核实一致；未推main。Room→Main均使用--keep-vars，未读取/复制/修改现有密钥。
+- 生产0008迁移仅新增列、表、索引，应用成功并通过d1_migrations复核。未执行手工purge或全库清空。
+- deployments list核实最终100%版本：Room `f440a47d-04a9-4d4d-9405-7a5e122b476c`；Main `32fc01a3-fcdc-4082-8e9a-f25cfc4a2cf2`。Main小时调度`0 * * * *`已部署。
+- 发布检查：npm test38文件312项；verify:search17文件196项（含typecheck）；build；diff check通过。正式政策日期/确认版本改为2026-11-02-p0-v2后，双语覆盖与同意测试20项、build/typecheck再通过。最终前端入口`assets/index-BQqaJy-J.js`，CSS `assets/index-Bof-8tIV.css`。
+- 生产先运行cacheOnly“耍赖”（隔离smoke标识p0smoke1，未新建房间）：sourceQueryCount=0、externalCallAvoided=true、cacheOnly=true，search ledger 0→0，结果0条。旧候选缺可信获取时间，拒绝作为fresh复用；这是无命中的契约验证，不是缓存命中或真实播放证明。未发冷文本搜索或真实videos.list请求；details ledger仍0行。
+- 全新Codex内置Browser核对线上入口与构建一致、console error为空；中英文隐私页已展示29天、MFK保守策略和2026-11-02正式日期，无“尚未发布”标签。创建页停在未勾选同意gate，iframe/第三方脚本均0；未代用户接受线上条款、未创建房间、未测试真实播放。截图`p0-production-2026-11-02.png`位于本Chat visualization目录。
+- 发布后只读复核：未知来源repository payload仍115、catalog仍4765，可信metadata0。旧KV初次盘点581个。首轮小时任务尚未验收；不得称历史副本已清理。按本次无新增/无失败的存量，目录约5个1000行批次、旧KV约6个100key批次，但仅是容量估算。上线后推荐可能暂时减少，未知/过期数据不作fallback。
+- P0主要工程改动已经上线；永久离线旧浏览器/旧页面、备份、API派生评分与推荐用途解释、真实MFK/播放和YouTube审核仍未完成独立验证。本次不是整体合规认证。请用户刷新旧页面并确认新版政策。
+- 本发布记录随后以[CI Skip]文档提交推送；具体提交以git日志为准。
+
 ## Phase 2 P0 发布准备 — 2026-11-02
 
 - 用户明确授权 PUSH & DEPLOY；当前发布分支codex/music-eligibility-cache，发布前HEAD及远端均5f71203f168f7cf20e3bb2ada59caa45682955d8，不推main。
-- 生产只读盘点：repository115行、catalog4765行、queue47行；d1_migrations已到0007，待新增0008。旧yt-search*共582个key，含index v1/v2、exact v2/v3/v4、多个旧推荐版本。仅输出计数，不导出缓存正文或读取密钥。
+- 生产只读盘点：repository115行、catalog4765行、queue47行；d1_migrations已到0007，待新增0008。旧yt-search*共581个key，含index v1/v2、exact v2/v3/v4、多个旧推荐版本。仅输出计数，不导出缓存正文或读取密钥。
 - 初次D1读取7403；确认OAuth账户与配置一致后重试成功，未更换凭据。根据实际存量将catalog/可信metadata清理上限从100调为1000/批，旧KV仍100key/批；未知时间不伪造为新获取。catalog现有积压约5个小时批次、KV约6个分页批次，仅为无新增/无失败时估算，不是完成证据。
 - 逻辑修正后npm test38文件312项、verify:search17文件196项（含typecheck）、build、diff check通过。公开政策去掉本地草稿字样，隐私政策/确认版本更新为2026-11-02-p0-v2；后续补查文案与构建结果。
 - 部署目标Room→Main，均--keep-vars；先应用仅新增schema的0008，实际发布版本和生产smoke另行记录。不得把源码完成等同历史副本已清理、真实播放已验证或平台认可。
