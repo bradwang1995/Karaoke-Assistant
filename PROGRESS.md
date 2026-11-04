@@ -1,3 +1,12 @@
+## UI与英文Logo已推送部署 — 2026-11-03
+
+- 用户明确授权push/redeploy；源码4218e568afe8dd178ba3e812ac9ece1db98243d0已推origin/codex/music-eligibility-cache，ls-remote核实；未推main。下方本地记录为发布前历史，本段为当前状态。
+- 按Room→Main均使用--keep-vars，deployments list确认最终100%：Room efa2c861-a6ef-4167-a3fd-043ce29efb6e；Main b40c283f-f64e-403e-8281-7cc9f274442c。保留Dashboard变量和密钥；无数据库迁移。
+- 发布前全量42文件320项、搜索17文件196项、typecheck（verify:search内）、build、git diff --check全部通过。构建assets/index-C04uYUB8.js、assets/index-B4C7QxB9.css。
+- 生产cacheOnly“耍赖”通过（ui1103sm为测试标识，未创建房间），脚本核实cacheOnly/sourceQueryCount=0/externalCallAvoided，配额2→2，结果0，不是缓存命中或真实播放验证。首次标识长度错误被400拒绝，更正后通过；未运行冷搜索。
+- 全新内置Browser生产首页确认Product Home、无重复About、透明英文Logo1672×941加载且cover样式生效；脚本与本地构建一致，console errors为空。未代用户同意生产条款或创建真实房间；手机开关和政策弹窗沿用本轮本地验证，未重新验证真实播放/多设备同步。
+- 发布记录以[CI Skip]文档提交推送。
+
 ## 英文Logo视觉尺寸修正（本地完成，未发布）— 2026-11-03
 
 - 英文PNG原有1672×941画布含大量上下透明留白；仅英文图片改为object-fit: cover，沿用中英文共享270×90（桌面）/216×72（小屏）容器，不拉伸图案，不修改图片。英文有效宽约254px，中文约251px（桌面）；原图宽高比不同，图案高度自然不同。
