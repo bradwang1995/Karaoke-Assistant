@@ -146,7 +146,7 @@ export default function CreateRoomPage() {
             </div>
           </aside>
         </section>
-        <SiteFooter />
+        <SiteFooter allowWithdrawal />
       </div>
     </main>
   );

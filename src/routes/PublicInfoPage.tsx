@@ -21,7 +21,7 @@ export default function PublicInfoPage({ page }: { page: keyof typeof publicPage
             {page === "privacy" && (section.title === "第三方服务" || section.title === "Third-party services") && (
               <p className="text-sm leading-7 text-slate-400">
                 {language === "zh" ? "了解第三方的信息处理方式：" : "Read about third-party information handling: "}
-                <a className="underline decoration-white/25 underline-offset-4 hover:text-slate-200" href="https://policies.google.com/privacy">Google Privacy Policy</a>
+                <a className="underline decoration-white/25 underline-offset-4 hover:text-slate-200" href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer">Google Privacy Policy</a>
               </p>
             )}
           </section>

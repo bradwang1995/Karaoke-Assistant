@@ -1,7 +1,7 @@
 // Populate with operator-approved public details before release. Never invent contact information.
 export const publicSiteDetails: { operatorName: string; contactEmail: string } = {
   operatorName: "KTV Assistant",
-  contactEmail: "bradwang9999@hotmail.com",
+  contactEmail: "bradwang1995@gmail.com",
 };
 
 type Copy = { title: string; intro: string; sections: { title: string; paragraphs: string[] }[] };

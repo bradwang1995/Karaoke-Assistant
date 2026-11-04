@@ -1,3 +1,11 @@
+## 高清英文Logo、公开入口与常驻二维码（本地完成，未发布）— 2026-11-03
+
+- 替换用户最新2172×724英文PNG，恢复中英文共享contain适配；未修改图片或中文Logo。公开联系邮箱统一为bradwang1995@gmail.com；未读取或变更Google账户、API Key或Project配置。Google Privacy Policy链接增加_blank与noopener noreferrer。
+- SiteFooter默认不显示撤回，仅CreateRoomPage显式启用；房间/Debug/Admin政策弹窗保留撤回行为。首页、设备指南、隐私、条款页不显示独立撤回。审核取证runbook同步入口位置，政策同意版本不变。
+- Display移除二维码展开状态与折叠按钮，常驻竖排“扫码点歌”/Scan to join及右侧72px二维码；保留/j/:roomId内容、M纠错、2格白边、74px底栏和手机页新标签链接。
+- 验证：翻译/同意/roomJoin测试3文件22项、typecheck通过；内置Browser实测Google链接_blank/安全rel，隐私页无撤回、创建页有撤回、首页无撤回且邮箱正确；中英大屏初始二维码常驻、弹窗仍有撤回。新英文图片2172×724加载、contain和透明视觉正常。git diff --check通过。
+- Vite http://127.0.0.1:5194/ （英文logo）、/privacy（Google链接/邮箱）、/create（撤回）、/room/uirefine/display（常驻二维码）继续运行，前端热更新；Vite仅本地fallback，未验证真实YouTube播放、Worker同步或手机扫码。未commit、push或部署。
+
 ## UI与英文Logo已推送部署 — 2026-11-03
 
 - 用户明确授权push/redeploy；源码4218e568afe8dd178ba3e812ac9ece1db98243d0已推origin/codex/music-eligibility-cache，ls-remote核实；未推main。下方本地记录为发布前历史，本段为当前状态。

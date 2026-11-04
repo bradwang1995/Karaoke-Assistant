@@ -2,7 +2,6 @@ import { LanguageToggle } from "../components/LanguageToggle";
 import { SiteInfoButton } from "../components/SiteInfoButton";
 import { translate as t, useLanguage } from "../i18n";
 import {
-  ChevronLeft,
   MonitorPlay,
   Pause,
   Play,
@@ -55,7 +54,6 @@ export default function DisplayPage() {
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("loading");
-  const [isQrCodeExpanded, setIsQrCodeExpanded] = useState(false);
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
   const handledLoadingPlaybackKeyRef = useRef<string | null>(null);
@@ -401,32 +399,11 @@ export default function DisplayPage() {
               </div>
             </div>
             <div className="flex shrink-0 items-center justify-end gap-2">
-              <button
-                type="button"
-                aria-label={t("扫码点歌")}
-                aria-expanded={isQrCodeExpanded}
-                aria-controls="room-join-qr"
-                title={isQrCodeExpanded ? t("收起二维码") : t("展开二维码")}
-                onClick={() => setIsQrCodeExpanded((expanded) => !expanded)}
-                className="group flex h-14 shrink-0 items-center justify-center rounded-md border-0 bg-transparent px-0.5 text-[11px] font-semibold leading-3 transition hover:bg-white/10 hover:shadow-[0_2px_12px_rgba(45,212,191,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
-              >
-                {isQrCodeExpanded ? (
-                  <ChevronLeft
-                    size={24}
-                    width={12}
-                    viewBox="6 0 12 24"
-                    aria-hidden="true"
-                    className="shrink-0 rotate-180 text-teal-200 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
-                  />
-                ) : (
-                  <span className="flex flex-col items-center">
-                    {(language === "zh" ? [...t("扫码点歌")] : t("扫码点歌").split(/\s+/)).map((part, index) => (
-                      <span key={index}>{part}</span>
-                    ))}
-                  </span>
-                )}
-              </button>
-              {isQrCodeExpanded ? (
+              <span className="flex h-14 shrink-0 flex-col items-center justify-center text-[11px] font-semibold leading-3 text-teal-200">
+                {(language === "zh" ? [...t("扫码点歌")] : t("扫码点歌").split(/\s+/)).map((part, index) => (
+                  <span key={index}>{part}</span>
+                ))}
+              </span>
               <Link
                 id="room-join-qr"
                 to={`/room/${roomId}/mobile`}
@@ -445,7 +422,6 @@ export default function DisplayPage() {
                   className="qr-code-canvas qr-code-surface shrink-0 rounded-sm"
                 />
               </Link>
-              ) : null}
             </div>
           </div>
         </section>

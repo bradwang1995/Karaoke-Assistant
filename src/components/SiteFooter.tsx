@@ -4,12 +4,12 @@ import { translate as t, useLanguage } from "../i18n";
 import { useSyncExternalStore } from "react";
 import { privacyConsent, subscribePrivacyConsent } from "../lib/privacyConsent";
 
-export function SiteFooter() {
+export function SiteFooter({ allowWithdrawal = false }: { allowWithdrawal?: boolean }) {
   const language = useLanguage();
   const accepted = useSyncExternalStore(subscribePrivacyConsent, privacyConsent.accepted, () => false);
   return (
     <>
-      {accepted ? (
+      {allowWithdrawal && accepted ? (
         <div className="flex justify-center py-5">
           <button type="button" onClick={() => privacyConsent.revoke()} className="rounded-sm px-4 py-3 text-center text-sm text-teal-200 underline underline-offset-4 hover:text-teal-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300">{t("撤回同意并停止使用房间")}</button>
         </div>
