@@ -1,3 +1,11 @@
+## 搜索切换保留结果与重唱播放已发布 — 2026-11-04
+
+- 用户明确授权push/deploy。源码7e2675a748026b6f5a7856df3ff281e49da7f35c推送origin/codex/music-eligibility-cache并通过ls-remote核实，未推main；下段保留本地开发历史。
+- 按Room→Main使用--keep-vars部署，deployments list核实最终100%：Room 2cd76ab9-a822-4757-8eb5-0c0e2da2dd7c；Main 5a298eb3-fa61-41f0-940b-81548c84fcec。未迁移数据库或变更Dashboard密钥。
+- 发布前全量42文件320项、搜索17文件196项、typecheck、build及git diff --check通过。生产入口assets/index-DjSuhayt.js，CSS assets/index-D4JOO-wo.css；新内置Browser核实首页正常、新bundle已加载且console error为空。
+- 生产cacheOnly“耍赖”通过：测试标识rls1104a，不创建房间；脚本校验cacheOnly、sourceQueryCount=0及externalCallAvoided，搜索配额0→0，返回0条。首次使用release1104被8字符room id校验以400拒绝，修正标识后通过。未执行冷搜索、真实播放或多设备验收；这些行为仍只具有上段本地mock证据。
+- 发布记录以[CI Skip]文档提交推送，不触发额外运行时部署。
+
 ## 搜索切换保留结果与重唱播放（本地验证，未发布）— 2026-11-04
 
 - MobilePage持有当前页面的搜索会话ref，SearchTab卸载/返回仍保留已完成结果、输入/选项、选择、分页和滚动位置；返回时按原有效期过滤元数据，预览不恢复。localStorage继续不保存API结果，刷新仍回推荐。清空文字本身不切换，空提交才回推荐；搜索算法、服务端缓存与版本不变。
