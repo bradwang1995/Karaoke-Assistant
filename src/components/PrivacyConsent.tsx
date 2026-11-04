@@ -33,7 +33,7 @@ export function PrivacyConsent({ children }: { children: ReactNode }) {
           privacyConsent.accept();
           setChecked(false);
         }} className="w-full rounded-xl bg-teal-300 px-5 py-3 font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-40">{t("同意并继续")}</button>
-        <Link to="/" className="block text-center text-sm text-slate-300 underline">{t("暂不同意，返回产品介绍")}</Link>
+        <Link to="/" className="block text-center text-sm text-slate-300 underline">{t("暂不同意，返回产品首页")}</Link>
       </section>
     </main>
   );

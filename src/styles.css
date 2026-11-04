@@ -36,6 +36,9 @@ body {
   object-fit: contain;
 }
 
+/* Fill the shared logo box despite the English asset’s transparent margins. */
+.site-brand-image[src="/brand/logo-en.png"] { object-fit: cover; }
+
 @media (min-width: 640px) {
   .site-brand { width: 270px; }
   .site-brand-image { height: 90px; }

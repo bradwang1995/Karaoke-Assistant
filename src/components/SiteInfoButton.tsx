@@ -6,7 +6,7 @@ import { translate as t, useLanguage } from "../i18n";
 import { privacyConsent } from "../lib/privacyConsent";
 
 // Native modal dialogs supply focus containment, Escape and focus restoration.
-export function SiteInfoButton({ brand = false, compact = false }: { brand?: boolean; compact?: boolean }) {
+export function SiteInfoButton({ compact = false }: { compact?: boolean }) {
   const language = useLanguage();
   const dialogRef = useRef<HTMLDialogElement>(null);
   return (
@@ -16,11 +16,10 @@ export function SiteInfoButton({ brand = false, compact = false }: { brand?: boo
         onClick={() => dialogRef.current?.showModal()}
         aria-label={t("产品说明与政策")}
         title={t("产品说明与政策")}
-        className={compact ? "grid h-7 w-7 shrink-0 place-items-center rounded-md text-slate-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300" : brand
-          ? "rounded-sm text-left underline decoration-white/25 decoration-dotted underline-offset-4 hover:text-teal-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
+        className={compact ? "grid h-7 w-7 shrink-0 place-items-center rounded-md text-teal-200 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"
           : "rounded-md px-2 py-1 text-sm text-slate-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300"}
       >
-        {compact ? <Info size={16} aria-hidden="true" /> : brand ? t("K歌助手") : t("关于")}
+        {compact ? <Info size={16} aria-hidden="true" /> : t("关于")}
       </button>
       {createPortal(
         <dialog
@@ -49,16 +48,16 @@ export function SiteInfoButton({ brand = false, compact = false }: { brand?: boo
               <X size={18} aria-hidden="true" />
             </button>
           </div>
+          <p className="mt-3 text-sm leading-6 text-slate-400">{t("链接在新页面打开，不会离开当前房间。")}</p>
           <nav className="my-5 grid gap-3 text-teal-200">
-            {[["/", t("K歌助手")], ["/setup", publicPages.setup[language].title], ["/privacy", publicPages.privacy[language].title], ["/terms", publicPages.terms[language].title], ["https://www.youtube.com/t/terms", "YouTube Terms of Service"]].map(([href, label]) => (
+            {[["/", t("产品首页")], ["/setup", publicPages.setup[language].title], ["/privacy", publicPages.privacy[language].title], ["/terms", publicPages.terms[language].title], ["https://www.youtube.com/t/terms", "YouTube Terms of Service"]].map(([href, label]) => (
               <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-white/10 px-4 py-3 hover:bg-white/10">{label}</a>
             ))}
           </nav>
-          <p className="mb-2 text-sm leading-6 text-slate-400">{t("链接在新页面打开，不会离开当前房间。")}</p>
           <button type="button" onClick={() => {
             dialogRef.current?.close();
             privacyConsent.revoke();
-          }} className="rounded-sm text-left text-sm text-teal-200 underline underline-offset-4 transition hover:text-teal-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300">{t("撤回同意并停止使用房间")}</button>
+          }} className="w-full rounded-sm px-3 py-4 text-center text-sm text-teal-200 underline underline-offset-4 transition hover:text-teal-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-300">{t("撤回同意并停止使用房间")}</button>
         </dialog>,
         document.body,
       )}

@@ -119,9 +119,10 @@ export default function MobilePage() {
       <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col overflow-hidden border-x border-white/10 bg-slate-950 shadow-2xl shadow-black/40">
         <header className="mobile-safe-header relative z-[60] shrink-0 overflow-hidden border-b border-white/10 bg-slate-950 px-4 pb-2 text-white">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_10%,rgba(20,184,166,0.2),transparent_42%),radial-gradient(circle_at_88%_80%,rgba(251,113,133,0.13),transparent_38%)]" />
-          <div className="mobile-heading-row relative flex items-center justify-between gap-3">
-            <div className="flex min-w-0 flex-1 items-baseline gap-2">
-              <h1 className="mobile-brand shrink-0 text-xl font-semibold tracking-normal"><SiteInfoButton brand /></h1>
+          <div className="mobile-heading-row relative flex flex-wrap items-center justify-between gap-3">
+            <div className="flex shrink-0 items-center gap-1">
+              <h1 className="mobile-brand shrink-0 text-xl font-semibold tracking-normal">{t("K歌助手")}</h1>
+              <SiteInfoButton compact />
             </div>
             <div className="mobile-header-actions flex flex-wrap items-center justify-end gap-1.5">
               <LanguageToggle className="mobile-language-toggle" />
@@ -968,7 +969,7 @@ function PillToggle({
     >
       <span className="whitespace-nowrap">{label}</span>
       <span
-        className={`relative h-5 w-8 rounded-full transition ${
+        className={`relative h-5 w-8 shrink-0 rounded-full transition ${
           checked ? "bg-teal-300" : "bg-slate-600"
         }`}
       >
