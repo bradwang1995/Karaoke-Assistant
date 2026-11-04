@@ -1,3 +1,12 @@
+## 高清Logo、政策入口与常驻二维码已发布 — 2026-11-03
+
+- 用户明确授权push/deploy。源码bf0d7bf9fd52fb3268e82553fa09b9f5dbad9c3a已推origin/codex/music-eligibility-cache并由ls-remote核实；未推main。下方本地记录保留历史，本段为当前发布状态。
+- Room→Main均使用--keep-vars，deployments list核实100%：Room e6e780f8-63c7-4f34-b381-f2bf8beae4e0；Main abd921ff-03f0-44b9-9e0b-4b1c91924d59。无迁移，保留Dashboard变量/密钥。
+- 发布前42文件320项全量、17文件196项搜索、verify:search内typecheck、生产build、diff check全部通过。入口assets/index-C2Lqr5-m.js、CSS assets/index-D4JOO-wo.css。
+- 生产cacheOnly“耍赖”（ui1103r2测试标识，未创建房间）通过：脚本校验cacheOnly、sourceQueryCount=0、externalCallAvoided；配额2→2，结果0。未进行冷搜索或真实视频请求。
+- 新内置Browser核实生产Google链接_blank及安全rel、新邮箱、英文Logo2172×724且contain正常、页面脚本与构建一致、console error为空。公开页无撤回；已同意时创建页/弹窗撤回与中英常驻二维码沿用本轮本地验证，未代用户同意生产条款或创建生产房间。
+- 未重新验证实体手机扫码、真实视频播放或多设备同步。发布记录随后以[CI Skip]文档提交推送。
+
 ## 高清英文Logo、公开入口与常驻二维码（本地完成，未发布）— 2026-11-03
 
 - 替换用户最新2172×724英文PNG，恢复中英文共享contain适配；未修改图片或中文Logo。公开联系邮箱统一为bradwang1995@gmail.com；未读取或变更Google账户、API Key或Project配置。Google Privacy Policy链接增加_blank与noopener noreferrer。
