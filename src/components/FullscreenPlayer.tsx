@@ -123,7 +123,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     progressIntervalRef.current = window.setInterval(() => reportProgress(player), 1_000);
   };
 
-  const requestPlay = (player: YouTubePlayer, automatic = true) => {
+  const requestPlay = (player: YouTubePlayer, automatic = true, start = () => player.playVideo?.()) => {
     if (!validDecision(gate.decision, videoId)) { gate.retry(); return; }
     clearPlayRetryTimeouts();
     pendingPlayRef.current = true;
@@ -139,7 +139,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       return;
     }
     claimPlayback(playbackOwner.current);
-    player.playVideo();
+    start();
     // Detect a silent browser rejection, but never retry without a user action.
     playRetryTimeoutsRef.current.push(window.setTimeout(() => {
       if (pendingPlayRef.current) {
@@ -169,11 +169,11 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     });
     updateStatus("loading");
 
-    // Cue the room's video again if native recommendations changed the iframe.
-    // Unlike loadVideoById, cueVideoById does not implicitly start playback.
-    player.cueVideoById?.({ videoId, startSeconds: DISPLAY_PLAYBACK_START_SECONDS });
-    player.seekTo?.(DISPLAY_PLAYBACK_START_SECONDS, true);
-    requestPlay(player);
+    // Atomically reload the room's video and play after the usual guards.
+    // Cue/seek/play can race because cueVideoById completes asynchronously.
+    requestPlay(player, true, () => {
+      player.loadVideoById?.({ videoId, startSeconds: DISPLAY_PLAYBACK_START_SECONDS });
+    });
   };
 
   useImperativeHandle(ref, () => ({

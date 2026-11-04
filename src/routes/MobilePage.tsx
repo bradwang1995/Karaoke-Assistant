@@ -82,6 +82,7 @@ export default function MobilePage() {
   const currentItem = getCurrentItem(snapshot);
   const queuedItems = getQueuedItems(snapshot);
   const queueTargetRef = useRef<HTMLButtonElement | null>(null);
+  const searchSessionRef = useRef<{ roomId: string; state: PersistedSearchState } | null>(null);
   const storedActiveTab = useMobileUiStore((state) => state.activeTab);
   const setStoredActiveTab = useMobileUiStore((state) => state.setActiveTab);
   const activeTab = parseMobileTab(searchParams.get("tab"));
@@ -168,6 +169,7 @@ export default function MobilePage() {
             canUseLocalFallback={roomSocket.canUseLocalFallback}
             sendRoomMessage={roomSocket.send}
             queueTargetRef={queueTargetRef}
+            sessionRef={searchSessionRef}
           />
         ) : (
           <QueueTab
@@ -223,6 +225,7 @@ function SearchTab({
   canUseLocalFallback,
   sendRoomMessage,
   queueTargetRef,
+  sessionRef,
 }: {
   roomId: string;
   existingItems: QueueItem[];
@@ -230,9 +233,22 @@ function SearchTab({
   canUseLocalFallback: boolean;
   sendRoomMessage: (message: ClientToServerMessage) => boolean;
   queueTargetRef: RefObject<HTMLElement>;
+  sessionRef: React.MutableRefObject<{ roomId: string; state: PersistedSearchState } | null>;
 }) {
   useLanguage();
-  const [initialSearchState] = useState(() => readPersistedSearchState(roomId));
+  const [initialSearchState] = useState(() => {
+    const session = sessionRef.current;
+    if (session?.roomId !== roomId) return readPersistedSearchState(roomId);
+    const response = session.state.response;
+    return {
+      ...session.state,
+      activePreviewVideoId: null,
+      response: response && {
+        ...response,
+        results: response.cacheMeta?.responseSource === "mock" ? response.results : freshVideos(response.results),
+      },
+    };
+  });
   const queryClient = useQueryClient();
   const [query, setQuery] = useState(initialSearchState?.query ?? "");
   const [searchType, setSearchType] = useState<SearchInputType>(
@@ -552,7 +568,7 @@ function SearchTab({
   }, [activePreviewVideoId, pendingPreviewVideoId]);
 
   useEffect(() => {
-    writePersistedSearchState(roomId, {
+    const state = {
       query,
       searchType,
       includeOriginalVocal,
@@ -561,8 +577,11 @@ function SearchTab({
       selectedVideoId: selected?.videoId ?? null,
       activePreviewVideoId,
       scrollY,
-    });
+    };
+    sessionRef.current = { roomId, state: { ...state, savedAt: Date.now() } };
+    writePersistedSearchState(roomId, state);
   }, [
+    sessionRef,
     activePreviewVideoId,
     includeOriginalVocal,
     query,

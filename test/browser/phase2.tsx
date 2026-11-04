@@ -5,8 +5,13 @@ import { FullscreenPlayer, type FullscreenPlayerHandle } from "../../src/compone
 import { privacyConsent } from "../../src/lib/privacyConsent";
 import type { YouTubePlayer, YouTubePlayerEvent, YouTubePlayerStateChangeEvent } from "../../src/lib/youtubeIframeApi";
 import "../../src/styles.css";
+import { MemoryRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import MobilePage from "../../src/routes/MobilePage";
+import { searchMockVideos } from "../../src/lib/mockSearch";
+import { apiStamp } from "../../src/lib/metadataLifecycle";
 
-const counts = { play: 0, pause: 0, seek: 0, destroy: 0, checks: 0 };
+const counts = { play: 0, pause: 0, seek: 0, load: 0, cue: 0, destroy: 0, checks: 0 };
 let rejectPlay = false;
 // The test never navigates a frame to YouTube, loads its script, or contacts Data API.
 Object.defineProperty(HTMLIFrameElement.prototype, "src", {
@@ -14,7 +19,13 @@ Object.defineProperty(HTMLIFrameElement.prototype, "src", {
   set() { this.setAttribute("src", "about:blank"); this.title = "LOCAL MOCK — no YouTube playback"; },
   configurable: true,
 });
-window.fetch = async () => {
+window.fetch = async (_input, init) => {
+  if (window.location.search === "?mobile") {
+    const request = JSON.parse(String(init?.body ?? "{}"));
+    const response = await searchMockVideos(request.query || "经典 KTV", 50, request);
+    response.results = response.results.map(video => ({ ...video, provenance: { snippet: apiStamp() } }));
+    return Response.json(response);
+  }
   counts.checks++;
   return Response.json({ videoId: "dQw4w9WgXcQ", allowed: true, reason: "allowed", expiresAt: new Date(Date.now() + 3600000).toISOString() });
 };
@@ -26,6 +37,12 @@ class MockPlayer implements YouTubePlayer {
   playVideo() { counts.play++; if (!rejectPlay) this.options.events.onStateChange({ target: this, data: 1 }); }
   pauseVideo() { counts.pause++; this.options.events.onStateChange({ target: this, data: 2 }); }
   seekTo() { counts.seek++; }
+  cueVideoById() { counts.cue++; queueMicrotask(() => this.options.events.onStateChange({ target: this, data: 5 })); }
+  loadVideoById(options: { videoId: string; startSeconds?: number }) {
+    if (options.videoId !== "dQw4w9WgXcQ" || options.startSeconds !== 0) throw new Error("Incorrect replay target");
+    counts.load++;
+    this.playVideo();
+  }
   getCurrentTime() { return 0; }
   getDuration() { return 180; }
   getIframe() { return this.frame; }
@@ -74,4 +91,9 @@ function Fixture() {
     </div>
   </main>;
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+const queryClient = new QueryClient();
+createRoot(document.getElementById("root")!).render(window.location.search === "?mobile"
+  ? <QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/room/bugfix1104/mobile"]}><Routes>
+      <Route path="/room/:roomId/mobile" element={<MobilePage />} />
+    </Routes></MemoryRouter></QueryClientProvider>
+  : <Fixture />);

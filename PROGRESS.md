@@ -1,3 +1,11 @@
+## 搜索切换保留结果与重唱播放（本地验证，未发布）— 2026-11-04
+
+- MobilePage持有当前页面的搜索会话ref，SearchTab卸载/返回仍保留已完成结果、输入/选项、选择、分页和滚动位置；返回时按原有效期过滤元数据，预览不恢复。localStorage继续不保存API结果，刷新仍回推荐。清空文字本身不切换，空提交才回推荐；搜索算法、服务端缓存与版本不变。
+- 重唱原实现连续cueVideoById/seekTo/playVideo，存在异步cue完成后覆盖播放状态的时序风险；改为经原许可/可见性/所有权检查后单次loadVideoById({videoId, startSeconds:0})，保留浏览器拒绝提示与不自动重试。官方IFrame API明确支持load-and-play，最低功能规范允许满足可见性要求的程序播放；本轮未发现两项修改直接违反政策，不代表整体合规认证。
+- 验证：verify:search 17文件196项及内含typecheck通过（首次沙箱realpath EPERM导致未执行测试，沙箱外重跑通过）；播放器可见性/YouTube/元数据focused测试3文件16项通过；git diff --check通过。
+- 新内置Browser使用test/browser/phase2.html本地mock：已验证搜索→歌单→返回仍8/8同一结果；清空文字仍保持结果、空提交回缓存推荐；非空输入整页刷新保留文字但回推荐。模拟播放器暂停后重唱及连续重唱均playing，目标video与0秒由mock断言，load计数每次+1、cue/seek均0；遮挡/隐藏时不load，浏览器拒绝后blocked且没有自动重试。重唱页console error为空；手机测试页编辑fixture时有一次HMR重复createRoot开发警告，重载后完成上述流程，未据此修改产品代码。
+- 预览Vite运行于http://127.0.0.1:5195/；安全模拟搜索入口http://127.0.0.1:5195/test/browser/phase2.html?mobile（输入→Search→Queue→Pick song），播放器入口http://127.0.0.1:5195/test/browser/phase2.html（Mount autoplay→Pause→Replay→Read counters）。这些入口使用真实组件及模拟API/播放器，不验证真实YouTube播放或Worker同步。Vite前端热更新，终端Ctrl+C停止；未运行生产smoke、冷搜索、真实播放或多设备验收，未commit/push/deploy。
+
 ## 高清Logo、政策入口与常驻二维码已发布 — 2026-11-03
 
 - 用户明确授权push/deploy。源码bf0d7bf9fd52fb3268e82553fa09b9f5dbad9c3a已推origin/codex/music-eligibility-cache并由ls-remote核实；未推main。下方本地记录保留历史，本段为当前发布状态。
