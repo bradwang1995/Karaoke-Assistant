@@ -30,8 +30,8 @@ interface FullscreenPlayerProps {
   videoId: string;
   autoPlay: boolean;
   playRequestId: number;
-  volume?: number;
-  onInitialVolume?: (volume: number) => void;
+  initialVolume?: number;
+  onVolumeChange?: (volume: number) => void;
   onPlaybackStarted: () => void;
   onPlaybackEnded: () => void;
   onPlaybackError: (errorCode: number) => void;
@@ -45,6 +45,7 @@ export interface FullscreenPlayerHandle {
   pause: () => void;
   restart: () => void;
   seekTo: (seconds: number) => void;
+  setVolume: (volume: number) => void;
 }
 
 export type { PlayerProgress } from "../lib/playerProgress";
@@ -55,8 +56,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       videoId,
       autoPlay,
       playRequestId,
-      volume,
-      onInitialVolume,
+      initialVolume,
+      onVolumeChange,
       onPlaybackStarted,
       onPlaybackEnded,
       onPlaybackError,
@@ -71,7 +72,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
   const readyPlayerRef = useRef<YouTubePlayer | null>(null);
-  const volumeRef = useRef(volume);
+  const volumeRef = useRef(initialVolume);
+  const pendingVolumeRef = useRef<{ value: number; expiresAt: number }>();
   const playbackOwner = useRef({ pause: () => playerRef.current?.pauseVideo?.() });
   const pendingPlayRef = useRef(false);
   const automaticPlayRef = useRef(true);
@@ -88,7 +90,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onAutoplayBlocked,
     onProgress,
     onStatusChange,
-    onInitialVolume,
+    onVolumeChange,
   });
   const [status, setStatus] = useState<PlayerStatus>("loading");
 
@@ -183,7 +185,18 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     });
   };
 
+  const applyVolume = (player: YouTubePlayer, value: number) => {
+    // Give the iframe time to report the new value before accepting an older reading.
+    pendingVolumeRef.current = { value, expiresAt: performance.now() + 750 };
+    player.setVolume?.(value);
+    if (value > 0 && player.isMuted?.()) player.unMute?.();
+  };
+
   useImperativeHandle(ref, () => ({
+    setVolume(value) {
+      volumeRef.current = value;
+      if (readyPlayerRef.current) applyVolume(readyPlayerRef.current, value);
+    },
     play() {
       if (playerRef.current) {
         requestPlay(playerRef.current, false);
@@ -220,7 +233,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       onAutoplayBlocked,
       onProgress,
       onStatusChange,
-      onInitialVolume,
+      onVolumeChange,
     };
   }, [
     onAutoplayBlocked,
@@ -229,21 +242,13 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onProgress,
     onPlaybackStarted,
     onStatusChange,
-    onInitialVolume,
+    onVolumeChange,
   ]);
-
-  useEffect(() => {
-    volumeRef.current = volume;
-    const player = readyPlayerRef.current;
-    if (player && volume !== undefined) {
-      player.setVolume?.(volume);
-      if (volume > 0) player.unMute?.();
-    }
-  }, [volume]);
 
   useEffect(() => {
     const shell = shellRef.current;
     let cancelled = false;
+    let volumeInterval: number | undefined;
 
     pendingRestartRef.current = false;
     startedRef.current = false;
@@ -303,6 +308,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
 
     return () => {
       cancelled = true;
+      window.clearInterval(volumeInterval);
+      pendingVolumeRef.current = undefined;
       clearPlayRetryTimeouts();
       clearProgressInterval();
       playerRef.current?.destroy?.();
@@ -315,13 +322,10 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     function handleReady(event: YouTubePlayerEvent) {
       if (cancelled) return;
       readyPlayerRef.current = event.target;
-      if (volumeRef.current === undefined) {
-        const initialVolume = event.target.isMuted?.() ? 0 : event.target.getVolume?.();
-        if (initialVolume !== undefined && Number.isFinite(initialVolume)) {
-          callbacksRef.current.onInitialVolume?.(initialVolume);
-        }
-      } else {
-        event.target.setVolume?.(volumeRef.current);
+      if (callbacksRef.current.onVolumeChange) {
+        if (volumeRef.current !== undefined) applyVolume(event.target, volumeRef.current);
+        reportVolume();
+        volumeInterval = window.setInterval(reportVolume, 200);
       }
       updateStatus("ready");
       const currentShell = shellRef.current;
@@ -340,6 +344,19 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       if (pendingPlayRef.current) {
         requestPlay(event.target);
       }
+    }
+
+    function reportVolume() {
+      const player = readyPlayerRef.current;
+      if (!player) return;
+      const value = player.isMuted?.() ? 0 : player.getVolume?.();
+      if (value === undefined || !Number.isFinite(value)) return;
+      const pending = pendingVolumeRef.current;
+      if (pending && value !== pending.value && performance.now() < pending.expiresAt) return;
+      pendingVolumeRef.current = undefined;
+      if (value === volumeRef.current) return;
+      volumeRef.current = value;
+      callbacksRef.current.onVolumeChange?.(value);
     }
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {

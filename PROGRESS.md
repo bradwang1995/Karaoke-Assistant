@@ -1,3 +1,10 @@
+## 大屏底栏与双向音量同步（本地验证，未发布）— 2026-11-10
+
+- 歌名、时间标签和进度条恢复原有居中布局。「即将播放」保留 170px 宽度。
+
+- 音量滑杆移到切歌右侧，即将播放区域加宽 30px，二维码贴合底栏并缩小白边。通过官方 IFrame API 同步原生音量和静音，跨歌曲沿用。
+- 内置 Browser 在 `http://127.0.0.1:5204/test/browser/phase2.html?display` 验证原生音量调整、静音、恢复音量和切歌继承。1280px 下二维码上方仅有底栏 1px 边框，右侧及下方为 0px。确认 iframe 内的按键不会到达大屏，Tab 离开 iframe 后可恢复。32 项聚焦测试、TypeScript 和差异检查通过。真实 YouTube 播放和实体扫码待验证。
+
 ## 大屏音量与播放快捷键已发布 — 2026-11-10
 
 - 源码 e233508cdcc7b7199c9d6b843b0f74a9e491f139 已推送 `codex/music-eligibility-cache`。Room → Main 均使用 `--keep-vars` 部署并核对 100% 生效。Room 为 fe4095f4-c307-47b6-a0d1-664345e240ec，Main 为 bae47624-e267-4e0d-a366-6cbee157ca93。

@@ -227,7 +227,7 @@ npm install
 
 ### 4.2 文字、按钮、样式：快速前端预览
 
-大屏底栏标题/进度区域上限为 896px；重播、播放/暂停、切歌保留独立按钮，移除按钮组外框并缩小水平间距，即将播放区域为 140px。手机点歌结果在小屏固定两列，每张卡片 202px（内含 200×200 播放器），列间距 4px、结果区左右 padding 各 4px；440px 宽可完整容纳。更窄屏幕保留两列并允许结果区横向滚动，640px 起按可用宽度自动排布。
+大屏底栏标题和进度条居中，宽度上限为 896px。重播、播放/暂停、切歌右侧是竖向音量滑杆，桌面宽度下「即将播放」占 170px。手机点歌结果在小屏固定两列，每张卡片 202px（内含 200×200 播放器），列间距 4px、结果区左右 padding 各 4px；440px 宽可完整容纳。更窄屏幕保留两列并允许结果区横向滚动，640px 起按可用宽度自动排布。
 
 ```powershell
 npm run dev
@@ -423,9 +423,10 @@ Display：
 - 实际 PLAYING 才发送 `PLAYER_STARTED`；ENDED 发送 `PLAYER_ENDED`。
 - Restart 会重置 player flags/progress，再从 0 秒重新 load/play 并重新发送 `PLAYER_STARTED`；manual skip 和 natural end 共用推进规则。
 - Progress 以 queue item id 隔离；切歌、自然结束推进和手动下一首都不会继承上一首的 current time，已播放段为 teal、未播放段为灰色。
-- 大屏进度条与重播、暂停/继续、切歌之间有 0–100% 的竖向 YouTube 音量滑杆。手动设定在当前大屏页面内跨歌曲保留。
+- 「切歌」与「即将播放」之间的 0–100% 竖向滑杆与 YouTube 原生音量和静音状态双向同步。当前音量在同一大屏页面内跨歌曲保留。
 - Footer 提供明显的重播、暂停/继续、下一首三键 wrapper；默认 iframe 禁止 pointer hover、关闭 native controls/fullscreen/keyboard，并移除 app 自己覆盖在视频上的状态、点击和结束遮罩。
 - 大屏页面获得键盘焦点时，按住 `Ctrl+Alt`（Mac 上为 `Control+Option`）再按 `P` 播放/暂停、`R` 重唱、`N` 切歌、`U/D` 音量升降 5 个百分点、`M` 静音/恢复、`J/L` 快退/快进 10 秒。音量键支持长按。焦点在普通页面区域时，空格也可播放/暂停。弹窗打开时暂停响应这些快捷键。
+- 操作 YouTube 原生控件后，可以按 `Tab` 直到焦点回到大屏控件，再使用大屏快捷键。
 - Mobile/Display 禁止任意文字、图片和播放器区域被拖选，输入框仍可正常编辑。
 - 没有当前歌曲时 footer 不渲染“等待点歌”等占位标题。
 - 不显示画质 selector 或手动模式；display 和 preview 均由 YouTube 根据网络、设备与 viewport 自动选择画质。

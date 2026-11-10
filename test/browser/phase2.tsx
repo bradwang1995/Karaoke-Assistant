@@ -47,8 +47,17 @@ window.fetch = async (_input, init) => {
 type Events = { onReady: (e: YouTubePlayerEvent) => void; onStateChange: (e: YouTubePlayerStateChangeEvent) => void };
 class MockPlayer implements YouTubePlayer {
   private volume = 75;
+  private muted = false;
   private currentTime = 0;
   constructor(private frame: HTMLIFrameElement, private options: { events: Events }) {
+    if (window.location.search === "?display") {
+      frame.addEventListener("load", () => {
+        const slider = frame.contentDocument?.querySelector<HTMLInputElement>("input");
+        slider?.addEventListener("input", () => { this.volume = slider.valueAsNumber; });
+        frame.contentDocument?.querySelector("button")?.addEventListener("click", () => { this.muted = !this.muted; });
+      }, { once: true });
+      frame.srcdoc = '<input type="range" aria-label="Mock native volume" value="75"><button>Mock native mute</button>';
+    }
     queueMicrotask(() => options.events.onReady({ target: this }));
   }
   playVideo() { counts.play++; if (!rejectPlay) this.options.events.onStateChange({ target: this, data: 1 }); }
@@ -69,9 +78,13 @@ class MockPlayer implements YouTubePlayer {
   getCurrentTime() { return this.currentTime; }
   getDuration() { return 180; }
   getVolume() { return this.volume; }
+  isMuted() { return this.muted; }
+  unMute() { this.muted = false; }
   setVolume(volume: number) {
     this.volume = volume;
     this.frame.dataset.mockVolume = String(volume);
+    const slider = this.frame.contentDocument?.querySelector<HTMLInputElement>("input");
+    if (slider) slider.value = String(volume);
   }
   getIframe() { return this.frame; }
   destroy() { counts.destroy++; }

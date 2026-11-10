@@ -56,9 +56,8 @@ export default function DisplayPage() {
   const [isSeeking, setIsSeeking] = useState(false);
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("loading");
   const [volume, setVolume] = useState<number>();
-  const [initialVolume, setInitialVolume] = useState(100);
   const previousAudibleVolume = useRef(50);
-  const displayVolume = volume ?? initialVolume;
+  const displayVolume = volume ?? 100;
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
   const handledLoadingPlaybackKeyRef = useRef<string | null>(null);
@@ -260,10 +259,15 @@ export default function DisplayPage() {
   }, [currentItem, playerStatus]);
 
   const currentProgress = getPlayerProgressForItem(playerProgress, currentItem?.id ?? null);
+  const syncVolume = useCallback((value: number) => {
+    if (value > 0) previousAudibleVolume.current = value;
+    setVolume(value);
+  }, []);
   const changeVolume = useCallback((nextVolume: number) => {
-    if (displayVolume > 0) previousAudibleVolume.current = displayVolume;
-    setVolume(Math.min(100, Math.max(0, nextVolume)));
-  }, [displayVolume]);
+    const value = Math.min(100, Math.max(0, nextVolume));
+    syncVolume(value);
+    playerHandleRef.current?.setVolume(value);
+  }, [syncVolume]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -338,8 +342,8 @@ export default function DisplayPage() {
               videoId={currentItem.videoId}
               autoPlay
               playRequestId={playRequestId}
-              volume={volume}
-              onInitialVolume={setInitialVolume}
+              initialVolume={volume}
+              onVolumeChange={syncVolume}
               onPlaybackStarted={handlePlaybackStarted}
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
@@ -364,7 +368,7 @@ export default function DisplayPage() {
           )}
         </section>
 
-        <section className="relative z-20 min-h-[74px] border-t border-white/10 bg-slate-950 px-4 py-2 shadow-2xl">
+        <section className="relative z-20 border-t border-white/10 bg-slate-950 px-4 pt-2 shadow-2xl xl:pt-0">
           <div className="grid items-center gap-3 text-sm lg:grid-cols-2 xl:grid-cols-[20rem_minmax(0,1fr)_auto_auto]">
             <div className="flex min-w-0 items-center gap-2">
               <LanguageToggle vertical />
@@ -401,22 +405,6 @@ export default function DisplayPage() {
             <div className="flex min-w-0 flex-nowrap items-center justify-end gap-3">
               {currentItem ? (
                 <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                  <label className="mr-1 flex flex-col items-center gap-0.5 text-teal-200">
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={displayVolume}
-                      aria-label={t("音量")}
-                      aria-orientation="vertical"
-                      aria-valuetext={`${displayVolume}%`}
-                      aria-keyshortcuts="Control+Alt+U Control+Alt+D Control+Alt+M"
-                      title="Ctrl+Alt+U / D / M"
-                      onChange={(event) => changeVolume(event.currentTarget.valueAsNumber)}
-                      className="h-12 w-6 accent-teal-400 [direction:rtl] [writing-mode:vertical-lr]"
-                    />
-                    <Volume2 size={14} aria-hidden="true" />
-                  </label>
                   <button
                     type="button"
                     aria-keyshortcuts="Control+Alt+R"
@@ -458,7 +446,25 @@ export default function DisplayPage() {
                   </button>
                 </div>
               ) : null}
-              <div className="w-[140px] min-w-0 shrink-0 border-l border-white/15 py-1 pl-3 text-right">
+              {currentItem ? (
+                <label className="flex shrink-0 flex-col items-center gap-0.5 text-teal-200">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={displayVolume}
+                    aria-label={t("音量")}
+                    aria-orientation="vertical"
+                    aria-valuetext={`${displayVolume}%`}
+                    aria-keyshortcuts="Control+Alt+U Control+Alt+D Control+Alt+M"
+                    title="Ctrl+Alt+U / D / M"
+                    onChange={(event) => changeVolume(event.currentTarget.valueAsNumber)}
+                    className="h-12 w-6 accent-teal-400 [direction:rtl] [writing-mode:vertical-lr]"
+                  />
+                  <Volume2 size={14} aria-hidden="true" />
+                </label>
+              ) : null}
+              <div className="w-[170px] min-w-0 py-1 text-right xl:shrink-0">
                 <p className="whitespace-nowrap text-xs text-slate-300">{t("即将播放")}</p>
                 <NextSongTitle key={queuedItems[0]?.id ?? "empty"} title={queuedItems[0]?.title ?? t("暂无")} />
               </div>
@@ -475,16 +481,16 @@ export default function DisplayPage() {
                 target="_blank"
                 rel="noreferrer"
                 aria-label={t("打开扫码点歌手机页")}
-                className="-my-2 -mr-4 flex shrink-0 items-center focus:outline-none focus:ring-2 focus:ring-teal-300"
+                className="-mr-4 flex shrink-0 items-center focus:outline-none focus:ring-2 focus:ring-teal-300"
               >
                 <QRCodeCanvas
                   value={mobileUrl}
                   size={72}
                   level="M"
-                  marginSize={2}
+                  marginSize={1}
                   bgColor="#ffffff"
                   fgColor="#000000"
-                  className="qr-code-canvas qr-code-surface shrink-0 rounded-sm"
+                  className="qr-code-canvas qr-code-surface shrink-0"
                 />
               </Link>
             </div>
