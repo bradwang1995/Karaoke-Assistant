@@ -1,3 +1,9 @@
+## 大屏音量与播放快捷键已发布 — 2026-11-10
+
+- 源码 e233508cdcc7b7199c9d6b843b0f74a9e491f139 已推送 `codex/music-eligibility-cache`。Room → Main 均使用 `--keep-vars` 部署并核对 100% 生效。Room 为 fe4095f4-c307-47b6-a0d1-664345e240ec，Main 为 bae47624-e267-4e0d-a366-6cbee157ca93。
+- 全量 644 项、离线搜索 392 项、TypeScript、生产构建及差异检查通过。线上入口 JS 和 CSS 与本地构建逐字节匹配。生产 cacheOnly「周杰伦」命中 50 条，搜索配额 0 → 0。
+- 下方记录保留本地模拟验证结果。真实 YouTube 音量和 Mac mini 遥控键盘仍待现场验收。本次发布未执行数据库迁移。
+
 ## 公测断播修复已发布 — 2026-11-10
 
 - 源码 6179e3e0e7367a2e8ea387e682b00ec98fb1bb99 已推送 codex/music-eligibility-cache。隔离源码快照只包含断播与 KV 修复，音量改动保留在本地。
