@@ -1,3 +1,11 @@
+## 公测断播与 KV 用量调查（本地修复，待发布）— 2026-11-09
+
+- 按多伦多 11 月 8 日 18:00–20:00 查询 Cloudflare。Main 有 238 次成功执行、37 次客户端断开和 1 次响应流断开，执行错误为 0。该窗口未返回 Room Worker 执行数据，两个 Worker 的线上设置均未开启 Workers Logs。KV 指标未显示 429，D1 记录的 14 条搜索事件均成功。以上为汇总数据，无法定位具体会话。
+- 告警对应 KV 免费计划每日写入用量。11 月 8 日 UTC 搜索 KV 写入 524 次，存储峰值约 1.53 MB。YouTube 视频状态请求的 11 月 8 日 Pacific ledger 为 72/1000 次。未升级计划或清空缓存。
+- 旧版在状态缓存到期时会拆除已经播放的 iframe。大屏和手机预览现在允许同一已获准并开始播放的 iframe 继续，切歌和显式重唱仍要求有效资格。播放前的临时状态检查失败自动重试一次。搜索和播放检查各用独立的 Cloudflare Rate Limiting 绑定，Main 增加播放检查诊断日志。
+- 离线搜索验证 196 项、TypeScript、35 项聚焦测试、build 和差异检查通过。新内置 Browser 复现旧版到期断播，并验证修复版保留原 iframe、可暂停继续、一次 503 自动恢复、明确拒绝后不加载播放器。手机预览模拟一次 503 后自动加载。隔离本地双 Worker 连接下，URL 点歌同步到大屏，缺少资格时保持阻断；搜索限流保留现有结果。
+- Vite 模拟页运行于 `http://127.0.0.1:5197/test/browser/phase2.html`。点击 Mount near expiry，等待约 3 秒后点击 Read counters，预期仍为 playing，destroy 为 0。双 Worker 入口为 `http://127.0.0.1:8799/create`，使用本地 D1/KV/DO 和空 YouTube key。Vite 热更新，Worker 静态前端需重新 build。实际长视频和实机多设备仍待验收。
+
 ## 搜索切换保留结果与重唱播放已发布 — 2026-11-04
 
 - 用户明确授权push/deploy。源码7e2675a748026b6f5a7856df3ff281e49da7f35c推送origin/codex/music-eligibility-cache并通过ls-remote核实，未推main；下段保留本地开发历史。

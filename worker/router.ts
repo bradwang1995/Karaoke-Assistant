@@ -16,7 +16,6 @@ import {
 } from "./d1Repository";
 import { getAdminStorageStatus } from "./cloudflareStorage";
 import { apiError, jsonResponse } from "./json";
-import { checkRateLimit } from "./rateLimit";
 import { createRoomId, isValidRoomId } from "./roomIds";
 import { classifySearchQuery } from "./searchQuery";
 import { getSearchRecommendations, getYouTubeDailySearchLimit, searchVideos } from "./searchService";
@@ -42,7 +41,7 @@ import { getYouTubeSearchQuotaStatusForEnv } from "./youtubeQuota";
 import { checkPlayback } from "./videoMetadata";
 
 const CREATE_ROOM_ATTEMPTS = 3;
-const DEFAULT_SEARCH_RATE_LIMIT_PER_MINUTE = 20;
+const RATE_LIMIT_RETRY_SECONDS = 60;
 const DEFAULT_SEARCH_RESPONSE_LIMIT = 10;
 const MAX_SEARCH_RESPONSE_LIMIT = 50;
 const MAX_RECOMMENDATION_RESPONSE_LIMIT = 200;
@@ -58,10 +57,23 @@ export async function handleApiRequest(
   if (playbackMatch) {
     if (request.method !== "POST") return apiError(405, "METHOD_NOT_ALLOWED", "Use POST.");
     if (!isSameOriginMutation(request)) return apiError(403, "ORIGIN_REJECTED", "Invalid origin.");
-    const rate = await checkRateLimit({ namespace: env.SEARCH_CACHE, scope: "playback", identity: request.headers.get("CF-Connecting-IP") ?? "local", limit: 20 });
-    if (!rate.allowed) return apiError(429, "RATE_LIMITED", "Please retry later.");
-    try { return jsonResponse(await checkPlayback(env, playbackMatch[1]), { headers: { "cache-control": "no-store" } }); }
-    catch { return jsonResponse({ videoId: playbackMatch[1], allowed: false, reason: "unknown" }, { headers: { "cache-control": "no-store" } }); }
+    const headers = { "cache-control": "no-store" };
+    try {
+      const rate = await env.PLAYBACK_RATE_LIMITER?.limit({ key: request.headers.get("CF-Connecting-IP") ?? "local" });
+      if (rate && !rate.success) {
+        return apiError(429, "RATE_LIMITED", "Please retry later.", {
+          headers: { ...headers, "retry-after": String(RATE_LIMIT_RETRY_SECONDS) },
+        });
+      }
+      const decision = await checkPlayback(env, playbackMatch[1]);
+      if (decision.reason === "unknown" || decision.reason === "budget") {
+        console.warn({ event: "playback-check-denied", reason: decision.reason });
+      }
+      return jsonResponse(decision, { headers });
+    } catch {
+      console.error({ event: "playback-check-failed" });
+      return apiError(503, "PLAYBACK_CHECK_UNAVAILABLE", "Playback check unavailable.", { headers });
+    }
   }
   const route = matchApiRoute(url.pathname);
 
@@ -309,41 +321,36 @@ async function searchRoomVideos(
   }
 
   const cacheFill = typeof body.cacheFill === "boolean" ? body.cacheFill : true;
-  const rateLimit = await checkRateLimit({
-    namespace: env.SEARCH_CACHE,
-    scope: `room:${roomId}:search`,
-    identity: clientIdentity(request),
-    limit: getSearchRateLimitPerMinute(env),
-  });
-
-  if (!rateLimit.allowed) {
-    return jsonResponse(
-      {
-        query,
-        normalizedQuery: query.toLocaleLowerCase(),
-        searchType,
-        includeOriginalVocal,
-        cached: true,
-        results: [],
-        cacheMeta: {
-          sourceQueryCount: 0,
-          cachedResultCount: 0,
-          servedFromExpandedCache: false,
-          sourceQueries: [],
-          candidateResultCount: 0,
-          filteredResultCount: 0,
-          catalogResultCount: 0,
-          uniqueCatalogVideosAdded: 0,
-          externalCallAvoided: true,
-          cacheOnly,
-          throttled: true,
-          retryAfterSeconds: rateLimit.retryAfterSeconds,
-        },
-      } satisfies SearchResponse,
-    );
-  }
-
   try {
+    const rateLimit = await env.SEARCH_RATE_LIMITER?.limit({ key: `${roomId}:${clientIdentity(request)}` });
+
+    if (rateLimit && !rateLimit.success) {
+      return jsonResponse(
+        {
+          query,
+          normalizedQuery: query.toLocaleLowerCase(),
+          searchType,
+          includeOriginalVocal,
+          cached: true,
+          results: [],
+          cacheMeta: {
+            sourceQueryCount: 0,
+            cachedResultCount: 0,
+            servedFromExpandedCache: false,
+            sourceQueries: [],
+            candidateResultCount: 0,
+            filteredResultCount: 0,
+            catalogResultCount: 0,
+            uniqueCatalogVideosAdded: 0,
+            externalCallAvoided: true,
+            cacheOnly,
+            throttled: true,
+            retryAfterSeconds: RATE_LIMIT_RETRY_SECONDS,
+          },
+        } satisfies SearchResponse,
+      );
+    }
+
     const response = await searchVideos({
       query,
       artist: artist || undefined,
@@ -889,16 +896,6 @@ function clampLimit(limit: number | undefined, maximum: number) {
 
 function normalizeSearchType(value: unknown): SearchType {
   return value === "artist" ? "artist" : "song";
-}
-
-function getSearchRateLimitPerMinute(env: Env) {
-  const value = Number(env.SEARCH_RATE_LIMIT_PER_MINUTE);
-
-  if (!Number.isFinite(value) || value <= 0) {
-    return DEFAULT_SEARCH_RATE_LIMIT_PER_MINUTE;
-  }
-
-  return Math.floor(value);
 }
 
 function clientIdentity(request: Request) {

@@ -8,7 +8,6 @@ const expectedGuardrails = {
   YOUTUBE_SEARCH_TIMEOUT_MS: searchContract.workerDeadlineMs,
   SEARCH_CACHE_TTL_DAYS: searchContract.kvTtlDays,
   SEARCH_CACHE_MAX_ENTRY_BYTES: searchContract.kvMaxEntryBytes,
-  SEARCH_RATE_LIMIT_PER_MINUTE: searchContract.rateLimitPerMinute,
 };
 
 const mainConfig = readGuardrails("wrangler.toml");
@@ -17,6 +16,15 @@ const roomConfig = readGuardrails("wrangler.room.toml");
 assertEqual(mainConfig, expectedGuardrails, "wrangler.toml");
 assertEqual(roomConfig, expectedGuardrails, "wrangler.room.toml");
 assertEqual(roomConfig, mainConfig, "Room/Main search guardrails");
+const searchLimiter = readFileSync("wrangler.toml", "utf8")
+  .split(/^\[\[ratelimits\]\]\s*$/m)
+  .slice(1)
+  .map((section) => section.split(/^\[/m)[0])
+  .find((section) => /^name\s*=\s*"SEARCH_RATE_LIMITER"\s*$/m.test(section));
+const searchLimit = searchLimiter?.match(/^simple\s*=\s*\{\s*limit\s*=\s*(\d+),\s*period\s*=\s*60\s*\}/m);
+if (!searchLimit || Number(searchLimit[1]) !== searchContract.rateLimitPerMinute) {
+  fail("SEARCH_RATE_LIMITER 的每分钟限制与 SEARCH.md 不一致。", { file: "wrangler.toml" });
+}
 
 const apiClient = readFileSync("src/lib/apiClient.ts", "utf8");
 assertNumericConstant(

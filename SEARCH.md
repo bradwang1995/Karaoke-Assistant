@@ -49,7 +49,7 @@
 
 当前契约：API元数据按snippet/details/status保存真实获取时间，最多29天，过期/未知拒绝读取或复制；KV v5、推荐v9，旧版本不fallback。保留原family及排序、一次cold search.list和1600/2000ms deadline。URL lookup现在也有1600ms外部deadline。URL错误仅返回通用占位，无远程缩略图，不授予播放许可。浏览器24小时仅恢复输入/选项，不再持久化API结果。
 
-详情请求独立D1计量1000次/日（后台最多500），与搜索ledger分开。既有enrichment复用status；MFK true/unknown/stale不加载播放器或脚本。这是产品保守策略。缓存命中不调用YouTube；播放前可按需请求详情，不能把两者合称零API。
+详情请求独立D1计量1000次/日（后台最多500），与搜索ledger分开。既有enrichment复用status；MFK true/unknown/stale不加载播放器或脚本。资格到期前已经开始播放的同一个 iframe 可以播完，切歌和显式重唱仍需有效资格。缓存命中不调用YouTube；播放前可按需请求详情，不能把两者合称零API。
 
 来源、全部副本、迁移/清理、回滚与生产门槛见`docs/PHASE_2_P0.md`。本次部署不代表已清理全部生产历史副本或通过政策审核。
 
@@ -426,14 +426,14 @@ lastAccessedAt/createdAt + min(hitCount, 100) × 6 小时
 
 ### 9.3 Rate limit
 
-默认同一个 `roomId + client IP` 每个固定 60 秒窗口最多 20 次非空请求。检查发生在 exact cache、cache-only 和 URL routing 之前，因此以下都会计入 rate limit：
+Main 的 Cloudflare Rate Limiting binding 按 `roomId + client IP` 以每 60 秒 20 次非空请求为目标；计数在 Cloudflare 各节点独立、近似执行。阈值由 `wrangler.toml` 的 `SEARCH_RATE_LIMITER` 配置。播放资格检查使用独立的 `PLAYBACK_RATE_LIMITER`，两者均无需 KV 计数写入。检查发生在 exact cache、cache-only 和 URL routing 之前，因此以下都会计入 rate limit：
 
 - D1/KV cache hit。
 - cache-only smoke。
 - YouTube URL 和被拦截 URL。
 - cold search。
 
-超限返回 HTTP 200 的 partial response：`throttled=true`、零结果、零 provider calls。该 response 当前设置 `cached=true`，这里只表示“没有外部请求”，不能把它解释为真实 exact cache hit。超限请求当前不写 search event。
+超限返回 HTTP 200 的 partial response，包含 `throttled=true`、零结果、零 provider calls 和建议等待 60 秒。该 response 当前设置 `cached=true`，表示“没有外部请求”。超限请求不写 search event。
 
 ## 10. 超时、429、空结果时 Mobile 怎么处理
 
@@ -655,6 +655,8 @@ Mobile每个room在localStorage仅保存query、模式、原唱开关、已展�
 - 验收：真实 47/49 条样例、部分歌名与歌词反例、D1/KV hit、旧推荐版本隔离、超 20 组分页/空页/继续游标/预算、前端刷新、完整原始顺序分数、零网络专项验证和本地双 Worker。
 
 ### 14.2 什么时候必须 bump version
+
+2026-11-09 公测修复调整搜索限流的实现和超限等待提示，候选语义与缓存格式不变，按下表保留现有版本。
 
 | 改动 | `SEARCH_ALGORITHM_VERSION` | KV cache version | Recommendations version |
 | --- | --- | --- | --- |

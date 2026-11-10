@@ -124,7 +124,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   };
 
   const requestPlay = (player: YouTubePlayer, automatic = true, start = () => player.playVideo?.()) => {
-    if (!validDecision(gate.decision, videoId)) { gate.retry(); return; }
+    if (!startedRef.current && !validDecision(gate.decision, videoId)) { gate.retry(); return; }
     clearPlayRetryTimeouts();
     pendingPlayRef.current = true;
     automaticPlayRef.current = automatic;
@@ -228,6 +228,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     let cancelled = false;
 
     pendingRestartRef.current = false;
+    startedRef.current = false;
+    endedRef.current = false;
     pendingPlayRef.current = autoPlay || playRequestId > 0;
     lastPlayRequestRef.current = playRequestId;
     callbacksRef.current.onProgress?.({
@@ -312,6 +314,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     }
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
+      if (cancelled) return;
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
         if (pendingPlayRef.current && (!shellRef.current || !canStartPlayback(shellRef.current, automaticPlayRef.current))) {
           event.target.pauseVideo?.();
@@ -326,6 +329,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
         updateStatus("playing");
 
         if (!startedRef.current) {
+          gate.markStarted();
           startedRef.current = true;
           callbacksRef.current.onPlaybackStarted();
         }
@@ -428,8 +432,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       className="absolute inset-0 h-full w-full bg-black [&_iframe]:h-full [&_iframe]:w-full"
     />
     {!gate.allowed ? <div className="absolute inset-0 grid place-items-center bg-black p-6 text-center text-white"><div>
-      <p>{t(gate.decision?.reason === "made-for-kids" ? "此视频暂不支持在本应用内播放" : gate.decision ? "无法确认视频状态，请重试" : "正在检查视频状态…")}</p>
-      {gate.decision ? <button type="button" className="mt-4 underline" onClick={gate.retry}>{t("重试")}</button> : null}
+      <p>{t(gate.denied ? "此视频暂不支持在本应用内播放" : gate.decision ? "无法确认视频状态，请重试" : "正在检查视频状态…")}</p>
+      {gate.decision && !gate.denied ? <button type="button" className="mt-4 underline" onClick={gate.retry}>{t("重试")}</button> : null}
     </div></div> : null}
     </>
   );

@@ -1215,6 +1215,7 @@ function CandidatePreview({
     }
 
     function handleStateChange(event: YouTubePlayerStateChangeEvent) {
+      if (cancelled) return;
       if (event.data === YOUTUBE_PLAYER_STATE.PLAYING) {
         claimPlayback(playbackOwner.current);
         if (!playingRef.current && !hasYouTubePreviewReachedStart(event.target)) {
@@ -1245,6 +1246,7 @@ function CandidatePreview({
     }
 
     function markPreviewPlaying(player: YouTubePlayer) {
+      gate.markStarted();
       const currentTime = player.getCurrentTime?.();
 
       playingRef.current = true;
@@ -1297,8 +1299,8 @@ function CandidatePreview({
       />
       {active && !gate.allowed ? (
         <div className="absolute inset-0 grid place-items-center bg-slate-950 p-3 text-center text-sm text-white">
-          <div><p>{t(gate.decision?.reason === "made-for-kids" ? "此视频暂不支持在本应用内播放" : gate.decision ? "无法确认视频状态，请重试" : "正在检查视频状态…")}</p>
-          {gate.decision ? <button type="button" className="mt-2 underline" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); gate.retry(); }}>{t("重试")}</button> : null}</div>
+          <div><p>{t(gate.denied ? "此视频暂不支持在本应用内播放" : gate.decision ? "无法确认视频状态，请重试" : "正在检查视频状态…")}</p>
+          {gate.decision && !gate.denied ? <button type="button" className="mt-2 underline" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); gate.retry(); }}>{t("重试")}</button> : null}</div>
         </div>
       ) : null}
       {pending && !active ? (
