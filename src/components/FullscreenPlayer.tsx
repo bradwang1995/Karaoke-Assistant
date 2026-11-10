@@ -30,6 +30,8 @@ interface FullscreenPlayerProps {
   videoId: string;
   autoPlay: boolean;
   playRequestId: number;
+  volume?: number;
+  onInitialVolume?: (volume: number) => void;
   onPlaybackStarted: () => void;
   onPlaybackEnded: () => void;
   onPlaybackError: (errorCode: number) => void;
@@ -53,6 +55,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       videoId,
       autoPlay,
       playRequestId,
+      volume,
+      onInitialVolume,
       onPlaybackStarted,
       onPlaybackEnded,
       onPlaybackError,
@@ -66,6 +70,8 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
   const gate = usePlaybackDecision(videoId);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const readyPlayerRef = useRef<YouTubePlayer | null>(null);
+  const volumeRef = useRef(volume);
   const playbackOwner = useRef({ pause: () => playerRef.current?.pauseVideo?.() });
   const pendingPlayRef = useRef(false);
   const automaticPlayRef = useRef(true);
@@ -82,6 +88,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onAutoplayBlocked,
     onProgress,
     onStatusChange,
+    onInitialVolume,
   });
   const [status, setStatus] = useState<PlayerStatus>("loading");
 
@@ -213,6 +220,7 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       onAutoplayBlocked,
       onProgress,
       onStatusChange,
+      onInitialVolume,
     };
   }, [
     onAutoplayBlocked,
@@ -221,7 +229,17 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
     onProgress,
     onPlaybackStarted,
     onStatusChange,
+    onInitialVolume,
   ]);
+
+  useEffect(() => {
+    volumeRef.current = volume;
+    const player = readyPlayerRef.current;
+    if (player && volume !== undefined) {
+      player.setVolume?.(volume);
+      if (volume > 0) player.unMute?.();
+    }
+  }, [volume]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -290,10 +308,21 @@ export const FullscreenPlayer = forwardRef<FullscreenPlayerHandle, FullscreenPla
       playerRef.current?.destroy?.();
       releasePlayback(playbackOwner.current);
       playerRef.current = null;
+      readyPlayerRef.current = null;
       shell.replaceChildren();
     };
 
     function handleReady(event: YouTubePlayerEvent) {
+      if (cancelled) return;
+      readyPlayerRef.current = event.target;
+      if (volumeRef.current === undefined) {
+        const initialVolume = event.target.isMuted?.() ? 0 : event.target.getVolume?.();
+        if (initialVolume !== undefined && Number.isFinite(initialVolume)) {
+          callbacksRef.current.onInitialVolume?.(initialVolume);
+        }
+      } else {
+        event.target.setVolume?.(volumeRef.current);
+      }
       updateStatus("ready");
       const currentShell = shellRef.current;
 

@@ -423,8 +423,10 @@ Display：
 - 实际 PLAYING 才发送 `PLAYER_STARTED`；ENDED 发送 `PLAYER_ENDED`。
 - Restart 会重置 player flags/progress，再从 0 秒重新 load/play 并重新发送 `PLAYER_STARTED`；manual skip 和 natural end 共用推进规则。
 - Progress 以 queue item id 隔离；切歌、自然结束推进和手动下一首都不会继承上一首的 current time，已播放段为 teal、未播放段为灰色。
+- 大屏进度条与重播、暂停/继续、切歌之间有 0–100% 的竖向 YouTube 音量滑杆。手动设定在当前大屏页面内跨歌曲保留。
 - Footer 提供明显的重播、暂停/继续、下一首三键 wrapper；默认 iframe 禁止 pointer hover、关闭 native controls/fullscreen/keyboard，并移除 app 自己覆盖在视频上的状态、点击和结束遮罩。
-- 全局 `Space` 在非输入控件焦点下切换暂停/继续并阻止按钮残留焦点；Mobile/Display 禁止任意文字、图片和播放器区域被拖选，输入框仍可正常编辑。
+- 大屏页面获得键盘焦点时，按住 `Ctrl+Alt`（Mac 上为 `Control+Option`）再按 `P` 播放/暂停、`R` 重唱、`N` 切歌、`U/D` 音量升降 5 个百分点、`M` 静音/恢复、`J/L` 快退/快进 10 秒。音量键支持长按。焦点在普通页面区域时，空格也可播放/暂停。弹窗打开时暂停响应这些快捷键。
+- Mobile/Display 禁止任意文字、图片和播放器区域被拖选，输入框仍可正常编辑。
 - 没有当前歌曲时 footer 不渲染“等待点歌”等占位标题。
 - 不显示画质 selector 或手动模式；display 和 preview 均由 YouTube 根据网络、设备与 viewport 自动选择画质。
 - Google 已明确 `setPlaybackQuality`、`getPlaybackQuality` 和 `getAvailableQualityLevels` 不再支持，`suggestedQuality/vq` 也会被忽略；项目不提供假的固定 360p/720p/1080p 选项。

@@ -226,6 +226,7 @@
   "播放器错误 {0}": "Player error {0}",
   "浏览器阻止了自动播放，请使用下方的播放按钮。": "Autoplay was blocked. Use the play button below.",
   "暂停": "Pause",
+  "音量": "Volume",
   "继续": "Resume",
   "播放": "Play",
   "扫码点歌": "Scan to join",

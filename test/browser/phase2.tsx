@@ -8,6 +8,8 @@ import "../../src/styles.css";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import MobilePage from "../../src/routes/MobilePage";
+import DisplayPage from "../../src/routes/DisplayPage";
+import { addSongToRoom, createRoomId } from "../../src/lib/roomState";
 import { searchMockVideos } from "../../src/lib/mockSearch";
 import { apiStamp } from "../../src/lib/metadataLifecycle";
 
@@ -23,6 +25,9 @@ Object.defineProperty(HTMLIFrameElement.prototype, "src", {
 });
 window.fetch = async (_input, init) => {
   const path = String(_input);
+  if (window.location.search === "?display" && !path.startsWith("/api/youtube/playback/")) {
+    return new Response(null, { status: 503 });
+  }
   const mobile = window.location.search === "?mobile";
   if (mobile && !path.startsWith("/api/youtube/playback/")) {
     const request = JSON.parse(String(init?.body ?? "{}"));
@@ -41,20 +46,33 @@ window.fetch = async (_input, init) => {
 };
 type Events = { onReady: (e: YouTubePlayerEvent) => void; onStateChange: (e: YouTubePlayerStateChangeEvent) => void };
 class MockPlayer implements YouTubePlayer {
+  private volume = 75;
+  private currentTime = 0;
   constructor(private frame: HTMLIFrameElement, private options: { events: Events }) {
     queueMicrotask(() => options.events.onReady({ target: this }));
   }
   playVideo() { counts.play++; if (!rejectPlay) this.options.events.onStateChange({ target: this, data: 1 }); }
   pauseVideo() { counts.pause++; this.options.events.onStateChange({ target: this, data: 2 }); }
-  seekTo() { counts.seek++; }
+  seekTo(seconds: number) {
+    counts.seek++;
+    this.currentTime = seconds;
+    this.frame.dataset.mockSeek = String(seconds);
+  }
   cueVideoById() { counts.cue++; queueMicrotask(() => this.options.events.onStateChange({ target: this, data: 5 })); }
   loadVideoById(options: { videoId: string; startSeconds?: number }) {
     if (options.videoId !== "dQw4w9WgXcQ" || options.startSeconds !== 0) throw new Error("Incorrect replay target");
     counts.load++;
+    this.currentTime = 0;
+    this.frame.dataset.mockReplay = String(counts.load);
     this.playVideo();
   }
-  getCurrentTime() { return 0; }
+  getCurrentTime() { return this.currentTime; }
   getDuration() { return 180; }
+  getVolume() { return this.volume; }
+  setVolume(volume: number) {
+    this.volume = volume;
+    this.frame.dataset.mockVolume = String(volume);
+  }
   getIframe() { return this.frame; }
   destroy() { counts.destroy++; }
 }
@@ -105,8 +123,18 @@ function Fixture() {
   </main>;
 }
 const queryClient = new QueryClient();
+const displayRoomId = window.location.search === "?display" ? createRoomId() : null;
+if (displayRoomId) {
+  privacyConsent.accept();
+  addSongToRoom(displayRoomId, { videoId: "dQw4w9WgXcQ", title: "Volume test one", metadataStamp: apiStamp() });
+  addSongToRoom(displayRoomId, { videoId: "M7lc1UVf-VE", title: "Volume test two", metadataStamp: apiStamp() });
+}
 createRoot(document.getElementById("root")!).render(window.location.search === "?mobile"
   ? <QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/room/bugfix1104/mobile"]}><Routes>
       <Route path="/room/:roomId/mobile" element={<MobilePage />} />
     </Routes></MemoryRouter></QueryClientProvider>
-  : <Fixture />);
+  : displayRoomId
+    ? <QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[`/room/${displayRoomId}/display`]}><Routes>
+        <Route path="/room/:roomId/display" element={<DisplayPage />} />
+      </Routes></MemoryRouter></QueryClientProvider>
+    : <Fixture />);

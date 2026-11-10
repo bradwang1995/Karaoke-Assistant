@@ -7,6 +7,7 @@ import {
   Play,
   RotateCcw,
   SkipForward,
+  Volume2,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -54,6 +55,10 @@ export default function DisplayPage() {
   const [seekSeconds, setSeekSeconds] = useState(0);
   const [isSeeking, setIsSeeking] = useState(false);
   const [playerStatus, setPlayerStatus] = useState<PlayerStatus>("loading");
+  const [volume, setVolume] = useState<number>();
+  const [initialVolume, setInitialVolume] = useState(100);
+  const previousAudibleVolume = useRef(50);
+  const displayVolume = volume ?? initialVolume;
   const playerHandleRef = useRef<FullscreenPlayerHandle | null>(null);
   const lastAutoPlayItemIdRef = useRef<string | null>(null);
   const handledLoadingPlaybackKeyRef = useRef<string | null>(null);
@@ -230,17 +235,17 @@ export default function DisplayPage() {
     setIsSeeking(false);
   };
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     if (!currentItem) return;
     setPlayerIssue(null);
     sendPlayerEnded(currentItem);
-  };
+  }, [currentItem, sendPlayerEnded]);
 
-  const handleRestart = () => {
+  const handleRestart = useCallback(() => {
     if (!currentItem) return;
     setPlayerIssue(null);
     sendRestartCurrentItem(currentItem);
-  };
+  }, [currentItem, sendRestartCurrentItem]);
 
   const handlePauseToggle = useCallback(() => {
     if (!currentItem) return;
@@ -254,27 +259,63 @@ export default function DisplayPage() {
     playerHandleRef.current?.play();
   }, [currentItem, playerStatus]);
 
+  const currentProgress = getPlayerProgressForItem(playerProgress, currentItem?.id ?? null);
+  const changeVolume = useCallback((nextVolume: number) => {
+    if (displayVolume > 0) previousAudibleVolume.current = displayVolume;
+    setVolume(Math.min(100, Math.max(0, nextVolume)));
+  }, [displayVolume]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
-        event.code !== "Space" ||
-        event.repeat ||
-        document.querySelector("dialog[open]") !== null ||
-        isEditableEventTarget(event.target)
+        !currentItem ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.getModifierState("AltGraph") ||
+        document.querySelector("dialog[open]") !== null
       ) {
         return;
       }
 
+      if (event.code === "Space" && !event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey) {
+        if (isEditableEventTarget(event.target)) return;
+        event.preventDefault();
+        if (!event.repeat) handlePauseToggle();
+        return;
+      }
+
+      if (!event.ctrlKey || !event.altKey || event.shiftKey || event.metaKey) return;
+      if (isEditableEventTarget(event.target) &&
+          !(event.target instanceof HTMLInputElement && event.target.type === "range") &&
+          !(event.target instanceof HTMLButtonElement) &&
+          !(event.target instanceof HTMLAnchorElement)) return;
+
+      const actions: Record<string, () => void> = {
+        KeyP: handlePauseToggle,
+        KeyR: handleRestart,
+        KeyN: handleNext,
+        KeyU: () => changeVolume(displayVolume + 5),
+        KeyD: () => changeVolume(displayVolume - 5),
+        KeyM: () => changeVolume(displayVolume > 0 ? 0 : previousAudibleVolume.current),
+        KeyJ: () => seekRelative(-10),
+        KeyL: () => seekRelative(10),
+      };
+      const action = actions[event.code];
+      if (!action) return;
       event.preventDefault();
-      (document.activeElement as HTMLElement | null)?.blur();
-      handlePauseToggle();
+      if (!event.repeat || event.code === "KeyU" || event.code === "KeyD") action();
     };
+
+    function seekRelative(offset: number) {
+      if (isSeeking || currentProgress.duration <= 0) return;
+      const seconds = Math.min(currentProgress.duration, Math.max(0, currentProgress.currentTime + offset));
+      playerHandleRef.current?.seekTo(seconds);
+    }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handlePauseToggle]);
+  }, [changeVolume, currentItem, currentProgress.currentTime, currentProgress.duration, displayVolume, handleNext, handlePauseToggle, handleRestart, isSeeking]);
 
-  const currentProgress = getPlayerProgressForItem(playerProgress, currentItem?.id ?? null);
   const pauseButtonLabel =
     playerStatus === "playing" || playerStatus === "buffering"
       ? t("暂停")
@@ -297,6 +338,8 @@ export default function DisplayPage() {
               videoId={currentItem.videoId}
               autoPlay
               playRequestId={playRequestId}
+              volume={volume}
+              onInitialVolume={setInitialVolume}
               onPlaybackStarted={handlePlaybackStarted}
               onPlaybackEnded={handlePlaybackEnded}
               onPlaybackError={handlePlaybackError}
@@ -358,8 +401,26 @@ export default function DisplayPage() {
             <div className="flex min-w-0 flex-nowrap items-center justify-end gap-3">
               {currentItem ? (
                 <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                  <label className="mr-1 flex flex-col items-center gap-0.5 text-teal-200">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={displayVolume}
+                      aria-label={t("音量")}
+                      aria-orientation="vertical"
+                      aria-valuetext={`${displayVolume}%`}
+                      aria-keyshortcuts="Control+Alt+U Control+Alt+D Control+Alt+M"
+                      title="Ctrl+Alt+U / D / M"
+                      onChange={(event) => changeVolume(event.currentTarget.valueAsNumber)}
+                      className="h-12 w-6 accent-teal-400 [direction:rtl] [writing-mode:vertical-lr]"
+                    />
+                    <Volume2 size={14} aria-hidden="true" />
+                  </label>
                   <button
                     type="button"
+                    aria-keyshortcuts="Control+Alt+R"
+                    title="Ctrl+Alt+R"
                     onClick={(event) => {
                       handleRestart();
                       event.currentTarget.blur();
@@ -371,6 +432,8 @@ export default function DisplayPage() {
                   </button>
                   <button
                     type="button"
+                    aria-keyshortcuts="Control+Alt+P Space"
+                    title="Ctrl+Alt+P / Space"
                     onClick={(event) => {
                       handlePauseToggle();
                       event.currentTarget.blur();
@@ -382,6 +445,8 @@ export default function DisplayPage() {
                   </button>
                   <button
                     type="button"
+                    aria-keyshortcuts="Control+Alt+N"
+                    title="Ctrl+Alt+N"
                     onClick={(event) => {
                       handleNext();
                       event.currentTarget.blur();
@@ -514,19 +579,26 @@ function PlayerProgressControl({
           onPointerDown={onSeekStart}
           onPointerUp={onSeekCommit}
           onBlur={onSeekCommit}
-          onKeyDown={onSeekStart}
-          onKeyUp={onSeekCommit}
+          onKeyDown={(event) => { if (isSeekKey(event)) onSeekStart(); }}
+          onKeyUp={(event) => { if (isSeekKey(event)) onSeekCommit(); }}
           onChange={(event) => {
             onSeekStart();
             onSeekChange(Number(event.target.value));
           }}
           aria-label={t("播放进度")}
+          aria-keyshortcuts="Control+Alt+J Control+Alt+L"
+          title="Ctrl+Alt+J / L"
           className="player-progress-range relative z-10 w-full disabled:opacity-40"
         />
       </div>
       <span className="w-12 shrink-0 text-right tabular-nums">{formatPlayerTime(safeDuration)}</span>
     </div>
   );
+}
+
+function isSeekKey(event: React.KeyboardEvent<HTMLInputElement>) {
+  return !event.ctrlKey && !event.altKey && !event.metaKey &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key);
 }
 
 function formatPlayerTime(seconds: number) {
